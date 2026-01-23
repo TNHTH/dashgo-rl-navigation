@@ -32,10 +32,8 @@ algorithm:
   clip_param: 0.2
   num_learning_epochs: 5
 
-  # [优化] 学习率调度：保持初始值3e-4，训练时线性衰减
-  learning_rate: 3.0e-4
-  learning_rate_schedule: linear  # 新增: 线性衰减
-  lr_decay_fraction: 0.5  # 新增: 训练结束时衰减到50%
+  # [优化] 使用保守的学习率提高稳定性
+  learning_rate: 1.0e-4  # 从3e-4降到1e-4，避免训练不稳定
 
   max_grad_norm: 1.0
   gamma: 0.99
