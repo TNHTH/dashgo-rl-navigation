@@ -1,0 +1,8 @@
+{
+  "enabledPlugins": {
+    "feature-dev@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": false,
+    "serena@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false
+  }
+}

@@ -1,0 +1,366 @@
+{
+  "version": "2.0",
+  "description": "Agent 到 MCP 服务器的最佳映射配置",
+
+  "mcpServers": {
+    "chrome-devtools": {
+      "name": "Chrome DevTools Protocol",
+      "capabilities": [
+        "浏览器自动化",
+        "页面截图",
+        "JavaScript 执行",
+        "网络请求监控",
+        "性能追踪"
+      ]
+    },
+    "context7": {
+      "name": "Context7 文档查询",
+      "capabilities": [
+        "查询最新库文档",
+        "获取代码示例",
+        "框架使用指南",
+        "API 参考"
+      ]
+    },
+    "firecrawl": {
+      "name": "Firecrawl 网页抓取",
+      "capabilities": [
+        "网页搜索",
+        "内容抓取",
+        "数据提取",
+        "网站地图生成"
+      ]
+    },
+    "github": {
+      "name": "GitHub API",
+      "capabilities": [
+        "代码搜索",
+        "仓库操作",
+        "Issue/PR 管理",
+        "CI/CD 集成"
+      ]
+    }
+  },
+
+  "agentMcpMapping": {
+    "product": {
+      "name": "产品经理",
+      "primaryMCP": ["firecrawl", "context7"],
+      "secondaryMCP": ["github"],
+      "tools": {
+        "firecrawl": {
+          "useCases": [
+            "市场调研 - 搜索竞品信息",
+            "用户研究 - 抓取用户反馈",
+            "趋势分析 - 搜索行业报告",
+            "功能参考 - 查找类似产品功能"
+          ],
+          "examplePrompts": [
+            "搜索 '项目管理工具 SaaS' 找到 5 个主要竞品",
+            "分析竞品网站的功能列表和定价策略",
+            "搜索 '2024 年项目管理工具趋势'"
+          ]
+        },
+        "context7": {
+          "useCases": [
+            "产品设计最佳实践",
+            "用户体验设计指南",
+            "敏捷开发方法论",
+            "产品管理框架"
+          ],
+          "recommendedLibraries": [
+            "产品管理相关的框架和工具",
+            "UI/UX 设计系统文档"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索开源产品案例",
+            "查找类似项目的需求文档",
+            "研究产品迭代历史"
+          ]
+        }
+      },
+      "workflow": "1. 使用 firecrawl 搜索竞品和市场信息 → 2. 使用 context7 查询产品设计最佳实践 → 3. 综合分析生成需求文档"
+    },
+
+    "architect": {
+      "name": "架构师",
+      "primaryMCP": ["context7", "github"],
+      "secondaryMCP": ["firecrawl"],
+      "tools": {
+        "context7": {
+          "useCases": [
+            "查询技术栈官方文档",
+            "获取框架使用指南",
+            "查询架构模式文档",
+            "获取代码示例"
+          ],
+          "recommendedLibraries": [
+            "/facebook/react",
+            "/nodejs/node",
+            "/prisma/prisma",
+            "/vercel/next.js",
+            "/vuejs/core",
+            "/python/cpython"
+          ],
+          "examplePrompts": [
+            "如何使用 Prisma 设计 PostgreSQL schema?",
+            "React + TypeScript 最佳实践",
+            "Express.js 中间件模式",
+            "Next.js API Routes vs 自定义服务器"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索优秀开源项目架构",
+            "查找技术栈组合案例",
+            "研究项目目录结构",
+            "查找配置文件示例"
+          ],
+          "examplePrompts": [
+            "搜索 'React Node.js PostgreSQL' 的全栈项目",
+            "查找 Express TypeScript 项目的文件结构",
+            "搜索使用 Prisma 的生产级项目"
+          ]
+        },
+        "firecrawl": {
+          "useCases": [
+            "查询技术博客文章",
+            "获取架构设计案例"
+          ]
+        }
+      },
+      "workflow": "1. 使用 context7 查询技术栈文档 → 2. 使用 github 搜索开源项目案例 → 3. 综合设计系统架构"
+    },
+
+    "backend": {
+      "name": "后端工程师",
+      "primaryMCP": ["context7", "github"],
+      "secondaryMCP": [],
+      "tools": {
+        "context7": {
+          "useCases": [
+            "查询后端框架 API 文档",
+            "获取 ORM 使用指南",
+            "查询认证库文档",
+            "获取测试框架示例"
+          ],
+          "recommendedLibraries": [
+            "/expressjs/express",
+            "/fastify/fastify",
+            "/nestjs/nest",
+            "/prisma/prisma",
+            "/typeorm/typeorm",
+            "/nodejs/node",
+            "/python/cpython",
+            "/pallets/flask",
+            "/django/django"
+          ],
+          "examplePrompts": [
+            "Express.js 路由中间件最佳实践",
+            "Prisma 如何定义一对多关系?",
+            "JWT 认证实现示例",
+            "Node.js 错误处理模式",
+            "TypeScript 泛型在 API 中的应用"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索后端代码示例",
+            "查找 API 实现参考",
+            "获取数据库迁移脚本",
+            "查找认证实现案例"
+          ],
+          "examplePrompts": [
+            "搜索 Express JWT 认证的实现",
+            "查找 Prisma schema 示例",
+            "搜索 REST API 最佳实践的仓库"
+          ]
+        }
+      },
+      "workflow": "1. 使用 context7 查询框架文档 → 2. 使用 github 查找代码示例 → 3. 编写符合规范的后端代码"
+    },
+
+    "frontend": {
+      "name": "前端工程师",
+      "primaryMCP": ["context7", "chrome-devtools"],
+      "secondaryMCP": ["github"],
+      "tools": {
+        "context7": {
+          "useCases": [
+            "查询前端框架 API",
+            "获取 UI 库文档",
+            "查询状态管理库",
+            "获取样式方案指南"
+          ],
+          "recommendedLibraries": [
+            "/facebook/react",
+            "/vuejs/core",
+            "/sveltejs/svelte",
+            "/vercel/next.js",
+            "tailwindlabs/tailwindcss",
+            "mui/material-ui",
+            "tanstack/query",
+            "reduxjs/redux-toolkit",
+            "zustandjs/zustand"
+          ],
+          "examplePrompts": [
+            "React Hooks 最佳实践",
+            "Tailwind CSS 响应式布局",
+            "Zustand 状态管理示例",
+            "React Query 数据获取",
+            "Next.js SSR vs SSG"
+          ]
+        },
+        "chrome-devtools": {
+          "useCases": [
+            "实时调试前端组件",
+            "测试响应式布局",
+            "检查网络请求",
+            "性能分析",
+            "截图验证 UI"
+          ],
+          "examplePrompts": [
+            "打开 http://localhost:3000 并截图",
+            "检查页面上的 API 请求",
+            "测试移动端响应式布局",
+            "分析页面性能指标"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索组件代码示例",
+            "查找 UI 组件库",
+            "获取状态管理案例"
+          ]
+        }
+      },
+      "workflow": "1. 使用 context7 查询框架文档 → 2. 编写组件代码 → 3. 使用 chrome-devtools 调试验证"
+    },
+
+    "devops": {
+      "name": "DevOps 工程师",
+      "primaryMCP": ["context7", "github"],
+      "secondaryMCP": [],
+      "tools": {
+        "context7": {
+          "useCases": [
+            "查询 Docker 文档",
+            "获取 CI/CD 工具指南",
+            "查询 Kubernetes 文档",
+            "获取云平台使用指南"
+          ],
+          "recommendedLibraries": [
+            "docker 相关文档",
+            "kubernetes 文档",
+            "github actions 文档",
+            "terraform 文档"
+          ],
+          "examplePrompts": [
+            "Docker 多阶段构建最佳实践",
+            "docker-compose 开发环境配置",
+            "GitHub Actions CI/CD 工作流",
+            "Kubernetes 部署配置",
+            "Nginx 反向代理配置"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索 CI/CD 配置文件",
+            "查找 Dockerfile 示例",
+            "获取部署脚本参考",
+            "搜索 .github/workflows 模板"
+          ],
+          "examplePrompts": [
+            "搜索 Node.js 项目的 Dockerfile",
+            "查找 docker-compose.yml 示例",
+            "搜索 GitHub Actions 部署工作流"
+          ]
+        }
+      },
+      "workflow": "1. 使用 context7 查询工具文档 → 2. 使用 github 查找配置示例 → 3. 编写部署配置"
+    },
+
+    "docs": {
+      "name": "文档工程师",
+      "primaryMCP": ["context7"],
+      "secondaryMCP": ["github"],
+      "tools": {
+        "context7": {
+          "useCases": [
+            "查询文档生成工具",
+            "获取 Markdown 写作规范",
+            "API 文档标准",
+            "开源项目文档模板"
+          ],
+          "recommendedLibraries": [
+            "文档工具相关",
+            "markdown 规范",
+            "API 文档标准"
+          ],
+          "examplePrompts": [
+            "如何编写优秀的 README?",
+            "API 文档最佳实践",
+            "OpenAPI 规范",
+            "技术文档写作规范"
+          ]
+        },
+        "github": {
+          "useCases": [
+            "搜索优秀开源项目文档",
+            "查找 README 模板",
+            "获取文档结构参考"
+          ],
+          "examplePrompts": [
+            "搜索 star 数高的 Node.js 项目 README",
+            "查找 API 文档写作优秀的仓库"
+          ]
+        }
+      },
+      "workflow": "1. 使用 context7 查询文档规范 → 2. 使用 github 查找优秀案例 → 3. 编写项目文档"
+    },
+
+  },
+
+  "mcpUsageBestPractices": {
+    "general": [
+      "优先使用 primaryMCP 列出的服务器",
+      "context7 用于查询官方文档和最新 API",
+      "github 用于查找实际代码示例和案例",
+      "firecrawl 用于市场调研和信息搜索",
+      "chrome-devtools 仅用于前端调试和验证"
+    ],
+    "context7": {
+      "alwaysResolveLibraryFirst": "在查询前先用 resolve-library-id 获取准确的 library ID",
+      "maxQueriesPerTask": 3,
+      "preferredFormat": "获取带有代码示例的文档"
+    },
+    "github": {
+      "searchByStars": "优先搜索 star 数高的项目",
+      "checkRecentActivity": "查看项目最近是否有更新",
+      "readExamples": "优先查看项目的 examples 目录"
+    },
+    "firecrawl": {
+      "useSearchFirst": "先用 search 找到相关页面，再用 scrape 获取内容",
+      "specifySources": "指定搜索来源以提高相关性"
+    },
+    "chrome-devtools": {
+      "forTestingOnly": "仅用于测试和验证，不用于开发",
+      "localDevelopment": "主要用于本地开发环境调试"
+    }
+  },
+
+  "fallbackStrategy": {
+    "whenMcpUnavailable": [
+      "1. 使用内置知识库",
+      "2. 生成准确的代码模板",
+      "3. 标记需要人工验证的部分"
+    ],
+    "whenDocumentationOutdated": [
+      "1. 查询多个来源交叉验证",
+      "2. 优先使用官方文档",
+      "3. 在代码中添加注释说明版本"
+    ]
+  }
+}

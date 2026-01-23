@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Write",
+      "Edit",
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebSearch",
+      "mcp__firecrawl__firecrawl_search",
+      "mcp__firecrawl__firecrawl_scrape",
+      "mcp__memory__create_entities",
+      "mcp__tavily-search__tavily-search",
+      "mcp__memory__read_graph",
+      "mcp__memory__add_observations",
+      "mcp__github__create_repository",
+      "mcp__github__get_file_contents",
+      "Skill(dialogue-optimizer)",
+      "Skill(file-organizer)",
+      "Skill(kaizen)",
+      "mcp__github__search_repositories",
+      "mcp__github__push_files",
+      "mcp__github__create_or_update_file",
+      "mcp__firecrawl__firecrawl_map"
+    ]
+  },
+  "autoConfirm": true
+}

@@ -1,0 +1,41 @@
+TebLocalPlannerROS:
+
+  # **Trajectory Parameters**
+  teb_autosize: true              # 让TEB自动调整轨迹点数量
+  dt_ref: 0.3                     # 参考时间间隔（s），影响轨迹离散化
+  dt_hysteresis: 0.1             # 时间间隔的滞后值
+  global_plan_overwrite_orientation: true  # 让局部轨迹朝向与全局路径对齐
+  max_global_plan_lookahead_dist: 2  # 最大全局路径前瞻距离
+  feasibility_check_no_poses: 5   # 检查前 5 个轨迹点的可行性
+  global_plan_viapoint_sep: 5.0   #最优轨迹对全局路径的跟随效果
+
+  # **Robot Parameters**
+  max_vel_x: 0.3                  # 机器人 X 方向最大速度 (m/s)
+  max_vel_x_backwards: 0.3        # 机器人倒车最大速度
+  max_vel_theta: 1.0              # 最大旋转速度 (rad/s)
+  acc_lim_x: 1.5                  # X 方向加速度限制
+  acc_lim_theta: 1.0              # 角加速度限制
+  allow_backward_motion: true     # 允许倒车
+  weight_kinematics_forward_drive: 0.2  # 推荐值为 1.0，若不后退可降低至 0.5
+  weight_adapt_factor: 1 #提高绕行意图
+
+  # **Goal Tolerance**
+  xy_goal_tolerance: 0.2          # 目标点 XY 方向容忍度 (m)
+  yaw_goal_tolerance: 0.2         # 目标点角度容忍度 (rad)
+  free_goal_vel: false            # 是否在目标点允许机器人速度非零
+
+  # **Obstacle Avoidance**
+  min_obstacle_dist: 0.1         # 机器人与障碍物的最小距离
+  inflation_dist: 0.5            # 膨胀距离
+  include_costmap_obstacles: true # 是否包含 costmap 中的障碍物
+  costmap_obstacles_behind_robot_dist: 4.0  # 机器人后方考虑的障碍物距离
+
+  # **Optimization**
+  no_inner_iterations: 10          # 内部优化迭代次数
+  no_outer_iterations: 5          # 外部优化迭代次数
+  optimization_activate: true      # 启用优化
+  optimization_verbose: false      # 是否输出优化调试信息
+
+  # **Alternative Approaches**
+  enable_homotopy_class_planning: true  # 是否启用拓扑路径规划
+  enable_multithreading: true          # 启用多线程计算
