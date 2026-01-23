@@ -200,6 +200,14 @@ def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
     diff = env.action_manager.action - env.action_manager.prev_action
     return -torch.sum(torch.square(diff), dim=1)
 
+# [优化] 速度对齐奖励：鼓励使用接近最优速度的速度
+def reward_target_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    robot = env.scene[asset_cfg.name]
+    lin_vel_b = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    target_vel = 0.25
+    speed_match = 1.0 - torch.abs(lin_vel_b - target_vel) / target_vel
+    return torch.clamp(speed_match, 0.0, 0.2)
+
 # 日志记录函数
 def log_distance_to_goal(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     target_pos = env.command_manager.get_command(command_name)[:, :2]
@@ -506,6 +514,13 @@ class DashgoRewardsCfg:
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
         }
+    )
+
+    # [优化] 速度对齐奖励
+    target_speed = RewardTermCfg(
+        func=reward_target_speed,
+        weight=0.3,
+        params={"asset_cfg": SceneEntityCfg("robot")}
     )
 
     log_distance = RewardTermCfg(
