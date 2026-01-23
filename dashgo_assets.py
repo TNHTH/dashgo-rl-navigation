@@ -40,9 +40,9 @@ DASHGO_D1_CFG = ArticulationCfg(
         "dashgo_wheels": ImplicitActuatorCfg(
             joint_names_expr=["left_wheel_joint", "right_wheel_joint"],
             stiffness=0.0,
-            damping=15.0,
-            effort_limit_sim=10.0, 
-            velocity_limit_sim=8.0,
+            damping=5.0,
+            effort_limit_sim=20.0,
+            velocity_limit_sim=5.0,
         ),
     },
     soft_joint_pos_limit_factor=1.0,
