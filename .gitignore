@@ -1,0 +1,99 @@
+# 排除大文件和敏感文件夹
+Si Yuan/学习笔记*/
+Si Yuan/读书笔记*/
+Si Yuan/对话记录/
+Si Yuan/分析报告/
+Si Yuan/笔记/
+Si Yuan/实践/
+Si Yuan/任务#*/
+Si Yuan/日记#*/
+Si Yuan/汇报#*/
+Si Yuan/生活经历#*/
+Si Yuan/观数据#*/
+Si Yuan/谈判#*/
+Si Yuan/讲话#*/
+Si Yuan/读书#*/
+Si Yuan/求职#*/
+Si Yuan/ optimizing#*/
+心理咨询/
+
+# 保留有用指南和文档
+!Si Yuan/claude/指南/
+
+# 排除单个文件
+greet.js
+refresh-env.ps1
+nul
+
+# Claude 临时工作文件
+tmpclaude-*/
+.claude-temp/
+.agent/
+
+# 保留工具和分析结果，但排除临时内容
+!.claude/
+
+# 常见忽略文件
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+.env
+.vscode/
+.idea/
+
+# 保留我们需要的文件夹
+!multi-agent-system/
+!.claude/
+!Si Yuan/claude/
+
+# ==========================================
+# DashGo RL项目特定忽略
+# ==========================================
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*/__pycache__/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# 训练产物（大文件）
+policy.onnx
+*.pth
+*.ckpt
+*.pkl
+
+# 本地配置（包含敏感信息）
+.claude.json
+.mcp.json
+.claude/settings.local.json
+
+# 临时目录
+=/
+平板/
+backup/
+
+# 临时脚本和检查文件
+check_env.py
+check_env_fingerprint.py
+
+# ==========================================
+# Claude Code 智能Agent工作流系统
+# ==========================================
+
+# Artifacts目录（已通过备份系统管理）
+.artifacts/
+
+# 备份目录（本地快照）
+.backups/
+
+# 项目scripts生成的临时文件
+scripts/*.log
+scripts/*.tmp
