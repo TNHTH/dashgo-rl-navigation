@@ -21,8 +21,10 @@ DASHGO_D1_CFG = ArticulationCfg(
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
-            linear_damping=0.5,
-            angular_damping=0.5,
+            linear_damping=0.1,
+            angular_damping=0.1,
+            max_linear_velocity=10.0,
+            max_angular_velocity=10.0,
         ),
         joint_drive=None,
     ),
