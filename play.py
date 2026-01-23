@@ -185,14 +185,21 @@ def main():
     print("-" * 60)
 
     # 仿真循环
+    step_count = 0
     try:
         while simulation_app.is_running():
             start_time = time.time()
-            
+
             with torch.inference_mode():
                 actions = policy(obs)
-                obs, _, _, _ = env.step(actions)
-                
+                obs, rewards, dones, infos = env.step(actions)
+
+            # [调试] 每 100 步输出一次进度（headless 模式下可见）
+            step_count += 1
+            if step_count % 100 == 0:
+                avg_reward = rewards.mean().item()
+                print(f"[INFO] Step {step_count}: 平均奖励 = {avg_reward:.3f}")
+
             if args_cli.real_time:
                 target_dt = env.unwrapped.step_dt
                 elapsed = time.time() - start_time
