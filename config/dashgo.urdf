@@ -55,6 +55,7 @@
     <child link="left_wheel"/>
     <origin xyz="0 0.171 -0.0805" rpy="-1.5708 0 0"/>
     <axis xyz="0 0 1"/>
+    <limit effort="50.0" velocity="10.0"/>
     <dynamics damping="1.0" friction="1.0"/>
   </joint>
 
@@ -81,6 +82,7 @@
     <child link="right_wheel"/>
     <origin xyz="0 -0.171 -0.0805" rpy="-1.5708 0 0"/>
     <axis xyz="0 0 1"/>
+    <limit effort="50.0" velocity="10.0"/>
     <dynamics damping="1.0" friction="1.0"/>
   </joint>
 
