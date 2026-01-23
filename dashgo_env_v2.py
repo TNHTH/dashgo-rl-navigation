@@ -1,5 +1,6 @@
 import torch
 import math
+import sys
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, mdp
@@ -11,6 +12,13 @@ from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
+
+# =============================================================================
+# 辅助函数：检测是否 headless 模式
+# =============================================================================
+def is_headless_mode():
+    """检测命令行参数中是否有 --headless"""
+    return "--headless" in sys.argv
 
 # =============================================================================
 # 1. 自定义动作类 (Action Wrapper) - 保持不变
@@ -540,15 +548,27 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link", 
         history_length=3, track_air_time=True
     )
-    
-    lidar_sensor = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam", 
-        update_period=0.0664, 
-        height=1, width=180, 
-        data_types=["distance_to_image_plane"], 
-        spawn=sim_utils.PinholeCameraCfg(focal_length=4.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.05, 10.0)), 
-        offset=CameraCfg.OffsetCfg(pos=(0.1, 0.0, 0.2), rot=(0.5, -0.5, 0.5, -0.5))
-    )
+
+    # [兼容] 在 headless 模式下禁用相机传感器（避免渲染错误）
+    # 关键：设置 spawn=None 可以跳过相机创建，但保留传感器定义
+    if is_headless_mode():
+        lidar_sensor = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam",
+            update_period=0.0664,
+            height=1, width=180,
+            data_types=["distance_to_image_plane"],
+            spawn=None,  # ← headless 模式下不创建相机
+            offset=CameraCfg.OffsetCfg(pos=(0.1, 0.0, 0.2), rot=(0.5, -0.5, 0.5, -0.5))
+        )
+    else:
+        lidar_sensor = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam",
+            update_period=0.0664,
+            height=1, width=180,
+            data_types=["distance_to_image_plane"],
+            spawn=sim_utils.PinholeCameraCfg(focal_length=4.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.05, 10.0)),
+            offset=CameraCfg.OffsetCfg(pos=(0.1, 0.0, 0.2), rot=(0.5, -0.5, 0.5, -0.5))
+        )
     
     obs_inner_1 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_1", spawn=sim_utils.CylinderCfg(radius=0.1, height=1.0, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.6, 0.0, 0.5)))
     obs_inner_2 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_2", spawn=sim_utils.CuboidCfg(size=(0.2, 0.2, 1.0), visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.4, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.13, 1.13, 0.5)))
