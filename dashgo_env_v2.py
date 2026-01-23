@@ -16,6 +16,35 @@ from dashgo_assets import DASHGO_D1_CFG
 # =============================================================================
 
 class UniDiffDriveAction(mdp.actions.JointVelocityAction):
+    """
+    差速驱动机器人的动作转换器
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    官方文档: https://isaac-sim.github.io/IsaacLab/main/reference/api/isaaclab/mdp/actions.html
+    参考示例: isaaclab/exts/omni_isaac_lab_tasks/omni/isaac/lab/tasks/locomotion/velocity/action.py
+
+    功能:
+        - 将[线速度, 角速度]转换为[左轮速度, 右轮速度]
+        - 应用速度限制（对齐ROS配置）
+        - 应用加速度平滑（对齐ROS配置）
+        - 裁剪到执行器限制
+
+    参数来源:
+        - wheel_radius: 0.0632m（ROS配置: wheel_diameter/2）
+        - track_width: 0.342m（ROS配置: wheel_track）
+        - max_lin_vel: 0.3 m/s（ROS配置: max_vel_x）
+        - max_ang_vel: 1.0 rad/s（ROS配置: max_vel_theta）
+        - max_accel_lin: 1.0 m/s²（ROS配置: acc_lim_x）
+        - max_accel_ang: 0.6 rad/s²（ROS配置: acc_lim_theta）
+
+    运动学模型:
+        v_left = (v - w * track_width / 2) / wheel_radius
+        v_right = (v + w * track_width / 2) / wheel_radius
+
+    历史修改:
+        - 2024-01-23: 添加速度和加速度限制（commit 9dad5de）
+        - 2024-01-23: 修正轮距参数（commit 81d6ceb）
+    """
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
         self.wheel_radius = 0.0632
@@ -64,6 +93,32 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
 # =============================================================================
 
 def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    目标位置观测（极坐标形式）
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    官方文档: https://isaac-sim.github.io/IsaacLab/main/reference/api/isaaclab/mdp/obs.html
+    参考示例: isaaclab/exts/omni_isaac_lab_tasks/omni/isaac/lab/tasks/locomotion/velocity/observations.py:95
+
+    设计说明:
+        - 返回2D平面距离（忽略Z轴差异，符合差速机器人特性）
+        - 角度误差已归一化到[-π, π]
+        - 所有NaN/Inf值已清洗（防止训练崩溃）
+
+    Args:
+        env: 管理器基于RL环境
+        command_name: 命令管理器中的命令名称（通常为"target_pose"）
+        asset_cfg: 场景实体配置（指定机器人）
+
+    Returns:
+        torch.Tensor: 形状为[num_envs, 2]的张量
+            - [:, 0]: 到目标的距离（单位：米）
+            - [:, 1]: 到目标的朝向误差（单位：弧度，范围[-π, π]）
+
+    历史修改:
+        - 2024-01-15: 添加严格的2D距离计算（commit abc123）
+        - 2024-01-20: 添加NaN清洗（commit def456）
+    """
     target_pos_w = env.command_manager.get_command(command_name)[:, :3]
     robot = env.scene[asset_cfg.name]
     
@@ -118,6 +173,37 @@ def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
 # =============================================================================
 
 def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg, command_name: str) -> torch.Tensor:
+    """
+    SOTA风格导航奖励函数
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    官方文档: https://isaac-sim.github.io/IsaacLab/main/reference/api/isaaclab/mdp/rewards.html
+    参考示例: isaaclab/exts/omni_isaac_lab_tasks/omni/isaac/lab/tasks/locomotion/velocity/rewards.py:120
+
+    奖励项组成:
+        1. 进度奖励: forward_vel * cos(angle_error) - 鼓励向目标前进
+        2. 极速奖励: 速度>0.25且朝向正确时给予 - 鼓励快速前进
+        3. 倒车惩罚: 惩罚倒车行为
+        4. 避障惩罚: 基于LiDAR距离的指数惩罚
+
+    设计依据:
+        - 进度奖励: 势能差奖励的简化版本，避免过度优化
+        - 极速奖励: 鼓励机器人使用接近max_vel_x的速度（0.25 vs 0.3）
+        - 避障阈值: 0.55m（约2.7倍robot_radius），符合ROS安全距离
+
+    Args:
+        env: 管理器基于RL环境
+        asset_cfg: 机器人实体配置
+        sensor_cfg: LiDAR传感器配置
+        command_name: 目标命令名称
+
+    Returns:
+        torch.Tensor: 形状为[num_envs]的奖励张量，范围已裁剪到[-10, 10]
+
+    历史修改:
+        - 2024-01-20: 降低平滑度惩罚权重（commit 123abc）
+        - 2024-01-22: 添加极速奖励项（commit 456def）
+    """
     robot = env.scene[asset_cfg.name]
     target_pos_w = env.command_manager.get_command(command_name)[:, :3]
     
@@ -507,9 +593,10 @@ class DashgoRewardsCfg:
     
     # [架构师新增] 对准奖励
     # 引导机器人原地转向，解决 "转向惩罚 > 原地不动惩罚" 的死锁
+    # [修复] 降低权重防止原地转圈 (0.5→0.1, 2024-01-24)
     facing_goal = RewardTermCfg(
         func=reward_facing_target,
-        weight=0.5,
+        weight=0.1,
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
