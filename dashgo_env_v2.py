@@ -10,6 +10,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
 from dashgo_assets import DASHGO_D1_CFG
+from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
 # =============================================================================
 # 1. 自定义动作类 (Action Wrapper) - 保持不变
@@ -47,8 +48,12 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
     """
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        self.wheel_radius = 0.0632
-        self.track_width = 0.342
+
+        # ✅ 从ROS配置读取参数（避免硬编码）
+        ros_params = DashGoROSParams.from_yaml()
+        self.wheel_radius = ros_params.wheel_radius  # wheel_diameter / 2.0
+        self.track_width = ros_params.wheel_track
+
         self.prev_actions = None
         self.max_accel_lin = 1.0
         self.max_accel_ang = 0.6
