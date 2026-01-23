@@ -9,11 +9,16 @@
 ## 🎯 项目概述
 
 **项目类型**: 深度强化学习机器人导航
+
+**🚨 开发基准（强制要求）**:
+- **仿真环境**: NVIDIA Isaac Sim 4.5（严格版本锁定）
+- **操作系统**: Ubuntu 20.04 LTS（严格版本锁定）
+- **文档遵循**: 必须严格遵循官方相应版本的文档，严禁使用其他版本的API或示例
+
 **核心技术栈**:
 - NVIDIA Isaac Lab (基于 Isaac Sim 4.5)
 - RSL-RL (强化学习库)
 - Python 3.8+
-- Ubuntu 20.04
 - ROS Noetic (实物部署)
 
 **项目目标**:
@@ -110,7 +115,15 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 - ❌ 将 `policy.onnx`、`*.pth`、`*.ckpt` 提交到git
 - ❌ 提交敏感配置（`.claude.json`、`.mcp.json`）
 
-### 5. 官方文档优先原则
+### 5. 官方文档优先原则（版本锁定）
+
+**🚨 严格版本要求**:
+```
+- Isaac Sim 版本: 4.5（严格锁定，严禁使用其他版本）
+- Ubuntu 版本: 20.04 LTS（严格锁定，严禁使用其他版本）
+- 文档查询: 必须查询对应版本的官方文档
+- API使用: 必须验证API在目标版本中存在
+```
 
 **核心规则**: 所有技术决策必须基于官方文档
 
@@ -138,9 +151,11 @@ def compute_reward(self) -> torch.Tensor:
     """
     计算导航奖励
 
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
     参考官方文档:
-    - Isaac Lab Reward Documentation
+    - Isaac Sim 4.5 Reward Documentation
     - 官方示例: source/extensions/omni.isaac.lab/omni/isaac/lab/tasks/
+    - 文档版本验证: 已确认API在Isaac Sim 4.5中存在
 
     为解决之前的原地转圈问题 (commit abc123, 2024-01-15)，
     我们移除了朝向奖励，改用势能差引导。
@@ -152,8 +167,24 @@ def compute_reward(self) -> torch.Tensor:
 
 ## 🚨 禁止模式（严格禁止）
 
+### 版本锁定相关（最高优先级）
+1. **严禁使用非 Isaac Sim 4.5 版本的功能**
+   - 原因：可能导致与开发环境不兼容
+   - 要求：所有API必须在 Isaac Sim 4.5 文档中有记录
+   - 验证：查询官方文档时明确版本号
+
+2. **严禁使用非 Ubuntu 20.04 特有的命令或依赖**
+   - 原因：部署环境不兼容
+   - 要求：所有系统命令必须兼容 Ubuntu 20.04
+   - 禁止：使用 Ubuntu 22.04+ 特有的包管理器或命令
+
+3. **严禁引用其他版本的官方文档或示例**
+   - 原因：API可能在不同版本间有变化
+   - 要求：查询文档时必须明确指定版本
+   - 示例：查询 "Isaac Sim 4.5 reward function" 而非 "Isaac Sim reward function"
+
 ### 代码相关
-1. **严禁恢复朝向奖励 (Orientation Reward)**
+4. **严禁恢复朝向奖励 (Orientation Reward)**
    - 原因：会导致机器人原地转圈
    - 历史证据：commit abc123 已移除
 
@@ -181,9 +212,12 @@ def compute_reward(self) -> torch.Tensor:
 ### 代码修改前
 ```
 □ 是否查询了官方文档？
+□ 是否确认文档版本为 Isaac Sim 4.5？
 □ 是否查看了官方示例？
+□ 是否确认示例适用于 Isaac Sim 4.5？
 □ 是否确认了参数来源（ROS配置）？
 □ 是否检查了历史commit（避免重犯错误）？
+□ 是否验证了功能在 Ubuntu 20.04 下可用？
 ```
 
 ### 代码修改时
@@ -240,15 +274,15 @@ def compute_reward(self) -> torch.Tensor:
 
 ## 🔧 项目特定工具配置
 
-### Context7 查询
+### Context7 查询（必须指定版本）
 ```bash
-# Isaac Lab 官方文档
+# Isaac Sim 4.5 官方文档（必须明确版本号）
 libraryId: "/nvlabs/isaac-sim"
-query: "如何定义奖励函数？官方示例是什么？"
+query: "Isaac Sim 4.5 如何定义奖励函数？官方示例是什么？"
 
 # RSL-RL 官方文档
 libraryId: "/leggedrobotics/rsl-rl"
-query: "PPO算法官方实现规范"
+query: "PPO算法官方实现规范 Ubuntu 20.04"
 ```
 
 ### GitHub 搜索
