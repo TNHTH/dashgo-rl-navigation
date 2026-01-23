@@ -248,12 +248,17 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     reward_backward = -0.05 * torch.abs(torch.min(forward_vel, torch.zeros_like(forward_vel)))
 
     # [4] 避障惩罚
-    depth_radial = _get_corrected_depth(env, sensor_cfg)
-    min_dist = torch.min(depth_radial, dim=-1)[0]
-    safe_dist = 0.2
-    reward_collision = torch.zeros_like(min_dist)
-    mask_danger = min_dist < safe_dist
-    reward_collision[mask_danger] = -0.5 * torch.exp(4.0 * (safe_dist - min_dist[mask_danger]))
+    # [兼容] headless 模式下传感器不存在，跳过避障惩罚
+    if sensor_cfg is not None:
+        depth_radial = _get_corrected_depth(env, sensor_cfg)
+        min_dist = torch.min(depth_radial, dim=-1)[0]
+        safe_dist = 0.2
+        reward_collision = torch.zeros_like(min_dist)
+        mask_danger = min_dist < safe_dist
+        reward_collision[mask_danger] = -0.5 * torch.exp(4.0 * (safe_dist - min_dist[mask_danger]))
+    else:
+        # headless 模式：没有传感器数据，使用零避障惩罚
+        reward_collision = torch.zeros(forward_vel.shape, device=env.device)
 
     # [5] 动作平滑 (移除，改为单独项并降低权重)
     # reward_rot = -0.05 * torch.abs(ang_vel)**2 
@@ -483,8 +488,12 @@ class DashgoCommandsCfg:
 class DashgoObservationsCfg:
     @configclass
     class PolicyCfg(ObservationGroupCfg):
-        history_length = 3 
-        lidar = ObservationTermCfg(func=process_lidar_ranges, params={"sensor_cfg": SceneEntityCfg("lidar_sensor")})
+        history_length = 3
+
+        # [兼容] headless 模式下禁用 lidar 观测（传感器不存在）
+        if not is_headless_mode():
+            lidar = ObservationTermCfg(func=process_lidar_ranges, params={"sensor_cfg": SceneEntityCfg("lidar_sensor")})
+
         target_polar = ObservationTermCfg(func=obs_target_polar, params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")})
         lin_vel = ObservationTermCfg(func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")})
         ang_vel = ObservationTermCfg(func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")})
@@ -549,18 +558,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         history_length=3, track_air_time=True
     )
 
-    # [兼容] 在 headless 模式下禁用相机传感器（避免渲染错误）
-    # 关键：设置 spawn=None 可以跳过相机创建，但保留传感器定义
-    if is_headless_mode():
-        lidar_sensor = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam",
-            update_period=0.0664,
-            height=1, width=180,
-            data_types=["distance_to_image_plane"],
-            spawn=None,  # ← headless 模式下不创建相机
-            offset=CameraCfg.OffsetCfg(pos=(0.1, 0.0, 0.2), rot=(0.5, -0.5, 0.5, -0.5))
-        )
-    else:
+    # [兼容] 在 headless 模式下完全禁用相机传感器
+    # spawn=None 会导致 Isaac Lab 仍然尝试访问 prim 路径，所以必须用条件排除
+    if not is_headless_mode():
         lidar_sensor = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam",
             update_period=0.0664,
@@ -590,15 +590,28 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
 @configclass
 class DashgoRewardsCfg:
     # 现有的行为奖励
-    velodyne_style_reward = RewardTermCfg(
-        func=reward_navigation_sota, 
-        weight=1.0, 
-        params={
-            "asset_cfg": SceneEntityCfg("robot"), 
-            "sensor_cfg": SceneEntityCfg("lidar_sensor"),
-            "command_name": "target_pose"
-        }
-    )
+    # [兼容] headless 模式下使用不依赖传感器的奖励版本
+    if is_headless_mode():
+        # headless 模式：不使用 lidar 传感器
+        velodyne_style_reward = RewardTermCfg(
+            func=lambda env, asset_cfg, command_name: reward_navigation_sota(env, asset_cfg, None, command_name),
+            weight=1.0,
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "command_name": "target_pose"
+            }
+        )
+    else:
+        # 正常模式：使用 lidar 传感器
+        velodyne_style_reward = RewardTermCfg(
+            func=reward_navigation_sota,
+            weight=1.0,
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "sensor_cfg": SceneEntityCfg("lidar_sensor"),
+                "command_name": "target_pose"
+            }
+        )
     
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
