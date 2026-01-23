@@ -307,8 +307,10 @@ path: "source/extensions/omni.isaac.lab/omni/isaac/lab/tasks/"
 - 🟢 提示问题：改进建议
 
 **记录位置**:
-- 所有问题记录：`issues/YYYY-MM-DD_<问题简述>.md`
-- 已解决问题：`issues/solved/YYYY-MM-DD_<问题简述>.md`
+- 所有问题记录：`issues/YYYY-MM-DD_HHMM_<问题简述>.md`
+  - 示例：`2024-01-24_0125_headless相机冲突.md`
+  - 时间格式：HHMM（4位数字，小时+分钟）
+- 已解决问题：`issues/solved/YYYY-MM-DD_HHMM_<问题简述>.md`
 
 **问题记录模板**:
 ```markdown
