@@ -18,15 +18,44 @@ from dashgo_assets import DASHGO_D1_CFG
 class UniDiffDriveAction(mdp.actions.JointVelocityAction):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        self.wheel_radius = 0.0625
-        self.track_width = 0.30
+        self.wheel_radius = 0.0632
+        self.track_width = 0.342
+        self.prev_actions = None
+        self.max_accel_lin = 1.0
+        self.max_accel_ang = 0.6
 
     def process_actions(self, actions: torch.Tensor, *args, **kwargs):
-        max_lin_vel = 0.4
-        target_v = actions[:, 0] * max_lin_vel
-        target_w = actions[:, 1] * 2.0
+        # 对齐ROS速度限制
+        max_lin_vel = 0.3
+        max_ang_vel = 1.0
+
+        # 速度裁剪
+        target_v = torch.clamp(actions[:, 0] * max_lin_vel, -max_lin_vel, max_lin_vel)
+        target_w = torch.clamp(actions[:, 1] * max_ang_vel, -max_ang_vel, max_ang_vel)
+
+        # 加速度平滑
+        if self.prev_actions is not None:
+            dt = 0.1
+            delta_v = target_v - self.prev_actions[:, 0]
+            delta_w = target_w - self.prev_actions[:, 1]
+            max_delta_v = self.max_accel_lin * dt
+            max_delta_w = self.max_accel_ang * dt
+            delta_v = torch.clamp(delta_v, -max_delta_v, max_delta_v)
+            delta_w = torch.clamp(delta_w, -max_delta_w, max_delta_w)
+            target_v = self.prev_actions[:, 0] + delta_v
+            target_w = self.prev_actions[:, 1] + delta_w
+
+        self.prev_actions = torch.stack([target_v, target_w], dim=-1).clone()
+
+        # 差速驱动转换
         v_left = (target_v - target_w * self.track_width / 2.0) / self.wheel_radius
         v_right = (target_v + target_w * self.track_width / 2.0) / self.wheel_radius
+
+        # 裁剪到执行器限制
+        max_wheel_vel = 5.0
+        v_left = torch.clamp(v_left, -max_wheel_vel, max_wheel_vel)
+        v_right = torch.clamp(v_right, -max_wheel_vel, max_wheel_vel)
+
         joint_actions = torch.stack([v_left, v_right], dim=-1)
         return super().process_actions(joint_actions, *args, **kwargs)
 
