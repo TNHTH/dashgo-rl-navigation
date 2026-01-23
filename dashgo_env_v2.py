@@ -151,7 +151,7 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     # [4] 避障惩罚
     depth_radial = _get_corrected_depth(env, sensor_cfg)
     min_dist = torch.min(depth_radial, dim=-1)[0]
-    safe_dist = 0.55
+    safe_dist = 0.2
     reward_collision = torch.zeros_like(min_dist)
     mask_danger = min_dist < safe_dist
     reward_collision[mask_danger] = -0.5 * torch.exp(4.0 * (safe_dist - min_dist[mask_danger]))
