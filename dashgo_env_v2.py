@@ -490,6 +490,11 @@ def check_reach_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float
     # [架构师修复] 严格 2D 距离比较
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos - robot_pos, dim=-1)
+
+    # [送分题测试 2026-01-24] Debug打印：每100步输出一次距离信息
+    if env.common_step_counter % 100 == 0:
+        env.logger.info(f"[DEBUG] reach_goal check: dist[0]={dist[0].item():.3f}m, threshold={threshold}m, success={dist[0].item() < threshold}")
+
     return (dist < threshold)
 
 def check_time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -534,12 +539,12 @@ def reset_root_state_safe_donut(env: ManagerBasedRLEnv, env_ids: torch.Tensor, m
 class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        # [架构师修正 2026-01-24] 课程学习：从近到远
-        # 修改历史：1.0-2.0 → 0.5-1.5
-        # 原因：解决稀疏奖励问题，让机器人先学会走到1.5米外的目标
-        # 效果：瞎猫碰到死耗子的概率大增，一旦尝到甜头就会学会走
-        self.min_dist = 0.5  # ✅ 从 1.0 降到 0.5（就在脸贴脸的地方）
-        self.max_dist = 1.5  # ✅ 从 2.0 降到 1.5（最远也不超过1.5米） 
+        # [送分题测试 2026-01-24] 方案A：验证系统是否正常
+        # 理由：threshold=1.5时reach_goal仍为0，需排查根本原因
+        # 策略：极近距离生成目标（0.1-0.5m）+ 巨大阈值（3.0m）
+        # 预期：如果系统正常，reach_goal应接近100%
+        self.min_dist = 0.1  # ✅ 从 0.5 降到 0.1（几乎就在机器人脸上）
+        self.max_dist = 0.5  # ✅ 从 1.5 降到 0.5（极近距离，确保能碰到） 
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_w[:, 3] = 1.0 
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
@@ -882,16 +887,16 @@ class DashgoRewardsCfg:
     # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
     # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
     # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
-    # [架构师修正 2026-01-24] 课程学习策略 - 进一步放宽距离
-    # 理由：训练2999轮，最佳记录1.1424m，仍未突破1.2m阈值
-    # 策略：放宽到1.5m，让机器人尝到"成功"的滋味，建立正反馈循环
-    # 后续：成功后会收紧到1.0m → 0.5m
+    # [送分题测试 2026-01-24] 方案A：验证系统是否正常
+    # 理由：threshold=1.5时reach_goal仍为0，需排查根本原因
+    # 策略：极近距离生成目标（0.1-0.5m）+ 巨大阈值（3.0m）
+    # 预期：如果系统正常，reach_goal应接近100%
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=1000.0,  # 保持终极大奖不变
         params={
             "command_name": "target_pose",
-            "threshold": 1.5,  # ✅ 从 1.2 放宽到 1.5（涵盖最佳记录1.14-1.78m）
+            "threshold": 3.0,  # ✅ 从 1.5 放宽到 3.0（巨大阈值，确保能触发）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -915,12 +920,12 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
-    # [架构师修正 2026-01-24] 课程学习策略 - 进一步放宽距离
+    # [送分题测试 2026-01-24] 方案A：验证系统是否正常
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 1.5,  # ✅ 从 1.2 放宽到 1.5（涵盖机器人当前能力范围）
+            "threshold": 3.0,  # ✅ 从 1.5 放宽到 3.0（巨大阈值，确保能触发）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
