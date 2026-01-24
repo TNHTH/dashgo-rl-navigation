@@ -14,6 +14,86 @@ from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
 # =============================================================================
+# 训练超参数常量定义（来自 train_cfg_v2.yaml 和 ROS 配置）
+# =============================================================================
+
+# PPO训练参数
+PPO_CONFIG = {
+    "seed": 42,                # 随机种子（保证可重复性）
+    "num_steps_per_env": 480,  # 每个环境的步数（约32秒 @ 15fps）
+    "num_mini_batches": 4,     # 小批量数量
+    "entropy_coef": 0.01,      # 熵系数（鼓励探索，0.01为保守值）
+    "max_iterations": 10000,   # 最大训练迭代次数
+    "save_interval": 50,       # 模型保存间隔
+}
+
+# 神经网络架构参数
+NETWORK_CONFIG = {
+    "init_noise_std": 0.8,  # 策略初始化噪声标准差（0.8为RSL推荐值）
+    "actor_hidden_dims": [512, 256, 128],  # Actor网络隐藏层
+    "critic_hidden_dims": [512, 256, 128], # Critic网络隐藏层
+    "activation": "elu",     # 激活函数
+}
+
+# PPO算法参数
+ALGORITHM_CONFIG = {
+    "value_loss_coef": 1.0,  # 值函数损失系数
+    "clip_param": 0.2,       # PPO裁剪参数（标准值0.2）
+    "num_learning_epochs": 5,  # 每次更新的学习轮数
+    "learning_rate": 1.0e-4,  # 学习率（从3e-4降到1e-4提高稳定性）
+    "max_grad_norm": 1.0,     # 梯度裁剪阈值
+    "gamma": 0.99,            # 折扣因子（0.99平衡短期和长期奖励）
+    "lam": 0.95,              # GAE(lambda)参数
+    "desired_kl": 0.01,       # 期望KL散度（用于自适应学习率）
+}
+
+# 机器人运动参数（来自ROS配置）
+MOTION_CONFIG = {
+    "max_lin_vel": 0.3,       # 最大线速度 (m/s，来自ROS max_vel_x)
+    "max_ang_vel": 1.0,       # 最大角速度 (rad/s，来自ROS max_rot_vel)
+    "max_accel_lin": 1.0,     # 最大线加速度 (m/s²)
+    "max_accel_ang": 0.6,     # 最大角加速度 (rad/s²)
+    "max_wheel_vel": 5.0,     # 最大轮速
+    "control_dt": 0.1,        # 控制时间步 (s，即10Hz控制频率)
+}
+
+# 奖励函数参数（权重和阈值）
+REWARD_CONFIG = {
+    # 进度奖励
+    "progress_weight": 1.0,   # 进度奖励权重（主要奖励来源）
+
+    # 极速奖励
+    "facing_threshold": 0.8,  # 朝向阈值（cos(angle) > 0.8，约±36度）
+    "high_speed_threshold": 0.25,  # 高速阈值 (m/s)
+    "high_speed_reward": 0.2,  # 极速奖励值
+
+    # 倒车惩罚
+    "backward_penalty": 0.05,  # 倒车惩罚系数
+
+    # 避障惩罚
+    "safe_distance": 0.2,     # 安全距离 (m，约2.7倍robot_radius)
+    "collision_penalty": 0.5,  # 碰撞惩罚系数
+    "collision_decay": 4.0,   # 碰撞惩罚指数衰减速率
+
+    # 对准奖励
+    "facing_reward_scale": 0.5,  # 对准奖励缩放系数
+    "facing_angle_scale": 0.5,   # 角度误差缩放
+
+    # 生存惩罚
+    "alive_penalty": 1.0,     # 生存惩罚系数
+
+    # 奖励裁剪
+    "reward_clip_min": -10.0,  # 最小奖励值
+    "reward_clip_max": 10.0,   # 最大奖励值
+}
+
+# 观测处理参数
+OBSERVATION_CONFIG = {
+    "max_distance": 50.0,  # 最大距离截断 (m，防止数值溢出)
+    "epsilon": 1e-6,       # 数值稳定性epsilon（防止除零）
+}
+
+# =============================================================================
 # 辅助函数：检测是否 headless 模式
 # =============================================================================
 def is_headless_mode():
@@ -63,13 +143,13 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
         self.track_width = ros_params.wheel_track
 
         self.prev_actions = None
-        self.max_accel_lin = 1.0
-        self.max_accel_ang = 0.6
+        self.max_accel_lin = MOTION_CONFIG["max_accel_lin"]
+        self.max_accel_ang = MOTION_CONFIG["max_accel_ang"]
 
     def process_actions(self, actions: torch.Tensor, *args, **kwargs):
         # 对齐ROS速度限制
-        max_lin_vel = 0.3
-        max_ang_vel = 1.0
+        max_lin_vel = MOTION_CONFIG["max_lin_vel"]
+        max_ang_vel = MOTION_CONFIG["max_ang_vel"]
 
         # 速度裁剪
         target_v = torch.clamp(actions[:, 0] * max_lin_vel, -max_lin_vel, max_lin_vel)
@@ -77,7 +157,7 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
 
         # 加速度平滑
         if self.prev_actions is not None:
-            dt = 0.1
+            dt = MOTION_CONFIG["control_dt"]
             delta_v = target_v - self.prev_actions[:, 0]
             delta_w = target_w - self.prev_actions[:, 1]
             max_delta_v = self.max_accel_lin * dt
@@ -94,7 +174,7 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
         v_right = (target_v + target_w * self.track_width / 2.0) / self.wheel_radius
 
         # 裁剪到执行器限制
-        max_wheel_vel = 5.0
+        max_wheel_vel = MOTION_CONFIG["max_wheel_vel"]
         v_left = torch.clamp(v_left, -max_wheel_vel, max_wheel_vel)
         v_right = torch.clamp(v_right, -max_wheel_vel, max_wheel_vel)
 
@@ -141,7 +221,7 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
     # [架构师修复] 严格的 2D 距离计算，忽略 Z 轴差异
     delta_pos_w = target_pos_w[:, :2] - robot_pos[:, :2]
     dist = torch.norm(delta_pos_w, dim=-1, keepdim=True)
-    dist = torch.clamp(dist, max=50.0) # 截断
+    dist = torch.clamp(dist, max=OBSERVATION_CONFIG["max_distance"])  # 距离截断（防止数值溢出）
     
     target_angle = torch.atan2(delta_pos_w[:, 1], delta_pos_w[:, 0])
     _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w)
@@ -238,33 +318,45 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     angle_error = wrap_to_pi(target_angle - robot_yaw)
     
     # [1] 进度奖励
-    reward_progress = 1.0 * forward_vel * torch.cos(angle_error)
-    
+    reward_progress = REWARD_CONFIG["progress_weight"] * forward_vel * torch.cos(angle_error)
+
     # [2] 极速奖励
-    is_facing_target = torch.cos(angle_error) > 0.8
-    reward_high_speed = (forward_vel > 0.25).float() * is_facing_target.float() * 0.2
+    is_facing_target = torch.cos(angle_error) > REWARD_CONFIG["facing_threshold"]
+    reward_high_speed = (
+        (forward_vel > REWARD_CONFIG["high_speed_threshold"]).float() *
+        is_facing_target.float() *
+        REWARD_CONFIG["high_speed_reward"]
+    )
 
     # [3] 倒车惩罚
-    reward_backward = -0.05 * torch.abs(torch.min(forward_vel, torch.zeros_like(forward_vel)))
+    reward_backward = -REWARD_CONFIG["backward_penalty"] * torch.abs(
+        torch.min(forward_vel, torch.zeros_like(forward_vel))
+    )
 
     # [4] 避障惩罚
     # [兼容] headless 模式下传感器不存在，跳过避障惩罚
     if sensor_cfg is not None:
         depth_radial = _get_corrected_depth(env, sensor_cfg)
         min_dist = torch.min(depth_radial, dim=-1)[0]
-        safe_dist = 0.2
+        safe_dist = REWARD_CONFIG["safe_distance"]
         reward_collision = torch.zeros_like(min_dist)
         mask_danger = min_dist < safe_dist
-        reward_collision[mask_danger] = -0.5 * torch.exp(4.0 * (safe_dist - min_dist[mask_danger]))
+        reward_collision[mask_danger] = -REWARD_CONFIG["collision_penalty"] * torch.exp(
+            REWARD_CONFIG["collision_decay"] * (safe_dist - min_dist[mask_danger])
+        )
     else:
         # headless 模式：没有传感器数据，使用零避障惩罚
         reward_collision = torch.zeros(forward_vel.shape, device=env.device)
 
     # [5] 动作平滑 (移除，改为单独项并降低权重)
-    # reward_rot = -0.05 * torch.abs(ang_vel)**2 
+    # reward_rot = -0.05 * torch.abs(ang_vel)**2
 
-    total_reward = reward_progress + reward_high_speed + reward_backward + reward_collision # + reward_rot
-    return torch.clamp(torch.nan_to_num(total_reward, nan=0.0, posinf=0.0, neginf=0.0), -10.0, 10.0)
+    total_reward = reward_progress + reward_high_speed + reward_backward + reward_collision  # + reward_rot
+    return torch.clamp(
+        torch.nan_to_num(total_reward, nan=0.0, posinf=0.0, neginf=0.0),
+        REWARD_CONFIG["reward_clip_min"],
+        REWARD_CONFIG["reward_clip_max"]
+    )
 
 # [架构师重构] 基于势能差的引导奖励
 def reward_distance_tracking_potential(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -273,7 +365,7 @@ def reward_distance_tracking_potential(env: ManagerBasedRLEnv, command_name: str
     current_dist = torch.norm(target_pos - robot_pos, dim=-1)
     
     delta_pos = target_pos - robot_pos
-    dist_vec = delta_pos / (current_dist.unsqueeze(-1) + 1e-6) 
+    dist_vec = delta_pos / (current_dist.unsqueeze(-1) + OBSERVATION_CONFIG["epsilon"])  # 防止除零 
     lin_vel_w = env.scene[asset_cfg.name].data.root_lin_vel_w[:, :2]
     lin_vel_w = torch.nan_to_num(lin_vel_w, nan=0.0, posinf=0.0, neginf=0.0)
     
@@ -292,12 +384,14 @@ def reward_facing_target(env: ManagerBasedRLEnv, command_name: str, asset_cfg: S
     angle_error = wrap_to_pi(target_angle - robot_yaw)
     
     # 范围 [0, 0.5]
-    return 0.5 * torch.exp(-torch.abs(angle_error) / 0.5)
+    return REWARD_CONFIG["facing_reward_scale"] * torch.exp(
+        -torch.abs(angle_error) / REWARD_CONFIG["facing_angle_scale"]
+    )
 
 # [架构师新增] 生存惩罚：逼迫机器人动起来
 def reward_alive(env: ManagerBasedRLEnv) -> torch.Tensor:
     # 返回 -1.0 * 权重
-    return -1.0 * torch.ones(env.num_envs, device=env.device)
+    return -REWARD_CONFIG["alive_penalty"] * torch.ones(env.num_envs, device=env.device)
 
 # [架构师新增] 动作平滑度奖励
 def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -498,6 +592,11 @@ class DashgoObservationsCfg:
         lin_vel = ObservationTermCfg(func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")})
         ang_vel = ObservationTermCfg(func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")})
         last_action = ObservationTermCfg(func=mdp.last_action)
+
+        # [优化] 开启观测噪声，增强Sim2Real泛化能力（架构师建议，2026-01-24）
+        def __post_init__(self):
+            self.enable_corruption = True
+
     policy = PolicyCfg()
 
 @configclass
