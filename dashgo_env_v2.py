@@ -676,13 +676,18 @@ class DashgoEventsCfg:
     # [架构师新增 2026-01-24] 障碍物随机化 - 赋予泛化能力
     # 每次重置时，障碍物的位置在原位置基础上随机偏移 +/- 0.5米，随机旋转
     # 逼迫机器人学会看路，而不是背地图，实现真正的泛化能力
+    # [API修复 2026-01-24] 使用新版API: mdp.reset_root_state_uniform (Isaac Lab 4.5)
     randomize_obstacles = EventTermCfg(
-        func=mdp.randomize_rigid_body_pose,
+        func=mdp.reset_root_state_uniform,  # ✅ 新版API (Isaac Lab 0.46+)
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("obs_.*"),  # 正则表达式：匹配所有名字带 obs_ 的物体
-            "pos_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},  # 随机偏移 +/- 0.5米
-            "rot_range": {"yaw": (-math.pi, math.pi)},  # 随机旋转 +/- 180度
+            "pose_range": {
+                "x": (-0.5, 0.5),  # 随机偏移 +/- 0.5米
+                "y": (-0.5, 0.5),
+                "yaw": (-math.pi, math.pi),  # 随机旋转 +/- 180度
+            },
+            "velocity_range": {},  # 静态障碍物不需要速度
         }
     )
 
