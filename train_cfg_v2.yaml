@@ -1,41 +1,53 @@
-seed: 42                     # 随机种子（保证可重复性）
-device: 'cuda:0'             # GPU设备
+# train_cfg_v2.yaml
+# 2026-01-24: Isaac Sim Architect Edition
+# 专为 DashGo D1 导航设计的 "NeuPAN-Distilled" PPO 配置
 
-num_steps_per_env: 480       # 每个环境的步数（约32秒 @ 15fps）
+seed: 42
+device: 'cuda:0'
 
-num_mini_batches: 4          # 小批量数量（批次大小 = num_envs * 480 / 4）
-# [微调] 熵系数（鼓励探索，0.01为保守值）
-entropy_coef: 0.01
+# 1. 运行环境设置
+runner:
+  policy_class_name: "ActorCritic"
+  algorithm_class_name: "PPO"
+  num_steps_per_env: 24       # ⚠️ 每个环境采样步数（建议配合4096并行环境）
+  max_iterations: 1500        # 训练迭代次数（约30-60分钟可收敛）
+  empirical_normalization: True # ✅ [关键] 对输入观测进行归一化，防止雷达大数值(12.0)导致梯度爆炸
+  save_interval: 50           # 每50次迭代保存一次模型
+  experiment_name: "dashgo_neupan_ppo"
+  run_name: "v1_smooth_nav"
+  resume: False
+  load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
+  checkpoint: -1
 
-max_iterations: 10000        # 最大训练迭代次数
-empirical_normalization: False
-save_interval: 50            # 模型保存间隔（每50次迭代保存一次）
-
-experiment_name: "dashgo_nav"
-
-obs_groups:
-  policy: ["policy"]
-  value: ["policy"]
-  critic: ["policy"]
-
+# 2. 策略网络 (Policy Network) - 模仿 NeuPAN 的复杂决策能力
 policy:
-  class_name: ActorCritic
-  init_noise_std: 0.8        # 策略初始化噪声标准差（0.8为RSL推荐值）
-  actor_hidden_dims: [512, 256, 128]  # Actor网络隐藏层维度
-  critic_hidden_dims: [512, 256, 128] # Critic网络隐藏层维度
-  activation: 'elu'          # 激活函数（ELU收敛速度快于ReLU）
+  class_name: "ActorCritic"
+  init_noise_std: 1.0         # ✅ 初始探索噪声（让机器人刚开始敢于乱动）
+  actor_hidden_dims: [512, 256, 128] # ✅ [NeuPAN风格] 更深的网络，拟合复杂避障逻辑
+  critic_hidden_dims: [512, 256, 128]
+  activation: 'elu'           # ✅ [稳定性] 比 ReLU 更平滑，减少电机抖动指令
 
+# 3. 算法超参数 (PPO Algorithm)
 algorithm:
-  class_name: PPO
-  value_loss_coef: 1.0       # 值函数损失系数
+  class_name: "PPO"
+  # 价值函数系数
+  value_loss_coef: 1.0
   use_clipped_value_loss: True
-  clip_param: 0.2            # PPO裁剪参数（标准值0.2，防止策略更新过大）
-  num_learning_epochs: 5     # 每次更新的学习轮数（5为标准值）
+  clip_param: 0.2
 
-  # [优化] 学习率（从3e-4降到1e-4提高稳定性）
-  learning_rate: 1.0e-4
+  # 熵系数 (Entropy) - 控制探索欲望
+  # ✅ 如果机器人过早陷入"原地不动"的局部最优，可以适当调大这个值 (如 0.01)
+  entropy_coef: 0.005
 
-  max_grad_norm: 1.0         # 梯度裁剪阈值（防止梯度爆炸）
-  gamma: 0.99                # 折扣因子（0.99为标准值，平衡短期和长期奖励）
-  lam: 0.95                  # GAE(lambda)参数（0.95为标准值，平衡方差和偏差）
-  desired_kl: 0.01           # 期望KL散度（0.01为标准阈值，用于自适应学习率）
+  # 学习参数
+  num_learning_epochs: 5
+  num_mini_batches: 4         # ⚠️ 显存如果不够(如<8GB)，可以调大这个数 (例如 8)
+  learning_rate: 1.0e-3       # ⚠️ 初始学习率（提高10倍，有训练崩溃风险）
+  schedule: "adaptive"        # ✅ [保险丝] 自适应调整学习率
+  gamma: 0.99                 # 折扣因子 (关注长远利益)
+  lam: 0.95
+  desired_kl: 0.01            # 目标 KL 散度，超过这个值就降低学习率
+  max_grad_norm: 1.0          # 梯度裁剪，防止梯度爆炸
+
+# 4. 辅助设置
+num_envs: 4096                # ⚠️ 并行环境数量（建议值，显存不足可降至 2048 或 1024）
