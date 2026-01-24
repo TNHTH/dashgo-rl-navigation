@@ -252,14 +252,40 @@ def _get_corrected_depth(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
     return depth_radial
 
 def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    处理LiDAR雷达数据 - 降采样 + 归一化
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+
+    处理流程:
+        1. 径向校正（鱼眼镜头畸变校正）
+        2. 裁剪到有效范围 [0, 6米]
+        3. 降采样到36个扇区（从180个点）
+        4. 归一化到 [0, 1] 区间（防止大数值导致梯度爆炸）
+
+    参数来源:
+        - max_distance: 6.0米（LiDAR有效检测距离）
+        - num_sectors: 36个扇区（NeuPAN推荐值）
+
+    Returns:
+        torch.Tensor: 形状为[num_envs, 36]的归一化距离数组
+    """
     depth_radial = _get_corrected_depth(env, sensor_cfg)
     num_sectors = 36
     batch_size, width = depth_radial.shape
+
+    # 降采样：每个扇区取最小值
     if width % num_sectors == 0:
         depth_sectors = depth_radial.view(batch_size, num_sectors, -1).min(dim=2)[0]
     else:
         depth_sectors = depth_radial
-    return depth_sectors
+
+    # [关键修复] 归一化到 [0, 1] 区间
+    # 防止雷达大数值(6.0)导致梯度爆炸，配合empirical_normalization使用
+    max_distance = 6.0  # LiDAR有效检测距离（米）
+    depth_normalized = depth_sectors / max_distance
+
+    return depth_normalized
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
