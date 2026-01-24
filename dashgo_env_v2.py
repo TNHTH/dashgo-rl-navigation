@@ -447,9 +447,10 @@ def log_linear_velocity(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> to
 # 稀疏到达奖励
 def reward_near_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     # [架构师修复 2026-01-24] 修复坐标系不一致问题
-    # 问题：command_manager.get_command() 返回的可能是相对坐标或未更新的值
+    # 问题：command_manager.get_command() 返回的可能是相对坐标
     # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
-    command_term = env.command_manager._term_regs[command_name]
+    # 使用 _terms 而不是 _term_regs（Isaac Lab 4.5中移除了_term_regs）
+    command_term = env.command_manager._terms[command_name]
     target_pos_w = command_term.pose_command_w[:, :2]
 
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
@@ -492,9 +493,10 @@ def check_collision_simple(env: ManagerBasedRLEnv, sensor_cfg_base: SceneEntityC
 
 def check_reach_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     # [架构师修复 2026-01-24] 修复坐标系不一致问题
-    # 问题：command_manager.get_command() 返回的可能是相对坐标或未更新的值
+    # 问题：command_manager.get_command() 返回的可能是相对坐标
     # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
-    command_term = env.command_manager._term_regs[command_name]
+    # 使用 _terms 而不是 _term_regs（Isaac Lab 4.5中移除了_term_regs）
+    command_term = env.command_manager._terms[command_name]
     target_pos_w = command_term.pose_command_w[:, :2]
 
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
