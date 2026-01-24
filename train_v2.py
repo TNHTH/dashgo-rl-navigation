@@ -18,7 +18,9 @@ DashGo机器人导航训练脚本
 
 修复历史:
     2026-01-24: 修复KeyError('num_steps_per_env') - 配置扁平化
-             Isaac Sim Architect建议
+    2026-01-24: 修复KeyError('obs_groups') - 新版API兼容性
+                修复--headless参数传递 - 注册AppLauncher标准参数
+                Isaac Sim Architect Final Fix
 """
 
 import argparse
@@ -57,11 +59,16 @@ def create_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    # [关键修复] 注册 AppLauncher 的标准参数（如 --headless, --viewport 等）
+    # Isaac Sim Architect: 2026-01-24
+    # 这样 --headless 等参数才能被正确接收和处理
+    AppLauncher.add_argparse_args(parser)
+
     # 用户自定义参数
     parser.add_argument("--video", action="store_true", default=False,
                        help="录制训练视频到logs/")
-    parser.add_argument("--num_envs", type=int, default=16,
-                       help="并行环境数量")
+    parser.add_argument("--num_envs", type=int, default=None,
+                       help="并行环境数量（覆盖配置文件）")
     parser.add_argument("--resume", action="store_true", default=False,
                        help="自动从最佳checkpoint恢复训练")
     parser.add_argument("--checkpoint", type=str, default=None,
@@ -181,6 +188,17 @@ def main():
         if "runner" in agent_cfg:
             runner_cfg = agent_cfg.pop("runner")
             agent_cfg.update(runner_cfg)  # 把 num_steps_per_env 等参数提到根目录
+
+        # [新版API必需] 注入 obs_groups 映射 (解决 KeyError: 'obs_groups')
+        # RSL-RL 要求显式定义观测组分配
+        # 默认：Policy 和 Critic 都使用 "policy" 观测组
+        # Isaac Sim Architect: 2026-01-24
+        if "obs_groups" not in agent_cfg:
+            agent_cfg["obs_groups"] = {"policy": ["policy"]}
+
+        # 确保 device 参数存在
+        if "device" not in agent_cfg:
+            agent_cfg["device"] = "cuda:0"
 
         # 创建环境配置
         env_cfg = DashgoNavEnvV2Cfg()
