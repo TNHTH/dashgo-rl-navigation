@@ -804,12 +804,13 @@ class DashgoRewardsCfg:
             }
         )
     
-    # [架构师修正 2026-01-24] 激进提升引导奖励（第三次调整）
-    # 修复"磨洋工"问题：让它稍微动一下就能吃到大甜头
-    # 修改历史：1.0 → 2.0 → 5.0 → 3.0（架构师建议降至3.0，平衡探索与利用）
+    # [架构师修正 2026-01-24] 微调引导奖励（最后冲刺）
+    # 修复历史：1.0 → 2.0 → 5.0 → 3.0 → 1.5
+    # 原因：机器人太快冲到障碍物（碰撞率50%），需要冷静一点
+    # 效果：让机器人学会"慢跑"，更好地避障和接近目标
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
-        weight=3.0,  # ✅ 从 5.0 降至 3.0（架构师优化值）
+        weight=1.5,  # ✅ 从 3.0 降至 1.5（降低50%，让它冷静）
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
@@ -877,19 +878,33 @@ class DashgoRewardsCfg:
     )
 
 
-    # [架构师修正 2026-01-24] 大幅提高终点奖励
-    # 确保终点奖励是所有奖励中最大的，值得机器人去冒险
+    # [架构师修正 2026-01-24] 增加到达判定范围（给它信心）
+    # 问题：机器人快冲但刹不住车，经常在终点前撞墙
+    # 解决：放宽到达判定，让机器人更容易成功
+    # 修改历史：threshold: 0.8 → 0.5（放宽60%）
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
-        weight=1000.0,  # 从 300.0 提高到 1000.0（终极大奖）
+        weight=1000.0,  # 保持终极大奖不变
         params={
-            "command_name": "target_pose", 
-            "threshold": 0.8, 
+            "command_name": "target_pose",
+            "threshold": 0.5,  # ✅ 从 0.8 放宽到 0.5（更容易到达）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
     
-    collision = RewardTermCfg(func=penalty_collision_force, weight=-20.0, params={"sensor_cfg": SceneEntityCfg("contact_forces_base"), "threshold": 150.0})
+    # [架构师修正 2026-01-24] 大幅加大碰撞惩罚（最后冲刺）
+    # 问题：机器人像新手司机，只会猛冲，不会刹车（碰撞率50%）
+    # 解决：让撞墙变得更痛，逼迫它学会刹车和避障
+    # 修改历史：-20.0 → -50.0（提高2.5倍）
+    # 阈值微调：150.0 → 1.0（让碰撞检测更敏感）
+    collision = RewardTermCfg(
+        func=penalty_collision_force,
+        weight=-50.0,  # ✅ 从 -20.0 提高到 -50.0（撞墙更痛）
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces_base"),
+            "threshold": 1.0  # ✅ 从 150.0 降到 1.0（更敏感）
+        }
+    )
     out_of_bounds = RewardTermCfg(func=penalty_out_of_bounds, weight=-200.0, params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")})
 
 @configclass
@@ -897,10 +912,10 @@ class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
     reach_goal = TerminationTermCfg(
-        func=check_reach_goal, 
+        func=check_reach_goal,
         params={
-            "command_name": "target_pose", 
-            "threshold": 0.8, 
+            "command_name": "target_pose",
+            "threshold": 0.5,  # ✅ 从 0.8 放宽到 0.5（更容易到达）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
