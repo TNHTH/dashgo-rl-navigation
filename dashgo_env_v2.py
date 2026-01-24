@@ -897,16 +897,16 @@ class DashgoRewardsCfg:
     # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
     # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
     # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
-    # [架构师修正 2026-01-24] 课程学习 - 恢复正常训练配置
-    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5（恢复正常）
-    # 验证：坐标系不一致问题已修复（commit f892e9a），reach_goal 系统正常
-    # 策略：阈值1.5m，目标距离0.5-1.5m，符合课程学习策略
+    # [架构师修正 2026-01-25] 课程学习微调 - 阈值从1.5收紧到1.2
+    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5 → 1.2（最终调整）
+    # 理由：1.5m过于宽松，1.2m更适合实际导航需求
+    # 验证：坐标系不一致问题已修复，reach_goal 系统正常
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=1000.0,  # 保持终极大奖不变
         params={
             "command_name": "target_pose",
-            "threshold": 1.5,  # ✅ 恢复到课程学习最终值（送分题测试后已验证系统正常）
+            "threshold": 1.2,  # ✅ 从 1.5 收紧到 1.2（更精确的到达判定）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -930,14 +930,14 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
-    # [架构师修正 2026-01-24] 课程学习 - 恢复正常训练配置
-    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5（恢复正常）
-    # 验证：坐标系不一致问题已修复（commit f892e9a），reach_goal 系统正常
+    # [架构师修正 2026-01-25] 课程学习微调 - 阈值从1.5收紧到1.2
+    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5 → 1.2（最终调整）
+    # 理由：1.5m过于宽松，1.2m更适合实际导航需求
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 1.5,  # ✅ 恢复到课程学习最终值（送分题测试后已验证系统正常）
+            "threshold": 1.2,  # ✅ 从 1.5 收紧到 1.2（更精确的到达判定）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
