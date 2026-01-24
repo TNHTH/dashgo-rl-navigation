@@ -35,13 +35,13 @@
   <link name="left_wheel">
     <visual>
       <geometry>
-        <cylinder length="0.04" radius="0.0625"/>
+        <cylinder length="0.04" radius="0.0632"/>
       </geometry>
       <material name="black"/>
     </visual>
     <collision>
       <geometry>
-        <cylinder length="0.04" radius="0.0625"/>
+        <cylinder length="0.04" radius="0.0632"/>
       </geometry>
     </collision>
     <inertial>
@@ -62,13 +62,13 @@
   <link name="right_wheel">
     <visual>
       <geometry>
-        <cylinder length="0.04" radius="0.0625"/>
+        <cylinder length="0.04" radius="0.0632"/>
       </geometry>
       <material name="black"/>
     </visual>
     <collision>
       <geometry>
-        <cylinder length="0.04" radius="0.0625"/>
+        <cylinder length="0.04" radius="0.0632"/>
       </geometry>
     </collision>
     <inertial>
