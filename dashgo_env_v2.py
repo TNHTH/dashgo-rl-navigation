@@ -534,8 +534,12 @@ def reset_root_state_safe_donut(env: ManagerBasedRLEnv, env_ids: torch.Tensor, m
 class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        self.min_dist = 1.0 
-        self.max_dist = 2.0 
+        # [架构师修正 2026-01-24] 课程学习：从近到远
+        # 修改历史：1.0-2.0 → 0.5-1.5
+        # 原因：解决稀疏奖励问题，让机器人先学会走到1.5米外的目标
+        # 效果：瞎猫碰到死耗子的概率大增，一旦尝到甜头就会学会走
+        self.min_dist = 0.5  # ✅ 从 1.0 降到 0.5（就在脸贴脸的地方）
+        self.max_dist = 1.5  # ✅ 从 2.0 降到 1.5（最远也不超过1.5米） 
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_w[:, 3] = 1.0 
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
@@ -861,15 +865,17 @@ class DashgoRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
-    
+
     # [架构师关键破局] 生存惩罚
-    # [架构师修正 2026-01-24] 降低生存惩罚，减少"活着"的压力
+    # [架构师修正 2026-01-24 第四次修正] 大幅提高生存惩罚，解决"赖着不走"问题
     # 权重为正，函数返回负值，所以是扣分
-    # 从 0.1 降到 0.01，降低10倍，让机器人敢于行动
+    # 修改历史：0.1 → 0.01 → 0.5（提高50倍！）
+    # 原理：告诉机器人"每一秒都在流血，必须赶紧跑"
     alive_penalty = RewardTermCfg(
         func=reward_alive,
-        weight=0.01,  # ✅ 从 0.1 降到 0.01（保持正权重，负奖励）
+        weight=0.5,  # ✅ 从 0.01 提高到 0.5（提高50倍，逼它动起来）
     )
+
 
     # [架构师修正 2026-01-24] 大幅提高终点奖励
     # 确保终点奖励是所有奖励中最大的，值得机器人去冒险
