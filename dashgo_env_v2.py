@@ -882,12 +882,15 @@ class DashgoRewardsCfg:
     # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
     # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
     # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
+    # [架构师修正 2026-01-24] 课程学习策略 - 适度放宽距离
+    # 理由：机器人能跑到1.22m，设为1.2m刚好让它"够得着"
+    # 这是阶段性放宽，后续会收紧到1.0m → 0.5m
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=1000.0,  # 保持终极大奖不变
         params={
             "command_name": "target_pose",
-            "threshold": 0.8,  # ✅ 从 0.5 恢复到 0.8（更容易成功）
+            "threshold": 1.2,  # ✅ 从 0.8 放宽到 1.2（刚好够得着，不是躺着赢）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -911,12 +914,12 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
-    # [架构师修正 2026-01-24] 收网微调 - 放宽到达阈值
+    # [架构师修正 2026-01-24] 课程学习策略 - 适度放宽距离
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 0.8,  # ✅ 从 0.5 恢复到 0.8（更容易成功）
+            "threshold": 1.2,  # ✅ 从 0.8 放宽到 1.2（刚好够得着）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -932,7 +935,7 @@ class DashgoTerminationsCfg:
 @configclass
 class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
     decimation = 4
-    episode_length_s = 60.0  # ✅ [架构师修正 2026-01-24] 从 50s 增加到 60s（900步），给机器人更多时间到达
+    episode_length_s = 90.0  # ✅ [架构师修正 2026-01-24] 课程学习：从 60s 增加到 90s（1350步），给机器人更多时间绕过障碍物
     scene = DashgoSceneV2Cfg(num_envs=16, env_spacing=15.0)
     sim = sim_utils.SimulationCfg(dt=1/60, render_interval=10)
     
