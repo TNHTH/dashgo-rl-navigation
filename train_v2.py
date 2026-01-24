@@ -26,15 +26,12 @@ DashGo机器人导航训练脚本
 import argparse
 import sys
 import os
-import glob
-import re
-import torch
 from omegaconf import OmegaConf
 
 # [兼容性配置] 强制无缓冲输出，确保日志实时打印
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-# [关键] AppLauncher 必须在任何 Isaac Lab 模块导入之前初始化
+# [关键] AppLauncher 必须在任何 Isaac Lab 模块或 torch 之前导入
 # 这是让 --headless 参数生效的唯一方法
 # Isaac Sim Architect: 2026-01-24
 from isaaclab.app import AppLauncher
@@ -95,6 +92,9 @@ def find_best_checkpoint(log_root):
     Returns:
         str: 最佳checkpoint的路径，如果不存在则返回None
     """
+    import glob
+    import re
+
     if not os.path.exists(log_root):
         print(f"[WARNING] 日志目录不存在: {log_root}")
         return None
@@ -143,7 +143,12 @@ def main():
     simulation_app = app_launcher.app
 
     try:
-        # 3. 导入Isaac Lab模块（必须在AppLauncher启动后导入）
+        # 3. 导入必要的库（必须在AppLauncher启动后导入）
+        import torch
+        import glob
+        import re
+
+        # 4. 导入Isaac Lab模块（必须在AppLauncher启动后导入）
         from isaaclab.envs import ManagerBasedRLEnv
 
         try:
