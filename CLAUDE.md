@@ -197,6 +197,38 @@ You are Claude Code, Anthropic's official CLI.
 **关键能力**：
 - **Code-Reviewer Agent**：代码审查、安全漏洞检测、性能优化建议、QA验证、集成检查
 - **TDD Protocol**：测试驱动开发（RED-GREEN-REFACTOR）
+
+#### Trigger 1.5: Isaac Lab 开发铁律（项目特定）
+
+**触发条件**（满足任一即自动应用）:
+- ✅ 工作目录是 `/home/gwh/dashgo_rl_project`
+- ✅ 用户涉及 Isaac Lab 开发关键词："训练"、"仿真"、"RSL-RL"、"Isaac Sim"、"headless"、"AppLauncher"
+- ✅ 修改 `train_v2.py`、`dashgo_env_v2.py` 等核心文件
+
+**自动执行序列**:
+```bash
+1. Read .claude/rules/isaac-lab-development-iron-rules.md
+2. 应用5条铁律：
+   - 规则一：Python导入顺序（AppLauncher 最先）
+   - 规则二：RSL-RL配置扁平化
+   - 规则三：显存管理（num_envs ≤ 128）
+   - 规则四：物理参数实机对齐
+   - 规则五：坐标系检查
+3. 检查代码是否违反铁律
+4. 如有违反，强制要求修改
+```
+
+**强制检查清单**（每次修改训练/环境代码后必须执行）:
+- [ ] AppLauncher 在所有 Isaac Lab 模块之前（规则一）
+- [ ] 配置扁平化代码存在（规则二）
+- [ ] num_envs ≤ 128，使用 RayCaster（规则三）
+- [ ] 物理参数从 ROS 配置读取（规则四）
+- [ ] USD 文件在 GUI 中验证过（规则五）
+
+**禁止行为**:
+- ❌ 违反任何一条铁律
+- ❌ 未经铁律检查就提交代码
+- ❌ 忽略铁律导致的错误（如 OOM、KeyError）
 - **Systematic Debugging**：四步调试流程
 - **Two-Stage Code Review**：规范性检查 + 代码质量评估
 
