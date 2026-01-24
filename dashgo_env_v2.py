@@ -740,22 +740,24 @@ class DashgoRewardsCfg:
     
     # [架构师修正 2026-01-24] 大幅提高目标引导权重
     # 让机器人明显感觉到"越近越好"
+    # 修复机器人"躺平"问题：引导奖励必须覆盖生存惩罚
+    # 生存惩罚约-0.1，引导奖励需要达到0.5以上才能有效驱动
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
-        weight=2.0,  # 从 1.0 提高到 2.0
+        weight=5.0,  # 从 2.0 提高到 5.0（+150%）
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
     
-    # [架构师修正 2026-01-24] 修复奖励黑客漏洞
-    # 原问题：weight=-0.01 (负数)，函数返回负值，负负得正变成奖励
-    # 修复：weight=0.01 (正数)，正权重 * 负函数值 = 负奖励（惩罚）
-    # 防止机器人原地刷分，鼓励它真正去导航
+    # [架构师修正 2026-01-24] 修复奖励黑客漏洞 + 降低惩罚强度
+    # 第一次修复：weight=-0.01 (负数) → 0.01 (正数)，解决刷分问题
+    # 第二次修正：weight=0.01 → 0.001，降低惩罚强度，鼓励机器人行动
+    # 原理：正权重 * 负函数值 = 负奖励（惩罚），但不要太重
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=0.01,  # 从 -0.01 改为 0.01
+        weight=0.001,  # ✅ 从 0.01 降到 0.001（降低10倍）
     )
     
     # [架构师新增] 对准奖励
@@ -795,10 +797,12 @@ class DashgoRewardsCfg:
     )
     
     # [架构师关键破局] 生存惩罚
+    # [架构师修正 2026-01-24] 降低生存惩罚，减少"活着"的压力
     # 权重为正，函数返回负值，所以是扣分
+    # 从 0.1 降到 0.01，降低10倍，让机器人敢于行动
     alive_penalty = RewardTermCfg(
         func=reward_alive,
-        weight=0.1, 
+        weight=0.01,  # ✅ 从 0.1 降到 0.01（保持正权重，负奖励）
     )
 
     # [架构师修正 2026-01-24] 大幅提高终点奖励
