@@ -882,15 +882,16 @@ class DashgoRewardsCfg:
     # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
     # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
     # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
-    # [架构师修正 2026-01-24] 课程学习策略 - 适度放宽距离
-    # 理由：机器人能跑到1.22m，设为1.2m刚好让它"够得着"
-    # 这是阶段性放宽，后续会收紧到1.0m → 0.5m
+    # [架构师修正 2026-01-24] 课程学习策略 - 进一步放宽距离
+    # 理由：训练2999轮，最佳记录1.1424m，仍未突破1.2m阈值
+    # 策略：放宽到1.5m，让机器人尝到"成功"的滋味，建立正反馈循环
+    # 后续：成功后会收紧到1.0m → 0.5m
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=1000.0,  # 保持终极大奖不变
         params={
             "command_name": "target_pose",
-            "threshold": 1.2,  # ✅ 从 0.8 放宽到 1.2（刚好够得着，不是躺着赢）
+            "threshold": 1.5,  # ✅ 从 1.2 放宽到 1.5（涵盖最佳记录1.14-1.78m）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -914,12 +915,12 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
-    # [架构师修正 2026-01-24] 课程学习策略 - 适度放宽距离
+    # [架构师修正 2026-01-24] 课程学习策略 - 进一步放宽距离
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 1.2,  # ✅ 从 0.8 放宽到 1.2（刚好够得着）
+            "threshold": 1.5,  # ✅ 从 1.2 放宽到 1.5（涵盖机器人当前能力范围）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
