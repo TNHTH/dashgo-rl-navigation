@@ -69,6 +69,13 @@ policy.onnx
 *.pth
 *.ckpt
 *.pkl
+*.pt
+
+# 训练日志和备份
+logs/*.pt
+logs/*.log
+logs/events.out.tfevents.*
+logs_backup/
 
 # 本地配置（包含敏感信息）
 .claude.json
