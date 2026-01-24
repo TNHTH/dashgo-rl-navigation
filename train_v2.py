@@ -48,18 +48,19 @@ def create_parser():
         argparse.ArgumentParser: 参数解析器
 
     说明:
-        AppLauncher会自动添加标准参数（如--headless, --viewport等）
-        这里只需定义用户自定义参数
+        [架构师修正 2026-01-24] Isaac Lab 4.5 / 0.46+ 移除了 add_argparse_args() 方法
+        手动添加标准参数以兼容新版本API
     """
     parser = argparse.ArgumentParser(
         description="DashGo机器人导航训练脚本",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # [关键修复] 注册 AppLauncher 的标准参数（如 --headless, --viewport 等）
-    # Isaac Sim Architect: 2026-01-24
-    # 这样 --headless 等参数才能被正确接收和处理
-    AppLauncher.add_argparse_args(parser)
+    # [架构师修正] 手动添加 Isaac Lab 标准参数
+    # Isaac Lab 4.5 / 0.46+ 中 AppLauncher.add_argparse_args() 已被移除
+    # 需要手动添加 --headless 等参数防止 argparse 报错
+    parser.add_argument("--headless", action="store_true", default=False,
+                       help="强制无GUI模式运行 (Isaac Lab Standard)")
 
     # 用户自定义参数
     parser.add_argument("--video", action="store_true", default=False,
@@ -70,12 +71,6 @@ def create_parser():
                        help="自动从最佳checkpoint恢复训练")
     parser.add_argument("--checkpoint", type=str, default=None,
                        help="从指定的checkpoint文件恢复训练")
-
-    # AppLauncher会自动添加以下标准参数:
-    # --headless: 启用headless模式（无GUI）
-    # --viewport: 启用GUI渲染窗口
-    # --num_envs: 并行环境数量（与上面的自定义参数合并）
-    # ... 更多参数见AppLauncher官方文档
 
     return parser
 
