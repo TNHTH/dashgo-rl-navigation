@@ -1,15 +1,15 @@
-seed: 42
-device: 'cuda:0'
+seed: 42                     # 随机种子（保证可重复性）
+device: 'cuda:0'             # GPU设备
 
-num_steps_per_env: 480 
+num_steps_per_env: 480       # 每个环境的步数（约32秒 @ 15fps）
 
-num_mini_batches: 4
-# [微调] 提高熵系数，鼓励早期探索
+num_mini_batches: 4          # 小批量数量（批次大小 = num_envs * 480 / 4）
+# [微调] 熵系数（鼓励探索，0.01为保守值）
 entropy_coef: 0.01
 
-max_iterations: 10000
-empirical_normalization: False 
-save_interval: 50
+max_iterations: 10000        # 最大训练迭代次数
+empirical_normalization: False
+save_interval: 50            # 模型保存间隔（每50次迭代保存一次）
 
 experiment_name: "dashgo_nav"
 
@@ -20,22 +20,22 @@ obs_groups:
 
 policy:
   class_name: ActorCritic
-  init_noise_std: 0.8
-  actor_hidden_dims: [512, 256, 128]
-  critic_hidden_dims: [512, 256, 128]
-  activation: 'elu'
+  init_noise_std: 0.8        # 策略初始化噪声标准差（0.8为RSL推荐值）
+  actor_hidden_dims: [512, 256, 128]  # Actor网络隐藏层维度
+  critic_hidden_dims: [512, 256, 128] # Critic网络隐藏层维度
+  activation: 'elu'          # 激活函数（ELU收敛速度快于ReLU）
 
 algorithm:
   class_name: PPO
-  value_loss_coef: 1.0
+  value_loss_coef: 1.0       # 值函数损失系数
   use_clipped_value_loss: True
-  clip_param: 0.2
-  num_learning_epochs: 5
+  clip_param: 0.2            # PPO裁剪参数（标准值0.2，防止策略更新过大）
+  num_learning_epochs: 5     # 每次更新的学习轮数（5为标准值）
 
-  # [优化] 使用保守的学习率提高稳定性
-  learning_rate: 1.0e-4  # 从3e-4降到1e-4，避免训练不稳定
+  # [优化] 学习率（从3e-4降到1e-4提高稳定性）
+  learning_rate: 1.0e-4
 
-  max_grad_norm: 1.0
-  gamma: 0.99
-  lam: 0.95
-  desired_kl: 0.01
+  max_grad_norm: 1.0         # 梯度裁剪阈值（防止梯度爆炸）
+  gamma: 0.99                # 折扣因子（0.99为标准值，平衡短期和长期奖励）
+  lam: 0.95                  # GAE(lambda)参数（0.95为标准值，平衡方差和偏差）
+  desired_kl: 0.01           # 期望KL散度（0.01为标准阈值，用于自适应学习率）
