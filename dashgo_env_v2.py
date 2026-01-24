@@ -490,11 +490,6 @@ def check_reach_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float
     # [架构师修复] 严格 2D 距离比较
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos - robot_pos, dim=-1)
-
-    # [送分题测试 2026-01-24] Debug打印：每100步输出一次距离信息
-    if env.common_step_counter % 100 == 0:
-        env.logger.info(f"[DEBUG] reach_goal check: dist[0]={dist[0].item():.3f}m, threshold={threshold}m, success={dist[0].item() < threshold}")
-
     return (dist < threshold)
 
 def check_time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -596,11 +591,14 @@ class UniDiffDriveActionCfg(mdp.actions.JointVelocityActionCfg):
 @configclass
 class RelativeRandomTargetCommandCfg(mdp.UniformPoseCommandCfg):
     class_type = RelativeRandomTargetCommand
-    asset_name: str = "robot" 
-    body_name: str = "base_link" 
+    asset_name: str = "robot"
+    body_name: str = "base_link"
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
+    # [送分题测试 2026-01-24] 强制极近距离生成（0.1-0.5m）
+    # 修改前: pos_x=(-1.0, 1.0), pos_y=(-1.0, 1.0) 会导致目标生成在远处
+    # 修改后: pos_x=(0.1, 0.5), pos_y=(-0.2, 0.2) 确保目标在机器人前方0.1-0.5m
     ranges: mdp.UniformPoseCommandCfg.Ranges = mdp.UniformPoseCommandCfg.Ranges(
-        pos_x=(-1.0, 1.0), pos_y=(-1.0, 1.0), pos_z=(0.0, 0.0),
+        pos_x=(0.1, 0.5), pos_y=(-0.2, 0.2), pos_z=(0.0, 0.0),
         roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(-math.pi, math.pi)
     )
     debug_vis: bool = False
