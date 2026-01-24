@@ -10,7 +10,7 @@ runner:
   policy_class_name: "ActorCritic"
   algorithm_class_name: "PPO"
   num_steps_per_env: 24       # ⚠️ 每个环境采样步数（建议配合4096并行环境）
-  max_iterations: 1500        # 训练迭代次数（约30-60分钟可收敛）
+  max_iterations: 4000        # 训练迭代次数（从1500提高到4000，更充分的训练）
   empirical_normalization: True # ✅ [关键] 对输入观测进行归一化，防止雷达大数值(12.0)导致梯度爆炸
   save_interval: 50           # 每50次迭代保存一次模型
   experiment_name: "dashgo_neupan_ppo"
