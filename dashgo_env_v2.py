@@ -446,9 +446,14 @@ def log_linear_velocity(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> to
 
 # 稀疏到达奖励
 def reward_near_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = env.command_manager.get_command(command_name)[:, :2]
+    # [架构师修复 2026-01-24] 修复坐标系不一致问题
+    # 问题：command_manager.get_command() 返回的可能是相对坐标或未更新的值
+    # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
+    command_term = env.command_manager._term_regs[command_name]
+    target_pos_w = command_term.pose_command_w[:, :2]
+
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
-    dist = torch.norm(target_pos - robot_pos, dim=-1)
+    dist = torch.norm(target_pos_w - robot_pos, dim=-1)
     return (dist < threshold).float()
 
 def penalty_collision_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float) -> torch.Tensor:
@@ -486,10 +491,14 @@ def check_collision_simple(env: ManagerBasedRLEnv, sensor_cfg_base: SceneEntityC
     return (forces > threshold) & (~is_safe)
 
 def check_reach_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = env.command_manager.get_command(command_name)[:, :2]
-    # [架构师修复] 严格 2D 距离比较
+    # [架构师修复 2026-01-24] 修复坐标系不一致问题
+    # 问题：command_manager.get_command() 返回的可能是相对坐标或未更新的值
+    # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
+    command_term = env.command_manager._term_regs[command_name]
+    target_pos_w = command_term.pose_command_w[:, :2]
+
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
-    dist = torch.norm(target_pos - robot_pos, dim=-1)
+    dist = torch.norm(target_pos_w - robot_pos, dim=-1)
     return (dist < threshold)
 
 def check_time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
