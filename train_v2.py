@@ -207,9 +207,11 @@ def main():
         if args_cli.num_envs:
             env_cfg.scene.num_envs = args_cli.num_envs
         else:
-            # RTX 4060 Laptop (8GB) 推荐值
-            print("[INFO] 未指定 num_envs，默认使用 64 个环境 (RTX 4060 Laptop 8GB显存推荐值)")
-            env_cfg.scene.num_envs = 64
+            # [架构师修正 2026-01-24] RTX 4060 Laptop (8GB) 优化值
+            # 显存占用 3.7G/8G，GPU占用50%，大幅提升到256个环境
+            # 预计占用 5-6GB 显存，提高GPU利用率到 80-90%
+            print("[INFO] 未指定 num_envs，默认使用 256 个环境 (RTX 4060 Laptop 8GB显存优化值)")
+            env_cfg.scene.num_envs = 256
 
         # 5. 创建环境
         env = ManagerBasedRLEnv(cfg=env_cfg)
