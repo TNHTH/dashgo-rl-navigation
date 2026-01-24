@@ -625,6 +625,51 @@ class DashgoObservationsCfg:
 
     policy = PolicyCfg()
 
+
+# ============================================================================
+# 自定义辅助函数
+# ============================================================================
+
+# [架构师新增 2026-01-24] 自定义辅助函数：支持正则匹配的批量障碍物随机化
+# 问题：SceneEntityCfg 不支持正则表达式，无法直接匹配 "obs_.*"
+# 解决：编写"中间层"函数，先正则匹配找到所有障碍物，再逐个调用官方随机化函数
+def randomize_obstacles_by_pattern(env: ManagerBasedRLEnv, env_ids: torch.Tensor, pattern: str, pose_range: dict):
+    """
+    使用正则表达式匹配障碍物并批量随机化位置
+
+    Args:
+        env: 管理型RL环境
+        env_ids: 需要重置的环境ID
+        pattern: 正则表达式字符串（如 "obs_.*" 匹配所有障碍物）
+        pose_range: 位置和旋转范围字典
+    """
+    import re
+
+    # 1. 遍历场景中的所有资产名称
+    all_assets = list(env.scene.keys())
+
+    # 2. 筛选出匹配正则模式的资产 (例如 "obs_.*" 匹配 "obs_inner_1", "obs_outer_2" 等)
+    matched_assets = [name for name in all_assets if re.match(pattern, name)]
+
+    # 3. 对每个匹配到的障碍物执行随机化
+    for asset_name in matched_assets:
+        # 临时构造 asset_cfg（借用 SceneEntityCfg 来传递名字）
+        temp_cfg = SceneEntityCfg(asset_name)
+
+        # 调用官方的随机化函数（利用 GPU 并行处理 env_ids）
+        mdp.reset_root_state_uniform(
+            env,
+            env_ids,
+            pose_range=pose_range,
+            velocity_range={},  # 静态障碍物不需要速度
+            asset_cfg=temp_cfg
+        )
+
+
+# ============================================================================
+# 配置类定义
+# ============================================================================
+
 @configclass
 class DashgoEventsCfg:
     reset_base = EventTermCfg(
@@ -676,18 +721,17 @@ class DashgoEventsCfg:
     # [架构师新增 2026-01-24] 障碍物随机化 - 赋予泛化能力
     # 每次重置时，障碍物的位置在原位置基础上随机偏移 +/- 0.5米，随机旋转
     # 逼迫机器人学会看路，而不是背地图，实现真正的泛化能力
-    # [API修复 2026-01-24] 使用新版API: mdp.reset_root_state_uniform (Isaac Lab 4.5)
+    # [API修复 2026-01-24] SceneEntityCfg不支持正则，使用自定义函数
     randomize_obstacles = EventTermCfg(
-        func=mdp.reset_root_state_uniform,  # ✅ 新版API (Isaac Lab 0.46+)
+        func=randomize_obstacles_by_pattern,  # ✅ 自定义函数（支持正则匹配）
         mode="reset",
         params={
-            "asset_cfg": SceneEntityCfg("obs_.*"),  # 正则表达式：匹配所有名字带 obs_ 的物体
+            "pattern": "obs_.*",  # 正则表达式：匹配所有名字带 obs_ 的物体
             "pose_range": {
                 "x": (-0.5, 0.5),  # 随机偏移 +/- 0.5米
                 "y": (-0.5, 0.5),
                 "yaw": (-math.pi, math.pi),  # 随机旋转 +/- 180度
             },
-            "velocity_range": {},  # 静态障碍物不需要速度
         }
     )
 
