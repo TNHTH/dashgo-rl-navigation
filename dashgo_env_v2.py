@@ -738,20 +738,24 @@ class DashgoRewardsCfg:
             }
         )
     
+    # [架构师修正 2026-01-24] 大幅提高目标引导权重
+    # 让机器人明显感觉到"越近越好"
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
-        weight=1.0, 
+        weight=2.0,  # 从 1.0 提高到 2.0
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
     
-    # [架构师优化] 降低平滑度惩罚权重
-    # 从 -0.05 降到 -0.01，给机器人起步的勇气
+    # [架构师修正 2026-01-24] 修复奖励黑客漏洞
+    # 原问题：weight=-0.01 (负数)，函数返回负值，负负得正变成奖励
+    # 修复：weight=0.01 (正数)，正权重 * 负函数值 = 负奖励（惩罚）
+    # 防止机器人原地刷分，鼓励它真正去导航
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=-0.01,
+        weight=0.01,  # 从 -0.01 改为 0.01
     )
     
     # [架构师新增] 对准奖励
@@ -797,9 +801,11 @@ class DashgoRewardsCfg:
         weight=0.1, 
     )
 
+    # [架构师修正 2026-01-24] 大幅提高终点奖励
+    # 确保终点奖励是所有奖励中最大的，值得机器人去冒险
     reach_goal = RewardTermCfg(
-        func=reward_near_goal, 
-        weight=300.0, 
+        func=reward_near_goal,
+        weight=1000.0,  # 从 300.0 提高到 1000.0（终极大奖）
         params={
             "command_name": "target_pose", 
             "threshold": 0.8, 
