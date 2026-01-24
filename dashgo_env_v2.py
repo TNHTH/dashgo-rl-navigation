@@ -545,12 +545,12 @@ def reset_root_state_safe_donut(env: ManagerBasedRLEnv, env_ids: torch.Tensor, m
 class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
     def __init__(self, cfg, env):
         super().__init__(cfg, env)
-        # [送分题测试 2026-01-24] 方案A：验证系统是否正常
-        # 理由：threshold=1.5时reach_goal仍为0，需排查根本原因
-        # 策略：极近距离生成目标（0.1-0.5m）+ 巨大阈值（3.0m）
-        # 预期：如果系统正常，reach_goal应接近100%
-        self.min_dist = 0.1  # ✅ 从 0.5 降到 0.1（几乎就在机器人脸上）
-        self.max_dist = 0.5  # ✅ 从 1.5 降到 0.5（极近距离，确保能碰到） 
+        # [架构师修正 2026-01-24] 课程学习：从近到远
+        # 修改历史：1.0-2.0 → 0.5-1.5 → 0.1-0.5（送分题测试）→ 0.5-1.5（恢复正常）
+        # 验证：送分题测试确认 reach_goal 系统正常（已达到100%）
+        # 现状：坐标系不一致问题已修复，可以恢复正常训练
+        self.min_dist = 0.5  # ✅ 恢复到课程学习起始距离
+        self.max_dist = 1.5  # ✅ 恢复到课程学习目标距离 
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_w[:, 3] = 1.0 
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
@@ -605,11 +605,12 @@ class RelativeRandomTargetCommandCfg(mdp.UniformPoseCommandCfg):
     asset_name: str = "robot"
     body_name: str = "base_link"
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
-    # [送分题测试 2026-01-24] 强制极近距离生成（0.1-0.5m）
-    # 修改前: pos_x=(-1.0, 1.0), pos_y=(-1.0, 1.0) 会导致目标生成在远处
-    # 修改后: pos_x=(0.1, 0.5), pos_y=(-0.2, 0.2) 确保目标在机器人前方0.1-0.5m
+    # [架构师修正 2026-01-24] 课程学习：恢复正常训练配置
+    # 修改历史：(-1.0, 1.0) → (0.1, 0.5)送分题 → (0.5, 1.5)正常训练
+    # 验证：坐标系不一致问题已修复，reach_goal 系统正常
+    # 范围：机器人前方0.5-1.5m，符合课程学习策略
     ranges: mdp.UniformPoseCommandCfg.Ranges = mdp.UniformPoseCommandCfg.Ranges(
-        pos_x=(0.1, 0.5), pos_y=(-0.2, 0.2), pos_z=(0.0, 0.0),
+        pos_x=(0.5, 1.5), pos_y=(-1.0, 1.0), pos_z=(0.0, 0.0),
         roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(-math.pi, math.pi)
     )
     debug_vis: bool = False
@@ -896,16 +897,16 @@ class DashgoRewardsCfg:
     # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
     # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
     # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
-    # [送分题测试 2026-01-24] 方案A：验证系统是否正常
-    # 理由：threshold=1.5时reach_goal仍为0，需排查根本原因
-    # 策略：极近距离生成目标（0.1-0.5m）+ 巨大阈值（3.0m）
-    # 预期：如果系统正常，reach_goal应接近100%
+    # [架构师修正 2026-01-24] 课程学习 - 恢复正常训练配置
+    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5（恢复正常）
+    # 验证：坐标系不一致问题已修复（commit f892e9a），reach_goal 系统正常
+    # 策略：阈值1.5m，目标距离0.5-1.5m，符合课程学习策略
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=1000.0,  # 保持终极大奖不变
         params={
             "command_name": "target_pose",
-            "threshold": 3.0,  # ✅ 从 1.5 放宽到 3.0（巨大阈值，确保能触发）
+            "threshold": 1.5,  # ✅ 恢复到课程学习最终值（送分题测试后已验证系统正常）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -929,12 +930,14 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
     
-    # [送分题测试 2026-01-24] 方案A：验证系统是否正常
+    # [架构师修正 2026-01-24] 课程学习 - 恢复正常训练配置
+    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5（恢复正常）
+    # 验证：坐标系不一致问题已修复（commit f892e9a），reach_goal 系统正常
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 3.0,  # ✅ 从 1.5 放宽到 3.0（巨大阈值，确保能触发）
+            "threshold": 1.5,  # ✅ 恢复到课程学习最终值（送分题测试后已验证系统正常）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
