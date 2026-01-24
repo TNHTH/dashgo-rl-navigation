@@ -673,6 +673,19 @@ class DashgoEventsCfg:
         },
     )
 
+    # [架构师新增 2026-01-24] 障碍物随机化 - 赋予泛化能力
+    # 每次重置时，障碍物的位置在原位置基础上随机偏移 +/- 0.5米，随机旋转
+    # 逼迫机器人学会看路，而不是背地图，实现真正的泛化能力
+    randomize_obstacles = EventTermCfg(
+        func=mdp.randomize_rigid_body_pose,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("obs_.*"),  # 正则表达式：匹配所有名字带 obs_ 的物体
+            "pos_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},  # 随机偏移 +/- 0.5米
+            "rot_range": {"yaw": (-math.pi, math.pi)},  # 随机旋转 +/- 180度
+        }
+    )
+
 @configclass
 class DashgoSceneV2Cfg(InteractiveSceneCfg):
     terrain = AssetBaseCfg(prim_path="/World/GroundPlane", spawn=sim_utils.GroundPlaneCfg())
@@ -738,26 +751,25 @@ class DashgoRewardsCfg:
             }
         )
     
-    # [架构师修正 2026-01-24] 大幅提高目标引导权重
-    # 让机器人明显感觉到"越近越好"
-    # 修复机器人"躺平"问题：引导奖励必须覆盖生存惩罚
-    # 生存惩罚约-0.1，引导奖励需要达到0.5以上才能有效驱动
+    # [架构师修正 2026-01-24] 激进提升引导奖励（第三次调整）
+    # 修复"磨洋工"问题：让它稍微动一下就能吃到大甜头
+    # 修改历史：1.0 → 2.0 → 5.0 → 3.0（架构师建议降至3.0，平衡探索与利用）
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
-        weight=5.0,  # 从 2.0 提高到 5.0（+150%）
+        weight=3.0,  # ✅ 从 5.0 降至 3.0（架构师优化值）
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
     
-    # [架构师修正 2026-01-24] 修复奖励黑客漏洞 + 降低惩罚强度
-    # 第一次修复：weight=-0.01 (负数) → 0.01 (正数)，解决刷分问题
-    # 第二次修正：weight=0.01 → 0.001，降低惩罚强度，鼓励机器人行动
-    # 原理：正权重 * 负函数值 = 负奖励（惩罚），但不要太重
+    # [架构师修正 2026-01-24] 几乎移除动作平滑惩罚（第三次修正）
+    # 修复"磨洋工"问题：先让它跑起来再说，不要因为起步抖动就扣分
+    # 修改历史：-0.01(刷分) → 0.01(惩罚) → 0.001(减轻) → 0.0001(几乎移除)
+    # 原理：保持正权重 * 负函数值 = 负奖励，但权重极小，几乎不影响
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=0.001,  # ✅ 从 0.01 降到 0.001（降低10倍）
+        weight=0.0001,  # ✅ 从 0.001 降到 0.0001（降低10倍，几乎移除）
     )
     
     # [架构师新增] 对准奖励
@@ -772,16 +784,21 @@ class DashgoRewardsCfg:
         }
     )
 
-    # [优化] 速度对齐奖励
+    # [架构师修正 2026-01-24] 大幅提升速度奖励
+    # 告诉机器人：跑起来才有分！解决"磨洋工"问题
+    # 修改历史：0.3 → 1.0（+233%，强烈激励移动）
     target_speed = RewardTermCfg(
         func=reward_target_speed,
-        weight=0.3,
+        weight=1.0,  # ✅ 从 0.3 提高到 1.0（强烈激励速度）
         params={"asset_cfg": SceneEntityCfg("robot")}
     )
 
+    # [架构师修正 2026-01-24] 启用距离日志显示
+    # 给一个极小的权重，让日志里显示距离数值（x 1e-6）
+    # 用于调试，不影响训练（权重极小）
     log_distance = RewardTermCfg(
         func=log_distance_to_goal,
-        weight=0.0,
+        weight=1e-6,  # ✅ 从 0.0 改为 1e-6（启用日志显示）
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
