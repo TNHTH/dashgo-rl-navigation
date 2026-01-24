@@ -15,6 +15,10 @@ DashGo机器人导航训练脚本
 
     # 从checkpoint恢复
     python train_v2.py --headless --num_envs 256 --resume
+
+修复历史:
+    2026-01-24: 修复KeyError('num_steps_per_env') - 配置扁平化
+             Isaac Sim Architect建议
 """
 
 import argparse
@@ -28,6 +32,9 @@ from omegaconf import OmegaConf
 # [兼容性配置] 强制无缓冲输出，确保日志实时打印
 os.environ["PYTHONUNBUFFERED"] = "1"
 
+# [关键] AppLauncher 必须在任何 Isaac Lab 模块导入之前初始化
+# 这是让 --headless 参数生效的唯一方法
+# Isaac Sim Architect: 2026-01-24
 from isaaclab.app import AppLauncher
 
 
@@ -168,6 +175,13 @@ def main():
         train_cfg = OmegaConf.load(cfg_path)
         agent_cfg = OmegaConf.to_container(train_cfg, resolve=True)
 
+        # [关键修复] 处理 RSL-RL 的配置结构问题 (KeyError Fix)
+        # RSL-RL 需要扁平化的配置，我们将 'runner' 里的内容提取到最外层
+        # Isaac Sim Architect: 2026-01-24
+        if "runner" in agent_cfg:
+            runner_cfg = agent_cfg.pop("runner")
+            agent_cfg.update(runner_cfg)  # 把 num_steps_per_env 等参数提到根目录
+
         # 创建环境配置
         env_cfg = DashgoNavEnvV2Cfg()
         if "seed" in agent_cfg:
@@ -175,8 +189,9 @@ def main():
         if args_cli.num_envs:
             env_cfg.scene.num_envs = args_cli.num_envs
         else:
-            print("[INFO] 未指定 num_envs，默认使用 16 个环境 (显存安全模式)。")
-            env_cfg.scene.num_envs = 16
+            # RTX 4060 Laptop (8GB) 推荐值
+            print("[INFO] 未指定 num_envs，默认使用 64 个环境 (RTX 4060 Laptop 8GB显存推荐值)")
+            env_cfg.scene.num_envs = 64
 
         # 5. 创建环境
         env = ManagerBasedRLEnv(cfg=env_cfg)
@@ -191,6 +206,9 @@ def main():
             env.step(zero_actions)
 
         # 7. 创建训练器
+        # 显存优化：强制清理CUDA缓存
+        torch.cuda.empty_cache()
+
         runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=device)
 
         # 8. 从checkpoint恢复（如果指定）
@@ -204,13 +222,13 @@ def main():
 
         # 9. 开始训练
         print("-" * 60)
-        print(f"[INFO] 开始训练: {agent_cfg['experiment_name']}")
+        print(f"[INFO] 开始训练: {agent_cfg.get('experiment_name', 'dashgo')}")
         print(f"[INFO] 环境数量: {env_cfg.scene.num_envs}")
-        print(f"[INFO] 单次采集步数: {agent_cfg['num_steps_per_env']}")
-        print(f"[INFO] 最大迭代次数: {agent_cfg['max_iterations']}")
+        print(f"[INFO] 单次采集步数: {agent_cfg.get('num_steps_per_env', 'N/A')}")
+        print(f"[INFO] 最大迭代次数: {agent_cfg.get('max_iterations', 'N/A')}")
         print("-" * 60)
 
-        runner.learn(num_learning_iterations=agent_cfg["max_iterations"], init_at_random_ep_len=True)
+        runner.learn(num_learning_iterations=agent_cfg.get("max_iterations", 1500), init_at_random_ep_len=True)
         env.close()
 
     except Exception as e:
