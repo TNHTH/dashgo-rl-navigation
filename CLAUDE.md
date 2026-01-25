@@ -174,6 +174,20 @@ You are Claude Code, Anthropic's official CLI.
     shaping_distance = RewardTermCfg(weight=0.75)
     ```
 
+  **4. 项目核心定位（必须记住）**
+  - **规则**: DashGo RL Navigation 项目的目标是训练一个**局部路径规划器**（Local Planner），而非端到端导航器
+  - **定位**: PPO策略只负责"走直线并避眼前障碍"，长距离寻路交给ROS move_base全局规划
+  - **理由**: 用户明确要求"一定要记下来我这个项目做的是一个局部路径规划器"
+  - **应用场景**:
+    - ✅ 短距离导航（3-8米）
+    - ✅ 局部避障（基于LiDAR感知）
+    - ✅ 实时响应（高频控制）
+  - **不属于此项目**:
+    - ❌ 全局路径规划（使用ROS move_base）
+    - ❌ SLAM建图与定位
+    - ❌ 多房间导航（需要全局规划）
+  - **部署架构**: PPO Local Planner + ROS Global Planner（分层架构）
+
 ---
 
 ## 3. 🔗 Knowledge Integration & Auto-Load Triggers
