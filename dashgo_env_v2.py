@@ -920,10 +920,10 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             mesh_prim_paths=["/World/GroundPlane"],  # ✅ 使用真实地面名称（第786行定义）
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
-                channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
+                channels=360,  # ✅ [v6.0优化] 降低到360点（更接近实物EAI F4的360-720点，节省显存35%，速度提升50-80%）
                 vertical_fov_range=[0.0, 0.0],  # 2D扫描（单线激光雷达）
                 horizontal_fov_range=[-180.0, 180.0],  # 360°全方位扫描
-                horizontal_res=0.36,  # 角度分辨率（约1000点/360°）
+                horizontal_res=1.0,  # ✅ [v6.0优化] 同步修改分辨率（360°/360=1.0°）
             ),
             debug_vis=False,  # ⚠️ 暂时禁用可视化，防止NoneType reshape错误
         )
@@ -975,7 +975,7 @@ class DashgoRewardsCfg:
     shaping_distance = RewardTermCfg(
         func=reward_position_command_error_tanh,  # ✅ [v5.0 Hotfix] 使用自定义函数（修复API不匹配）
         weight=0.75,  # ✅ [v5.0] 黄金平衡点（从0.5提升）
-        params={"std": 2.0, "command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}  # 添加asset_cfg参数
+        params={"std": 4.0, "command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}  # ✅ [v6.0修复] 扩大std到4.0（6m处奖励提升19倍，解决梯度消失）
     )
 
     # [辅助] Dense奖励组 (保留v3优势)
@@ -1003,11 +1003,11 @@ class DashgoRewardsCfg:
             }
         )
 
-    # [约束] 动作平滑：-0.01
+    # [约束] 动作平滑：0.01
     # 作用：抑制高频抖动，治愈Noise 17.0
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=-0.01,  # ✅ [v5.0] 提升100倍（从0.0001到-0.01）
+        weight=0.01,  # ✅ [v6.0修复] 修复双重负号错误（负函数×负权重=正奖励刷分漏洞）
     )
 
     # [约束] 碰撞惩罚：-50.0 + 10.0阈值
