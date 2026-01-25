@@ -14,7 +14,7 @@ runner:
   empirical_normalization: True # ✅ [关键] 对输入观测进行归一化，防止雷达大数值(12.0)导致梯度爆炸
   save_interval: 50           # 每50次迭代保存一次模型
   experiment_name: "dashgo_neupan_ppo"
-  run_name: "v1_smooth_nav"
+  run_name: "v2_stable_nav"
   resume: False
   load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
   checkpoint: -1
@@ -39,12 +39,12 @@ algorithm:
   # [架构师修正 2026-01-24] 大幅提高熵系数，强迫策略网络重新探索
   # 修改历史：0.005 → 0.02（提高4倍）
   # 原理：强迫策略分布更随机，防止过早收敛到"原地蠕动"的局部最优
-  entropy_coef: 0.02  # ✅ 从 0.005 提高到 0.02（强烈激励探索）
+  entropy_coef: 0.01  # ⬇️ [架构师修正 2026-01-25] 降低熵系数，防止过度探索（从 0.02 降到 0.01）
 
   # 学习参数
   num_learning_epochs: 5
   num_mini_batches: 4         # ⚠️ 显存如果不够(如<8GB)，可以调大这个数 (例如 8)
-  learning_rate: 1.0e-3       # ⚠️ 初始学习率（提高10倍，有训练崩溃风险）
+  learning_rate: 3.0e-4       # ⬇️ [架构师修正 2026-01-25] 降低学习率，防止 Noise 爆炸（从 1e-3 降到 3e-4）
   schedule: "adaptive"        # ✅ [保险丝] 自适应调整学习率
   gamma: 0.99                 # 折扣因子 (关注长远利益)
   lam: 0.95
