@@ -800,7 +800,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # mesh_prim_paths=None,  # 自动检测所有碰撞体（推荐）
+            # [架构师建议] 使用全局正则路径指定检测对象
+            # /World/envs/env_.*/.* 匹配所有环境下的所有物体（障碍物、地面等）
+            mesh_prim_paths=["/World/envs/env_.*/.*"],  # ✅ 全局正则路径
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
@@ -808,7 +810,7 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
                 horizontal_fov_range=[-180.0, 180.0],  # 360°全方位扫描
                 horizontal_res=0.36,  # 角度分辨率（约1000点/360°）
             ),
-            debug_vis=not is_headless_mode(),  # 可视化射线
+            debug_vis=False,  # ⚠️ 暂时禁用可视化，防止NoneType reshape错误
         )
     
     obs_inner_1 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_1", spawn=sim_utils.CylinderCfg(radius=0.1, height=1.0, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.6, 0.0, 0.5)))
