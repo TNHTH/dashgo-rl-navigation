@@ -974,7 +974,7 @@ class DashgoTerminationsCfg:
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 0.5,  # ✅ [稳健版 2026-01-25] 放宽到 0.5m（和Reward一致，避免"到了没分"BUG）
+            "threshold": 0.3,  # ✅ 保持 0.3m 严格判定（原配置）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
