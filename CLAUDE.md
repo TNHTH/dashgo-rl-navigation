@@ -7,7 +7,7 @@ You are Claude Code, Anthropic's official CLI.
 
 ## 2. 动态规则（MANDATORY - 每次对话必须遵守）
 
-> ⚠️ **系统指令**: 以下15条动态规则是强制性的，适用于所有交互。这些规则从对话历史中总结得出，持续优化中。
+> ⚠️ **系统指令**: 以下19条动态规则是强制性的，适用于所有交互。这些规则从对话历史中总结得出，持续优化中。
 
 ### DR-001: 强制中文回复
 - **创建**: 2026-01-17 | **频率**: 1 | **优先级**: highest
@@ -103,6 +103,72 @@ You are Claude Code, Anthropic's official CLI.
 - **示例**:
   - ✅ 正确：`Glob('*.md')` → 并行读取3个文件
   - ❌ 错误：`Read('file1.md')` → `Read('file2.md')` → `Read('file3.md')` 串行3次
+
+### DR-018: 项目代码重大改动自动清理日志
+- **创建**: 2026-01-25 | **频率**: 1 | **优先级**: **high**
+- **规则**: 对项目代码进行**重大改动**或**需要重新训练的改动**时，必须自动清理旧训练日志
+- **触发条件**（满足任一即触发）:
+  - 修改奖励函数（`dashgo_env_v2.py`中的`RewardsCfg`）
+  - 修改训练超参数（`train_cfg_v2.yaml`中的learning_rate、entropy_coef等）
+  - 修改网络架构（actor_hidden_dims、critic_hidden_dims等）
+  - 修改环境配置（episode_length_s、num_envs等）
+  - 实施新的训练方案（如v3→v4→v5升级）
+- **自动执行序列**:
+  ```bash
+  # 在git add和commit之前自动执行
+  rm -rf logs/dashgo_*  # 清理所有旧训练日志
+  # 或者更精确的清理
+  rm -rf logs/<旧的experiment_name>
+  ```
+- **示例**:
+  - ✅ 正确：修改`shaping_distance`权重 → 自动`rm -rf logs/*` → git add → git commit
+  - ✅ 正确：升级到v5.0方案 → 自动`rm -rf logs/dashgo_v5_auto` → 执行修改
+  - ❌ 错误：修改代码后不清理日志，导致新旧训练数据混淆
+
+### DR-019: 项目特定强制规则（DashGo RL Navigation）
+- **创建**: 2026-01-25 | **频率**: 1 | **优先级**: **highest**
+- **适用范围**: 仅在`/home/gwh/dashgo_rl_project`目录下工作时生效
+- **规则内容**:
+
+  **1. reach_goal阈值一致性**
+  - **规则**: `TerminationTermCfg`和`RewardTermCfg`中的reach_goal阈值必须保持一致
+  - **当前值**: 0.5m（v5.0 Ultimate配置）
+  - **理由**: 用户明确要求"就正常放到0.5"，避免"到了没分"BUG
+  - **检查点**: `dashgo_env_v2.py`中的`DashgoRewardsCfg.reach_goal.params.threshold`和`DashgoTerminationsCfg.reach_goal.params.threshold`
+
+  **2. 代码修改后必须提交**
+  - **规则**: 任何代码修改后必须执行`git add` + `git commit`，并推送到GitHub
+  - **理由**: 用户明确要求"1.将我的修改后的文件\代码都记得提交"
+  - **执行时机**:
+    - 修改训练配置后
+    - 修改奖励函数后
+    - 修改环境代码后
+    - 创建新文档后
+
+  **3. 方案执行前必须用户确认**
+  - **规则**: 任何训练方案的实施（v3、v4、v5等）必须先给出详细计划，等待用户明确确认
+  - **理由**: 用户多次强调"先交给我评判,不要执行"
+  - **确认方式**:
+    - 用户说"确认"、"可以执行"、"yes"、"go ahead"
+    - 用户给出具体参数值（如"2000"）
+  - **禁止**:
+    - 用户说"按照这个执行"后立即开始修改
+    - 未经确认就修改核心代码
+
+  **4. 训练参数修改必须说明理由**
+  - **规则**: 修改learning_rate、entropy_coef、reward weight等关键参数时，必须说明理由和历史背景
+  - **理由**: 用户要求"一定要记得"这些修改
+  - **示例**:
+    ```python
+    # ✅ 正确：附带历史说明
+    shaping_distance = RewardTermCfg(
+        weight=0.75,  # v5.0: 黄金平衡点（v3是0.5，架构师建议0.75+tanh）
+        params={"std": 2.0}
+    )
+
+    # ❌ 错误：无说明
+    shaping_distance = RewardTermCfg(weight=0.75)
+    ```
 
 ---
 
