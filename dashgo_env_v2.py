@@ -362,6 +362,47 @@ def curriculum_expand_target_range(env, env_ids, command_name, start_step, end_s
         cmd_term.cfg.ranges.pos_y = (-current_limit, current_limit)
 
 # =============================================================================
+# [v5.0 Hotfix] 自定义tanh距离奖励函数
+# =============================================================================
+
+def reward_position_command_error_tanh(env, std: float, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    [v5.0 Hotfix] 手动实现tanh距离奖励（Isaac Lab 4.5无此API）
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    问题修复: AttributeError: module 'isaaclab.envs.mdp.rewards' has no attribute 'position_command_error_tanh'
+
+    奖励范围: (0, 1]
+    逻辑: 距离越近，奖励越高（接近1）；距离越远，奖励越低（接近0）
+
+    数学原理:
+        reward = 1.0 - tanh(dist / std)
+        - 当 dist = 0, tanh = 0, reward = 1.0（到达目标）
+        - 当 dist = std, tanh ≈ 0.76, reward ≈ 0.24（中等距离）
+        - 当 dist >> std, tanh ≈ 1.0, reward ≈ 0.0（远距离）
+
+    Args:
+        env: 管理型RL环境
+        std: 标准化参数，控制tanh饱和速度
+        command_name: 命令名称（"target_pose"）
+        asset_cfg: 机器人实体配置
+
+    Returns:
+        torch.Tensor: 形状为[num_envs]的奖励张量，范围(0, 1]
+    """
+    # 1. 获取目标位置 (x, y)
+    target_pos = env.command_manager.get_command(command_name)[:, :2]
+
+    # 2. 获取机器人位置 (x, y)
+    robot_pos = env.scene[asset_cfg.name].data.root_pos_w[:, :2]
+
+    # 3. 计算欧几里得距离
+    dist = torch.norm(target_pos - robot_pos, dim=1)
+
+    # 4. 计算tanh奖励
+    return 1.0 - torch.tanh(dist / std)
+
+# =============================================================================
 # [v5.0 Ultimate] 辅助奖励函数
 # =============================================================================
 
@@ -929,9 +970,9 @@ class DashgoRewardsCfg:
     # [引导] 黄金平衡点 0.75 + tanh
     # 作用：提供方向感，但tanh限制了单步收益，防止刷分
     shaping_distance = RewardTermCfg(
-        func=mdp.rewards.position_command_error_tanh,
+        func=reward_position_command_error_tanh,  # ✅ [v5.0 Hotfix] 使用自定义函数（修复API不匹配）
         weight=0.75,  # ✅ [v5.0] 黄金平衡点（从0.5提升）
-        params={"std": 2.0, "command_name": "target_pose"}
+        params={"std": 2.0, "command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}  # 添加asset_cfg参数
     )
 
     # [辅助] Dense奖励组 (保留v3优势)
