@@ -1,6 +1,7 @@
 # train_cfg_v2.yaml
-# 2026-01-24: Isaac Sim Architect Edition
-# 专为 DashGo D1 导航设计的 "NeuPAN-Distilled" PPO 配置
+# [DashGo v5.0 Ultimate - 2026-01-25]
+# 策略：低学习率(1.5e-4) + 自动课程(Auto-Curriculum) + 混合奖励(Hybrid Rewards)
+# 特点：自动从3m扩展到8m，reach_goal 2000.0绝对主导，保留Dense奖励保底
 
 seed: 42
 device: 'cuda:0'
@@ -9,12 +10,12 @@ device: 'cuda:0'
 runner:
   policy_class_name: "ActorCritic"
   algorithm_class_name: "PPO"
-  num_steps_per_env: 24       # ⚠️ 每个环境采样步数（建议配合4096并行环境）
-  max_iterations: 4000        # 训练迭代次数（从1500提高到4000，更充分的训练）
-  empirical_normalization: True # ✅ [关键] 对输入观测进行归一化，防止雷达大数值(12.0)导致梯度爆炸
-  save_interval: 50           # 每50次迭代保存一次模型
-  experiment_name: "dashgo_neupan_ppo"
-  run_name: "v3_robust_nav"
+  num_steps_per_env: 24       # 配合 4096 环境的大批量梯度更新
+  max_iterations: 5000        # ✅ 5000轮：给足时间让课程从 3m 走到 8m 并收敛
+  empirical_normalization: True # ✅ 必开：自动归一化观测数据
+  save_interval: 100          # ✅ 每100轮保存，安全第一
+  experiment_name: "dashgo_v5_auto"
+  run_name: "v5_ultimate_auto"
   resume: False
   load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
   checkpoint: -1
