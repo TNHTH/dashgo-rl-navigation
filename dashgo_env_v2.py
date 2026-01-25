@@ -232,67 +232,85 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
     obs = torch.cat([dist, angle_error], dim=-1)
     return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
 
-def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+# =============================================================================
+# [架构师新增] 核心物理计算工具 (2026-01-25)
+# 作用：封装 RayCaster 距离计算逻辑，供观测和奖励共同调用
+# =============================================================================
+
+def _compute_raycaster_distance(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    [架构师修正 2026-01-25 v3.0 最终版] 处理 RayCaster 激光雷达数据
+    [Core Logic] 计算 RayCaster 的物理击中距离
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    架构师认证代码（手动计算欧几里得距离）
+    架构师认证代码
 
-    修复说明:
-        1. RayCasterData 没有 .ranges 属性（需要手算）
-        2. 使用 .ray_hits_w (击中点世界坐标) 和 .pos_w (传感器位置)
-        3. 手动计算欧几里得距离 (L2 Norm)
-
-    数据处理流程:
-        1. 获取光线击中点坐标 [num_envs, num_rays, 3]
-        2. 获取传感器位置坐标 [num_envs, 3]
-        3. 计算相对向量 (Hit - Origin)
-        4. 计算欧几里得距离 (L2 Norm)
-        5. 数据清洗与归一化到 [0, 1]
-
-    参数来源:
-        - max_range: 12.0米（EAI F4 最大测距）
-
-    Returns:
-        torch.Tensor: 形状为 [num_envs, num_rays] 的归一化距离数组
+    逻辑：Distance = || Hit_Point - Sensor_Origin ||
+    返回：原始距离数据 (单位: 米)，形状 [num_envs, num_rays]
     """
-    # 1. 获取传感器对象
+    # 1. 获取传感器
     sensor = env.scene[sensor_cfg.name]
 
-    # 2. 获取坐标数据
-    # ray_hits_w: [num_envs, num_rays, 3] -> 光线打在障碍物上的XYZ坐标
-    # pos_w:      [num_envs, 3]           -> 雷达发射中心的XYZ坐标
-    ray_hits_w = sensor.data.ray_hits_w
-    sensor_pos_w = sensor.data.pos_w
+    # 2. 获取物理数据
+    ray_hits_w = sensor.data.ray_hits_w  # [N, Rays, 3]
+    sensor_pos_w = sensor.data.pos_w       # [N, 3]
 
-    # 3. 计算相对向量 (Hit - Origin)
-    # 使用 unsqueeze(1) 将 pos_w 从 [N, 3] 变为 [N, 1, 3] 以便进行广播减法
-    rel_vec = ray_hits_w - sensor_pos_w.unsqueeze(1)
+    # 3. 计算距离 (L2 Norm)
+    # [N, 1, 3] - [N, Rays, 3] broadcast
+    vec = ray_hits_w - sensor_pos_w.unsqueeze(1)
+    dist = torch.norm(vec, dim=-1)
 
-    # 4. 计算欧几里得距离 (L2 Norm)
-    # 结果形状: [num_envs, num_rays]
-    depths = torch.norm(rel_vec, dim=-1)
+    # 4. 数据清洗 (NaN/Inf -> Max Range)
+    max_range = 12.0  # EAI F4 参数
+    dist = torch.nan_to_num(dist, nan=max_range, posinf=max_range, neginf=0.0)
+    dist = torch.clamp(dist, min=0.0, max=max_range)
 
-    # 5. 数据清洗与归一化
-    max_range = 12.0  # EAI F4 最大测距
-    # 过滤掉可能的 NaN 或 Inf，并限制在最大量程内
-    depths = torch.nan_to_num(depths, nan=max_range, posinf=max_range, neginf=0.0)
-    depths = torch.clamp(depths, min=0.0, max=max_range)
+    return dist
 
-    # 6. 归一化到 [0, 1] 区间 (这对神经网络训练非常重要)
-    depths_normalized = depths / max_range
+# =============================================================================
+# [架构师修复] 兼容性补丁：复活旧函数名
+# 作用：防止 reward_navigation_sota 等旧代码报错
+# =============================================================================
 
-    # 7. 降采样到36个扇区（降低输入维度，加速训练）
+def _get_corrected_depth(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """兼容旧接口，直接转发给新的计算核心"""
+    return _compute_raycaster_distance(env, sensor_cfg)
+
+# =============================================================================
+# 观测处理函数
+# =============================================================================
+
+def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """
+    [架构师修正 2026-01-25 v4.0 简化版] 处理 RayCaster 激光雷达数据
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    架构师认证代码
+
+    改进说明:
+        - 使用核心工具函数 _compute_raycaster_distance
+        - 代码更简洁，逻辑复用，DRY原则
+        - 观测和奖励共享同一套物理计算逻辑
+
+    Returns:
+        torch.Tensor: 形状为 [num_envs, 36] 的归一化距离数组
+    """
+    # 1. 调用核心工具获取米制距离
+    distances = _compute_raycaster_distance(env, sensor_cfg)
+
+    # 2. 归一化到 [0, 1] (Observation 需要)
+    max_range = 12.0
+    distances_normalized = distances / max_range
+
+    # 3. 降采样到36个扇区（降低输入维度，加速训练）
     num_sectors = 36
-    batch_size, num_rays = depths_normalized.shape
+    batch_size, num_rays = distances_normalized.shape
 
     if num_rays % num_sectors == 0:
         # 每个扇区取最小值（最安全的障碍物距离）
-        depth_sectors = depths_normalized.view(batch_size, num_sectors, -1).min(dim=2)[0]
+        depth_sectors = distances_normalized.view(batch_size, num_sectors, -1).min(dim=2)[0]
     else:
         # 如果不能整除，保持原样（避免数据丢失）
-        depth_sectors = depths_normalized
+        depth_sectors = distances_normalized
 
     return depth_sectors
 
