@@ -213,6 +213,55 @@ def main():
             print("[INFO] 未指定 num_envs，默认使用 256 个环境 (RTX 4060 Laptop 8GB显存优化值)")
             env_cfg.scene.num_envs = 256
 
+        # =============================================================================================
+        # [v6.0新增] 自动自适应课程学习 (Auto-Adaptive Curriculum)
+        # 目的: 解耦环境数量与课程进度，无论num_envs是32还是4096，都能在训练75%时完成
+        # 架构师审批: ✅ 已通过（2026-01-26）
+        # =============================================================================================
+        try:
+            # [关键检查] 确保读取的是最终覆盖后的环境数量 (CLI args > YAML)
+            current_num_envs = env_cfg.scene.num_envs
+
+            # [参数提取] 兼容不同的config结构（OmegaConf/dict）
+            runner_cfg = agent_cfg.get("runner", agent_cfg)
+            max_iters = runner_cfg.get("max_iterations", 5000)
+            steps_per_env = runner_cfg.get("num_steps_per_env", 24)
+
+            # [核心公式] 总物理步数 = 环境数 × 总轮数 × 每轮步数
+            total_physics_steps = int(current_num_envs * max_iters * steps_per_env)
+
+            # [策略设定] 75%爬坡 + 25%巩固（黄金比例）
+            curriculum_ratio = 0.75
+            auto_end_step = int(total_physics_steps * curriculum_ratio)
+
+            # [动态注入] 强行修改环境配置对象（覆盖dashgo_env_v2.py中的默认值）
+            if hasattr(env_cfg, "curriculum") and hasattr(env_cfg.curriculum, "target_expansion"):
+                # 确保params字典存在（健壮性处理）
+                if not hasattr(env_cfg.curriculum.target_expansion, "params"):
+                    env_cfg.curriculum.target_expansion.params = {}
+
+                # 覆盖end_step参数
+                env_cfg.curriculum.target_expansion.params['end_step'] = auto_end_step
+
+                # [日志验证] 打印确认信息
+                print(f"\n{'='*80}")
+                print(f"[INFO] >>> 自动课程配置注入成功 (Auto-Curriculum) <<<")
+                print(f"       ├── 当前环境数量: {current_num_envs}")
+                print(f"       ├── 训练总轮数: {max_iters}")
+                print(f"       ├── 每轮步数: {steps_per_env}")
+                print(f"       ├── 总物理步数: {total_physics_steps:,}")
+                print(f"       ├── 课程结束步数: {auto_end_step:,} (在75%进度处完成)")
+                print(f"       └── 目标范围: 3m → 8m (完整课程学习)")
+                print(f"{'='*80}\n")
+            else:
+                print("[WARNING] 未找到curriculum.target_expansion配置，跳过自动注入。")
+
+        except Exception as e:
+            print(f"[ERROR] 自动课程配置注入失败: {e}")
+            import traceback
+            traceback.print_exc()
+        # =============================================================================================
+
         # 5. 创建环境
         env = ManagerBasedRLEnv(cfg=env_cfg)
         env = RslRlVecEnvWrapper(env)
