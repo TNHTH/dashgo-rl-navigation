@@ -14,7 +14,7 @@ runner:
   empirical_normalization: True # ✅ [关键] 对输入观测进行归一化，防止雷达大数值(12.0)导致梯度爆炸
   save_interval: 50           # 每50次迭代保存一次模型
   experiment_name: "dashgo_neupan_ppo"
-  run_name: "v2_stable_nav"
+  run_name: "v3_robust_nav"
   resume: False
   load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
   checkpoint: -1
@@ -36,15 +36,15 @@ algorithm:
   clip_param: 0.2
 
   # 熵系数 (Entropy) - 控制探索欲望
-  # [架构师修正 2026-01-24] 大幅提高熵系数，强迫策略网络重新探索
-  # 修改历史：0.005 → 0.02（提高4倍）
-  # 原理：强迫策略分布更随机，防止过早收敛到"原地蠕动"的局部最优
-  entropy_coef: 0.01  # ⬇️ [架构师修正 2026-01-25] 降低熵系数，防止过度探索（从 0.02 降到 0.01）
+  # [架构师修正 2026-01-25] 再次降低熵系数，防止策略崩溃
+  # 修改历史：0.02 → 0.01 → 0.005（减半，减少无意义随机抽搐）
+  # 原理：让策略更专注，避免高频抖动
+  entropy_coef: 0.005  # ⬇️ [架构师稳健版 2026-01-25] 再次减半（从 0.01 降到 0.005）
 
   # 学习参数
   num_learning_epochs: 5
   num_mini_batches: 4         # ⚠️ 显存如果不够(如<8GB)，可以调大这个数 (例如 8)
-  learning_rate: 3.0e-4       # ⬇️ [架构师修正 2026-01-25] 降低学习率，防止 Noise 爆炸（从 1e-3 降到 3e-4）
+  learning_rate: 1.5e-4      # ⬇️ [架构师稳健版 2026-01-25] "慢就是快"（从 3e-4 降到 1.5e-4）
   schedule: "adaptive"        # ✅ [保险丝] 自适应调整学习率
   gamma: 0.99                 # 折扣因子 (关注长远利益)
   lam: 0.95
