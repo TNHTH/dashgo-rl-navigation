@@ -800,9 +800,10 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # [架构师建议] 使用全局正则路径指定检测对象
-            # /World/envs/env_.*/.* 匹配所有环境下的所有物体（障碍物、地面等）
-            mesh_prim_paths=["/World/envs/env_.*/.*"],  # ✅ 全局正则路径
+            # [官方示例] mesh_prim_paths使用具体路径，不支持USD通配符
+            # 参考: ~/IsaacLab/source/isaaclab/isaaclab/scene/interactive_scene_cfg.py
+            # 使用地面作为碰撞检测对象（所有环境共享）
+            mesh_prim_paths=["/World/defaultGroundPlane"],  # ✅ 官方推荐：单一路径
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
