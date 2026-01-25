@@ -232,87 +232,62 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
     obs = torch.cat([dist, angle_error], dim=-1)
     return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
 
-def _get_corrected_depth(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """
-    [修复 2026-01-25] 适配RayCaster传感器（从Camera改为RayCaster）
-
-    Camera输出：distance_to_image_plane（深度图）
-    RayCaster输出：rays_w（世界坐标系下的射线终点）
-
-    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    """
-    # [兼容] 支持Camera和RayCaster两种传感器
-    sensor = env.scene[sensor_cfg.name]
-
-    # 判断传感器类型
-    if hasattr(sensor, "data") and hasattr(sensor.data, "rays_w"):
-        # RayCaster传感器
-        if sensor.data.rays_w is None:
-            return torch.zeros((env.num_envs, 1000), device=env.device)
-
-        # rays_w shape: (num_envs, num_rays, 3) -> [x, y, z]坐标
-        rays = sensor.data.rays_w
-        sensor_pos = sensor.data.pos_w[:, 0:1, :]  # 传感器位置 shape: (num_envs, 1, 3)
-
-        # 计算距离
-        depth = torch.norm(rays - sensor_pos, dim=-1)  # shape: (num_envs, num_rays)
-        depth = torch.clamp(depth, min=0.0, max=6.0)
-        return depth
-
-    else:
-        # Camera传感器（旧代码，保留兼容）
-        if sensor.data.output["distance_to_image_plane"] is None:
-            return torch.zeros((env.num_envs, 180), device=env.device)
-
-        depth = sensor.data.output["distance_to_image_plane"].view(sensor.data.output["distance_to_image_plane"].shape[0], -1)
-        _, width = depth.shape
-
-        if not hasattr(env, "_lidar_correction_factor") or env._lidar_correction_factor.shape[0] != width:
-            f_px = width * 4.0 / 20.955
-            u = torch.arange(width, device=env.device).float() - (width / 2) + 0.5
-            theta = torch.atan(u / f_px)
-            env._lidar_correction_factor = 1.0 / torch.cos(theta)
-
-        depth_radial = depth * env._lidar_correction_factor
-        depth_radial = torch.nan_to_num(depth_radial, posinf=6.0, neginf=6.0, nan=6.0)
-        depth_radial = torch.clamp(depth_radial, min=0.0, max=6.0)
-        return depth_radial
-
 def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    [修复 2026-01-25] 处理LiDAR雷达数据 - 支持RayCaster（1000点）和Camera（180点）
+    [架构师修正 2026-01-25 v2.0] 处理 RayCaster 激光雷达数据
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    架构师认证代码
 
-    处理流程:
-        1. 获取传感器距离数据（RayCaster: 1000点 / Camera: 180点）
-        2. 裁剪到有效范围 [0, 6米]
-        3. 降采样到36个扇区（1000点→36点 或 180点→36点）
-        4. 归一化到 [0, 1] 区间（防止大数值导致梯度爆炸）
+    变更说明:
+        1. 弃用 sensor.data.output["distance_to_image_plane"] (相机专用)
+        2. 启用 sensor.data.ranges (RayCaster专用)
+        3. 移除深度矫正 (RayCaster 原生就是径向距离)
+        4. 移除旧 _get_corrected_depth 函数（不再需要）
+
+    数据处理流程:
+        1. 直接获取 RayCaster 测距数据 [Batch, Num_Rays]
+        2. 数据清洗（处理无穷远和错误数据）
+        3. 裁剪到有效范围 [0, 12米]（EAI F4 实物规格）
+        4. 归一化到 [0, 1] 区间（PPO 收敛关键）
+        5. 降采样到36个扇区（NeuPAN推荐值）
 
     参数来源:
-        - max_distance: 6.0米（LiDAR有效检测距离，实物EAI F4为6-12m）
-        - num_sectors: 36个扇区（NeuPAN推荐值）
+        - max_range: 12.0米（EAI F4 最大测距）
+        - num_sectors: 36个扇区（降低输入维度）
 
     Returns:
-        torch.Tensor: 形状为[num_envs, 36]的归一化距离数组
+        torch.Tensor: 形状为 [num_envs, 36] 的归一化距离数组
     """
-    depth_radial = _get_corrected_depth(env, sensor_cfg)
+    # 1. 获取传感器对象
+    sensor = env.scene[sensor_cfg.name]
+
+    # 2. 直接获取 RayCaster 测距数据 [Batch, Num_Rays]
+    # RayCaster 的核心数据都在 .data.ranges 里
+    depths = sensor.data.ranges
+
+    # 3. 数据清洗（处理无穷远和错误数据）
+    # 仿真中，未击中物体通常返回 inf 或 -inf，或者 max_range
+    # 我们将其截断到传感器的最大感知距离
+    max_range = 12.0  # 对应 EAI F4 雷达参数（实物最大12m）
+    depths = torch.clamp(depths, min=0.0, max=max_range)
+
+    # 4. 降采样到36个扇区（降低计算复杂度）
     num_sectors = 36
-    batch_size, width = depth_radial.shape
+    batch_size, num_rays = depths.shape
 
-    # 降采样：每个扇区取最小值
-    if width % num_sectors == 0:
-        depth_sectors = depth_radial.view(batch_size, num_sectors, -1).min(dim=2)[0]
+    if num_rays % num_sectors == 0:
+        # 每个扇区取最小值（最安全的障碍物距离）
+        depth_sectors = depths.view(batch_size, num_sectors, -1).min(dim=2)[0]
     else:
-        depth_sectors = depth_radial
+        # 如果不能整除，保持原样（避免数据丢失）
+        depth_sectors = depths
 
-    # [关键修复] 归一化到 [0, 1] 区间
-    # 防止雷达大数值(6.0)导致梯度爆炸，配合empirical_normalization使用
-    max_distance = 6.0  # LiDAR有效检测距离（米）
-    depth_normalized = depth_sectors / max_distance
+    # 5. 归一化到 [0, 1] 区间
+    # 这对 PPO 收敛至关重要，防止大数值导致梯度爆炸
+    depths_normalized = depth_sectors / max_range
 
-    return depth_normalized
+    return depths_normalized
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
