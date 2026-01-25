@@ -857,13 +857,13 @@ class DashgoRewardsCfg:
             }
         )
     
-    # [架构师最终修正 2026-01-25] 防爆重启版：大幅提高距离引导
-    # 原因：shaping_reward 太微弱(0.005)，被生存惩罚和噪声淹没
-    # 解决：翻倍权重，让它"动起来有糖吃"
-    # 修改历史：1.5 → 2.0（翻倍，加强引导）
+    # [架构师稳健版 2026-01-25] 削弱引导奖励，防止刷分抖动
+    # 原因：shaping_distance权重2.0太高，机器人发现"抖动能骗分"
+    # 解决：大幅降低权重，只作为"路标"，不作为"主食"
+    # 修改历史：1.5 → 2.0 → 0.5（降低4倍，防止过度优化）
     shaping_distance = RewardTermCfg(
         func=reward_distance_tracking_potential,
-        weight=2.0,  # ✅ 从 1.5 提高到 2.0（翻倍，像磁铁一样吸引机器人）
+        weight=0.5,  # ✅ [稳健版] 从 2.0 降到 0.5（削弱引导，防止抖动刷分）
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
@@ -949,13 +949,13 @@ class DashgoRewardsCfg:
     
     # [架构师修正 2026-01-24] 大幅加大碰撞惩罚（最后冲刺）
     # 问题：机器人像新手司机，只会猛冲，不会刹车（碰撞率50%）
-    # [架构师最终修正 2026-01-25] 防爆重启版：降低碰撞惩罚
-    # 原因：机器人处于"癫痫状态"（noise: 26.82），过重的碰撞惩罚会让它更不敢动
-    # 解决：适度降低，允许轻微试错
-    # 修改历史：-20.0 → -50.0 → -20.0（恢复）
+    # [架构师稳健版 2026-01-25] 加重碰撞惩罚，让机器人"怕疼"
+    # 原因：-20.0 太轻，碰撞率22%，机器人觉得撞一下无所谓
+    # 解决：恢复高惩罚，强化避障动机
+    # 修改历史：-20.0 → -50.0 → -20.0 → -50.0（恢复高惩罚）
     collision = RewardTermCfg(
         func=penalty_collision_force,
-        weight=-20.0,  # ✅ 从 -50.0 降低到 -20.0（允许轻微试错）
+        weight=-50.0,  # ✅ [稳健版] 从 -20.0 恢复到 -50.0（让它"怕疼"）
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
             "threshold": 1.0  # ✅ 从 150.0 降到 1.0（更敏感）
@@ -974,7 +974,7 @@ class DashgoTerminationsCfg:
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 0.3,  # ✅ 从 0.5 收紧到 0.3（极严格的到达判定）
+            "threshold": 0.5,  # ✅ [稳健版 2026-01-25] 放宽到 0.5m（和Reward一致，避免"到了没分"BUG）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
