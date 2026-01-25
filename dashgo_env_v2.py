@@ -800,7 +800,7 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            mesh_prim_paths=["{ENV_REGEX_NS}/Env"],  # 碰撞检测对象
+            # mesh_prim_paths=None,  # 自动检测所有碰撞体（推荐）
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
