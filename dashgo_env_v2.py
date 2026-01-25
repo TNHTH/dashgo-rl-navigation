@@ -234,60 +234,67 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
 
 def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    [架构师修正 2026-01-25 v2.0] 处理 RayCaster 激光雷达数据
+    [架构师修正 2026-01-25 v3.0 最终版] 处理 RayCaster 激光雷达数据
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    架构师认证代码
+    架构师认证代码（手动计算欧几里得距离）
 
-    变更说明:
-        1. 弃用 sensor.data.output["distance_to_image_plane"] (相机专用)
-        2. 启用 sensor.data.ranges (RayCaster专用)
-        3. 移除深度矫正 (RayCaster 原生就是径向距离)
-        4. 移除旧 _get_corrected_depth 函数（不再需要）
+    修复说明:
+        1. RayCasterData 没有 .ranges 属性（需要手算）
+        2. 使用 .ray_hits_w (击中点世界坐标) 和 .pos_w (传感器位置)
+        3. 手动计算欧几里得距离 (L2 Norm)
 
     数据处理流程:
-        1. 直接获取 RayCaster 测距数据 [Batch, Num_Rays]
-        2. 数据清洗（处理无穷远和错误数据）
-        3. 裁剪到有效范围 [0, 12米]（EAI F4 实物规格）
-        4. 归一化到 [0, 1] 区间（PPO 收敛关键）
-        5. 降采样到36个扇区（NeuPAN推荐值）
+        1. 获取光线击中点坐标 [num_envs, num_rays, 3]
+        2. 获取传感器位置坐标 [num_envs, 3]
+        3. 计算相对向量 (Hit - Origin)
+        4. 计算欧几里得距离 (L2 Norm)
+        5. 数据清洗与归一化到 [0, 1]
 
     参数来源:
         - max_range: 12.0米（EAI F4 最大测距）
-        - num_sectors: 36个扇区（降低输入维度）
 
     Returns:
-        torch.Tensor: 形状为 [num_envs, 36] 的归一化距离数组
+        torch.Tensor: 形状为 [num_envs, num_rays] 的归一化距离数组
     """
     # 1. 获取传感器对象
     sensor = env.scene[sensor_cfg.name]
 
-    # 2. 直接获取 RayCaster 测距数据 [Batch, Num_Rays]
-    # RayCaster 的核心数据都在 .data.ranges 里
-    depths = sensor.data.ranges
+    # 2. 获取坐标数据
+    # ray_hits_w: [num_envs, num_rays, 3] -> 光线打在障碍物上的XYZ坐标
+    # pos_w:      [num_envs, 3]           -> 雷达发射中心的XYZ坐标
+    ray_hits_w = sensor.data.ray_hits_w
+    sensor_pos_w = sensor.data.pos_w
 
-    # 3. 数据清洗（处理无穷远和错误数据）
-    # 仿真中，未击中物体通常返回 inf 或 -inf，或者 max_range
-    # 我们将其截断到传感器的最大感知距离
-    max_range = 12.0  # 对应 EAI F4 雷达参数（实物最大12m）
+    # 3. 计算相对向量 (Hit - Origin)
+    # 使用 unsqueeze(1) 将 pos_w 从 [N, 3] 变为 [N, 1, 3] 以便进行广播减法
+    rel_vec = ray_hits_w - sensor_pos_w.unsqueeze(1)
+
+    # 4. 计算欧几里得距离 (L2 Norm)
+    # 结果形状: [num_envs, num_rays]
+    depths = torch.norm(rel_vec, dim=-1)
+
+    # 5. 数据清洗与归一化
+    max_range = 12.0  # EAI F4 最大测距
+    # 过滤掉可能的 NaN 或 Inf，并限制在最大量程内
+    depths = torch.nan_to_num(depths, nan=max_range, posinf=max_range, neginf=0.0)
     depths = torch.clamp(depths, min=0.0, max=max_range)
 
-    # 4. 降采样到36个扇区（降低计算复杂度）
+    # 6. 归一化到 [0, 1] 区间 (这对神经网络训练非常重要)
+    depths_normalized = depths / max_range
+
+    # 7. 降采样到36个扇区（降低输入维度，加速训练）
     num_sectors = 36
-    batch_size, num_rays = depths.shape
+    batch_size, num_rays = depths_normalized.shape
 
     if num_rays % num_sectors == 0:
         # 每个扇区取最小值（最安全的障碍物距离）
-        depth_sectors = depths.view(batch_size, num_sectors, -1).min(dim=2)[0]
+        depth_sectors = depths_normalized.view(batch_size, num_sectors, -1).min(dim=2)[0]
     else:
         # 如果不能整除，保持原样（避免数据丢失）
-        depth_sectors = depths
+        depth_sectors = depths_normalized
 
-    # 5. 归一化到 [0, 1] 区间
-    # 这对 PPO 收敛至关重要，防止大数值导致梯度爆炸
-    depths_normalized = depth_sectors / max_range
-
-    return depths_normalized
+    return depth_sectors
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
