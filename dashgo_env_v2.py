@@ -803,7 +803,7 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             # [官方示例] mesh_prim_paths使用具体路径，不支持USD通配符
             # 参考: ~/IsaacLab/source/isaaclab/isaaclab/scene/interactive_scene_cfg.py
             # 使用地面作为碰撞检测对象（所有环境共享）
-            mesh_prim_paths=["/World/defaultGroundPlane"],  # ✅ 官方推荐：单一路径
+            mesh_prim_paths=["/World/GroundPlane"],  # ✅ 使用真实地面名称（第786行定义）
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
