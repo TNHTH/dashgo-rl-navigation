@@ -5,7 +5,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, mdp
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg
+from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg, RayCasterCfg, patterns
 from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg, ObservationTermCfg, TerminationTermCfg, EventTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
@@ -233,38 +233,65 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
     return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
 
 def _get_corrected_depth(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    sensor: Camera = env.scene[sensor_cfg.name]
-    if sensor.data.output["distance_to_image_plane"] is None:
-        return torch.zeros((env.num_envs, 180), device=env.device)
+    """
+    [修复 2026-01-25] 适配RayCaster传感器（从Camera改为RayCaster）
 
-    depth = sensor.data.output["distance_to_image_plane"].view(sensor.data.output["distance_to_image_plane"].shape[0], -1)
-    _, width = depth.shape
-    
-    if not hasattr(env, "_lidar_correction_factor") or env._lidar_correction_factor.shape[0] != width:
-        f_px = width * 4.0 / 20.955 
-        u = torch.arange(width, device=env.device).float() - (width / 2) + 0.5
-        theta = torch.atan(u / f_px)
-        env._lidar_correction_factor = 1.0 / torch.cos(theta)
-    
-    depth_radial = depth * env._lidar_correction_factor
-    depth_radial = torch.nan_to_num(depth_radial, posinf=6.0, neginf=6.0, nan=6.0)
-    depth_radial = torch.clamp(depth_radial, min=0.0, max=6.0)
-    return depth_radial
+    Camera输出：distance_to_image_plane（深度图）
+    RayCaster输出：rays_w（世界坐标系下的射线终点）
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    """
+    # [兼容] 支持Camera和RayCaster两种传感器
+    sensor = env.scene[sensor_cfg.name]
+
+    # 判断传感器类型
+    if hasattr(sensor, "data") and hasattr(sensor.data, "rays_w"):
+        # RayCaster传感器
+        if sensor.data.rays_w is None:
+            return torch.zeros((env.num_envs, 1000), device=env.device)
+
+        # rays_w shape: (num_envs, num_rays, 3) -> [x, y, z]坐标
+        rays = sensor.data.rays_w
+        sensor_pos = sensor.data.pos_w[:, 0:1, :]  # 传感器位置 shape: (num_envs, 1, 3)
+
+        # 计算距离
+        depth = torch.norm(rays - sensor_pos, dim=-1)  # shape: (num_envs, num_rays)
+        depth = torch.clamp(depth, min=0.0, max=6.0)
+        return depth
+
+    else:
+        # Camera传感器（旧代码，保留兼容）
+        if sensor.data.output["distance_to_image_plane"] is None:
+            return torch.zeros((env.num_envs, 180), device=env.device)
+
+        depth = sensor.data.output["distance_to_image_plane"].view(sensor.data.output["distance_to_image_plane"].shape[0], -1)
+        _, width = depth.shape
+
+        if not hasattr(env, "_lidar_correction_factor") or env._lidar_correction_factor.shape[0] != width:
+            f_px = width * 4.0 / 20.955
+            u = torch.arange(width, device=env.device).float() - (width / 2) + 0.5
+            theta = torch.atan(u / f_px)
+            env._lidar_correction_factor = 1.0 / torch.cos(theta)
+
+        depth_radial = depth * env._lidar_correction_factor
+        depth_radial = torch.nan_to_num(depth_radial, posinf=6.0, neginf=6.0, nan=6.0)
+        depth_radial = torch.clamp(depth_radial, min=0.0, max=6.0)
+        return depth_radial
 
 def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    处理LiDAR雷达数据 - 降采样 + 归一化
+    [修复 2026-01-25] 处理LiDAR雷达数据 - 支持RayCaster（1000点）和Camera（180点）
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
 
     处理流程:
-        1. 径向校正（鱼眼镜头畸变校正）
+        1. 获取传感器距离数据（RayCaster: 1000点 / Camera: 180点）
         2. 裁剪到有效范围 [0, 6米]
-        3. 降采样到36个扇区（从180个点）
+        3. 降采样到36个扇区（1000点→36点 或 180点→36点）
         4. 归一化到 [0, 1] 区间（防止大数值导致梯度爆炸）
 
     参数来源:
-        - max_distance: 6.0米（LiDAR有效检测距离）
+        - max_distance: 6.0米（LiDAR有效检测距离，实物EAI F4为6-12m）
         - num_sectors: 36个扇区（NeuPAN推荐值）
 
     Returns:
@@ -764,16 +791,24 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         history_length=3, track_air_time=True
     )
 
-    # [兼容] 在 headless 模式下完全禁用相机传感器
-    # spawn=None 会导致 Isaac Lab 仍然尝试访问 prim 路径，所以必须用条件排除
+    # [修复 2026-01-25] 对齐实物EAI F4激光雷达规格
+    # 从深度相机改为RayCaster（360° LiDAR仿真）
+    # 参考官方文档: Isaac Lab RayCaster Sensor
+    # 实物规格: 360°扫描、6-12m范围、5-10Hz频率
     if not is_headless_mode():
-        lidar_sensor = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_cam",
-            update_period=0.0664,
-            height=1, width=180,
-            data_types=["distance_to_image_plane"],
-            spawn=sim_utils.PinholeCameraCfg(focal_length=4.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.05, 10.0)),
-            offset=CameraCfg.OffsetCfg(pos=(0.1, 0.0, 0.2), rot=(0.5, -0.5, 0.5, -0.5))
+        lidar_sensor = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
+            update_period=0.1,  # 10 Hz（接近实物5-10Hz）
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
+            mesh_prim_paths=["{ENV_REGEX_NS}/Env"],  # 碰撞检测对象
+            ray_alignment="yaw",  # 仅随机器人旋转
+            pattern_cfg=patterns.LidarPatternCfg(
+                channels=1000,  # 1000点/圈（360°/0.36° ≈ 1000）
+                vertical_fov_range=[0.0, 0.0],  # 2D扫描（单线激光雷达）
+                horizontal_fov_range=[-180.0, 180.0],  # 360°全方位扫描
+                horizontal_res=0.36,  # 角度分辨率（约1000点/360°）
+            ),
+            debug_vis=not is_headless_mode(),  # 可视化射线
         )
     
     obs_inner_1 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_1", spawn=sim_utils.CylinderCfg(radius=0.1, height=1.0, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.6, 0.0, 0.5)))
