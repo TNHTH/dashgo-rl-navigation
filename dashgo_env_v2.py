@@ -6,7 +6,7 @@ from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, mdp
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg, RayCasterCfg, patterns
-from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg, ObservationTermCfg, TerminationTermCfg, EventTermCfg
+from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg, ObservationTermCfg, TerminationTermCfg, EventTermCfg, CurriculumTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
@@ -313,6 +313,78 @@ def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
         depth_sectors = distances_normalized
 
     return depth_sectors
+
+# =============================================================================
+# [v5.0 Ultimate] 自动课程学习核心函数
+# =============================================================================
+
+def curriculum_expand_target_range(env, env_ids, command_name, start_step, end_step, min_limit, max_limit):
+    """
+    [v5.0 核心] 自动化课程学习
+    根据当前训练总步数，线性扩展目标生成的距离范围 (3m -> 8m)
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    官方文档: https://isaac-sim.github.io/IsaacLab/main/reference/api/isaaclab/managers.html
+    参考示例: Isaac Lab官方curriculum学习示例
+
+    原理：
+        - 通过动态修改命令生成器的配置范围实现难度爬坡
+        - 使用物理步数（common_step_counter）而非iteration数作为时间基准
+        - 线性插值保证平滑过渡
+
+    Args:
+        env: 管理型RL环境
+        env_ids: 本次重置的环境ID（未使用，保持接口一致）
+        command_name: 要修改的命令名称（"target_pose"）
+        start_step: 课程开始步数（物理步）
+        end_step: 课程结束步数（物理步）
+        min_limit: 初始距离限制（3.0m）
+        max_limit: 最终距离限制（8.0m）
+    """
+    current_step = env.common_step_counter
+
+    # 计算进度 alpha (0.0 ~ 1.0)
+    if current_step < start_step:
+        alpha = 0.0
+    elif current_step > end_step:
+        alpha = 1.0
+    else:
+        alpha = (current_step - start_step) / (end_step - start_step)
+
+    # 计算当前难度
+    current_limit = min_limit + (max_limit - min_limit) * alpha
+
+    # 动态修改命令生成器的参数
+    cmd_term = env.command_manager.get_term(command_name)
+    if hasattr(cmd_term.cfg, "ranges") and hasattr(cmd_term.cfg.ranges, "pos_x"):
+        # 同时修改 X 和 Y 的范围，保持正方形区域
+        cmd_term.cfg.ranges.pos_x = (-current_limit, current_limit)
+        cmd_term.cfg.ranges.pos_y = (-current_limit, current_limit)
+
+# =============================================================================
+# [v5.0 Ultimate] 辅助奖励函数
+# =============================================================================
+
+def reward_target_speed(env, asset_cfg):
+    """
+    [v5.0] 速度对齐奖励：鼓励使用接近最优速度的速度
+
+    优化版本：直接鼓励向前移动，更简单直接
+    """
+    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
+    return torch.clamp(vel, min=0.0)
+
+def reward_facing_target(env, command_name, asset_cfg):
+    """
+    [v5.0] 对准奖励：鼓励车头朝向目标
+    """
+    target_pos = env.command_manager.get_command(command_name)[:, :2]
+    robot_pos = env.scene[asset_cfg.name].data.root_pos_w[:, :2]
+    robot_yaw = env.scene[asset_cfg.name].data.heading_w
+    target_vec = target_pos - robot_pos
+    target_yaw = torch.atan2(target_vec[:, 1], target_vec[:, 0])
+    angle_error = torch.abs(mdp.math.wrap_to_pi(target_yaw - robot_yaw))
+    return 1.0 / (1.0 + angle_error)
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
@@ -632,12 +704,10 @@ class RelativeRandomTargetCommandCfg(mdp.UniformPoseCommandCfg):
     asset_name: str = "robot"
     body_name: str = "base_link"
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
-    # [架构师修正 2026-01-24] 课程学习：恢复正常训练配置
-    # 修改历史：(-1.0, 1.0) → (0.1, 0.5)送分题 → (0.5, 1.5)正常训练
-    # 验证：坐标系不一致问题已修复，reach_goal 系统正常
-    # 范围：机器人前方0.5-1.5m，符合课程学习策略
+    # [v5.0 Ultimate] 自动课程学习：初始3m范围（新手区）
+    # 修改历史：(-1.0, 1.0) → (0.1, 0.5)送分题 → (0.5, 1.5)正常训练 → (-3.0, 3.0)v5.0自动课程
     ranges: mdp.UniformPoseCommandCfg.Ranges = mdp.UniformPoseCommandCfg.Ranges(
-        pos_x=(0.5, 1.5), pos_y=(-1.0, 1.0), pos_z=(0.0, 0.0),
+        pos_x=(-3.0, 3.0), pos_y=(-3.0, 3.0), pos_z=(0.0, 0.0),  # ✅ 3m x 3m正方形区域
         roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(-math.pi, math.pi)
     )
     debug_vis: bool = False
@@ -833,20 +903,52 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
 
 @configclass
 class DashgoRewardsCfg:
-    # 现有的行为奖励
-    # [兼容] headless 模式下使用不依赖传感器的奖励版本
-    if is_headless_mode():
-        # headless 模式：不使用 lidar 传感器
-        velodyne_style_reward = RewardTermCfg(
-            func=lambda env, asset_cfg, command_name: reward_navigation_sota(env, asset_cfg, None, command_name),
-            weight=1.0,
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "command_name": "target_pose"
-            }
-        )
-    else:
-        # 正常模式：使用 lidar 传感器
+    """
+    [v5.0 Ultimate] 混合奖励架构：Sparse主导 + Dense辅助 + 强约束
+
+    设计理念：
+        - reach_goal 2000.0：绝对主导，确保"到达终点"是全局最优解
+        - shaping_distance 0.75+tanh：黄金平衡，提供方向感但防止刷分
+        - Dense奖励组：解决初期迷茫，提高学习效率
+        - action_smoothness -0.01：抑制高频抖动，治愈Noise 17.0
+        - collision -50.0+10.0阈值：痛感教育，确立安全边界
+    """
+
+    # [主导] 终点大奖：2000分
+    # 作用：确保这是唯一的全局最优解
+    reach_goal = RewardTermCfg(
+        func=reward_near_goal,
+        weight=2000.0,  # ✅ [v5.0] 绝对主导值（从1000.0提升）
+        params={
+            "command_name": "target_pose",
+            "threshold": 0.5,  # ✅ v5.0使用0.5m阈值（与架构师方案一致）
+            "asset_cfg": SceneEntityCfg("robot")
+        }
+    )
+
+    # [引导] 黄金平衡点 0.75 + tanh
+    # 作用：提供方向感，但tanh限制了单步收益，防止刷分
+    shaping_distance = RewardTermCfg(
+        func=mdp.rewards.position_command_error_tanh,
+        weight=0.75,  # ✅ [v5.0] 黄金平衡点（从0.5提升）
+        params={"std": 2.0, "command_name": "target_pose"}
+    )
+
+    # [辅助] Dense奖励组 (保留v3优势)
+    # 作用：解决初期迷茫，提高学习效率
+    target_speed = RewardTermCfg(
+        func=reward_target_speed,
+        weight=1.0,
+        params={"asset_cfg": SceneEntityCfg("robot")}
+    )
+    facing_goal = RewardTermCfg(
+        func=reward_facing_target,
+        weight=0.1,
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}
+    )
+
+    # [兼容] 保留velodyne_style_reward（正常模式下）
+    if not is_headless_mode():
         velodyne_style_reward = RewardTermCfg(
             func=reward_navigation_sota,
             weight=1.0,
@@ -856,56 +958,31 @@ class DashgoRewardsCfg:
                 "command_name": "target_pose"
             }
         )
-    
-    # [架构师稳健版 2026-01-25] 削弱引导奖励，防止刷分抖动
-    # 原因：shaping_distance权重2.0太高，机器人发现"抖动能骗分"
-    # 解决：大幅降低权重，只作为"路标"，不作为"主食"
-    # 修改历史：1.5 → 2.0 → 0.5（降低4倍，防止过度优化）
-    shaping_distance = RewardTermCfg(
-        func=reward_distance_tracking_potential,
-        weight=0.5,  # ✅ [稳健版] 从 2.0 降到 0.5（削弱引导，防止抖动刷分）
-        params={
-            "command_name": "target_pose",
-            "asset_cfg": SceneEntityCfg("robot")
-        }
-    )
-    
-    # [架构师修正 2026-01-24] 几乎移除动作平滑惩罚（第三次修正）
-    # 修复"磨洋工"问题：先让它跑起来再说，不要因为起步抖动就扣分
-    # 修改历史：-0.01(刷分) → 0.01(惩罚) → 0.001(减轻) → 0.0001(几乎移除)
-    # 原理：保持正权重 * 负函数值 = 负奖励，但权重极小，几乎不影响
+
+    # [约束] 动作平滑：-0.01
+    # 作用：抑制高频抖动，治愈Noise 17.0
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=0.0001,  # ✅ 从 0.001 降到 0.0001（降低10倍，几乎移除）
+        weight=-0.01,  # ✅ [v5.0] 提升100倍（从0.0001到-0.01）
     )
-    
-    # [架构师新增] 对准奖励
-    # 引导机器人原地转向，解决 "转向惩罚 > 原地不动惩罚" 的死锁
-    # [修复] 降低权重防止原地转圈 (0.5→0.1, 2024-01-24)
-    facing_goal = RewardTermCfg(
-        func=reward_facing_target,
-        weight=0.1,
+
+    # [约束] 碰撞惩罚：-50.0 + 10.0阈值
+    # 作用：痛感教育，确立安全边界
+    collision = RewardTermCfg(
+        func=penalty_collision_force,
+        weight=-50.0,
         params={
-            "command_name": "target_pose",
-            "asset_cfg": SceneEntityCfg("robot")
+            "sensor_cfg": SceneEntityCfg("contact_forces_base"),
+            "threshold": 10.0  # ✅ [v5.0] 放宽到10.0（避免误触发）
         }
     )
 
-    # [架构师修正 2026-01-24] 大幅提升速度奖励
-    # 告诉机器人：跑起来才有分！解决"磨洋工"问题
-    # 修改历史：0.3 → 1.0（+233%，强烈激励移动）
-    target_speed = RewardTermCfg(
-        func=reward_target_speed,
-        weight=1.0,  # ✅ 从 0.3 提高到 1.0（强烈激励速度）
-        params={"asset_cfg": SceneEntityCfg("robot")}
-    )
+    alive_penalty = RewardTermCfg(func=reward_alive, weight=0.0)
 
-    # [架构师修正 2026-01-24] 启用距离日志显示
-    # 给一个极小的权重，让日志里显示距离数值（x 1e-6）
-    # 用于调试，不影响训练（权重极小）
+    # [日志] 距离和速度日志
     log_distance = RewardTermCfg(
         func=log_distance_to_goal,
-        weight=1e-6,  # ✅ 从 0.0 改为 1e-6（启用日志显示）
+        weight=1e-6,
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
@@ -915,77 +992,60 @@ class DashgoRewardsCfg:
     log_velocity = RewardTermCfg(
         func=log_linear_velocity,
         weight=0.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot")
-        }
+        params={"asset_cfg": SceneEntityCfg("robot")}
     )
 
-    # [架构师最终修正 2026-01-25] 防爆重启版：移除生存惩罚
-    # 原因：Policy Noise 爆炸(26.82)，机器人装死是因为 alive_penalty 让它觉得"活着就是错"
-    # 解决：直接归零，让装死没有任何收益
-    alive_penalty = RewardTermCfg(
-        func=reward_alive,
-        weight=0.0,  # ✅ 从 0.5 降到 0.0（移除生存惩罚）
+    out_of_bounds = RewardTermCfg(
+        func=penalty_out_of_bounds,
+        weight=-200.0,
+        params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")}
     )
-
-
-    # [架构师修正 2026-01-24] 收网微调 - 放宽到达阈值
-    # 问题：机器人已经学会高速避障（碰撞率15%），但threshold 0.5太严格
-    # 解决：放宽到0.8m，让机器人尝到"成功"的滋味
-    # 修改历史：threshold: 0.8 → 0.5 → 0.8（恢复到初始值）
-    # [架构师修正 2026-01-25] 课程学习微调 - 阈值收紧到0.3m
-    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5 → 1.2 → 0.8 → 0.5 → 0.3（极严格）
-    # 理由：0.3m是极严格的到达距离，要求机器人极其精确地到达目标
-    # 验证：坐标系不一致问题已修复，reach_goal 系统正常
-    reach_goal = RewardTermCfg(
-        func=reward_near_goal,
-        weight=1000.0,  # 保持终极大奖不变
-        params={
-            "command_name": "target_pose",
-            "threshold": 0.3,  # ✅ 从 0.5 收紧到 0.3（极严格的到达判定）
-            "asset_cfg": SceneEntityCfg("robot")
-        }
-    )
-    
-    # [架构师修正 2026-01-24] 大幅加大碰撞惩罚（最后冲刺）
-    # 问题：机器人像新手司机，只会猛冲，不会刹车（碰撞率50%）
-    # [架构师稳健版 2026-01-25] 加重碰撞惩罚，让机器人"怕疼"
-    # 原因：-20.0 太轻，碰撞率22%，机器人觉得撞一下无所谓
-    # 解决：恢复高惩罚，强化避障动机
-    # 修改历史：-20.0 → -50.0 → -20.0 → -50.0（恢复高惩罚）
-    collision = RewardTermCfg(
-        func=penalty_collision_force,
-        weight=-50.0,  # ✅ [稳健版] 从 -20.0 恢复到 -50.0（让它"怕疼"）
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces_base"),
-            "threshold": 1.0  # ✅ 从 150.0 降到 1.0（更敏感）
-        }
-    )
-    out_of_bounds = RewardTermCfg(func=penalty_out_of_bounds, weight=-200.0, params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")})
 
 @configclass
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
-    
-    # [架构师修正 2026-01-25] 课程学习微调 - 阈值收紧到0.3m
-    # 修改历史：0.8 → 1.2 → 1.5 → 3.0（送分题）→ 1.5 → 1.2 → 0.8 → 0.5 → 0.3（极严格）
-    # 理由：0.3m是极严格的到达距离，要求机器人极其精确地到达目标
+
+    # [v5.0 Ultimate] reach_goal阈值0.5m（与奖励函数一致）
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 0.3,  # ✅ 保持 0.3m 严格判定（原配置）
+            "threshold": 0.5,  # ✅ v5.0使用0.5m阈值（与奖励函数一致）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
-    
+
     object_collision = TerminationTermCfg(
-        func=check_collision_simple, 
+        func=check_collision_simple,
         params={"sensor_cfg_base": SceneEntityCfg("contact_forces_base"), "threshold": 150.0}
     )
     out_of_bounds = TerminationTermCfg(func=check_out_of_bounds, params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")})
     base_height = TerminationTermCfg(func=check_base_height_bad, params={"min_height": -0.50, "max_height": 1.0, "asset_cfg": SceneEntityCfg("robot")})
     bad_velocity = TerminationTermCfg(func=check_velocity_explosion, params={"threshold": 50.0, "asset_cfg": SceneEntityCfg("robot")})
+
+# =============================================================================
+# [v5.0 Ultimate] 课程学习配置
+# =============================================================================
+
+@configclass
+class DashgoCurriculumCfg:
+    """
+    [v5.0 核心] 自动化课程学习配置
+
+    作用：从3m自动扩展到8m（线性插值，300M物理步完成）
+    原理：通过CurriculumTermCfg注册课程函数，自动在环境重置时调用
+    """
+    # 注册自动化课程：从 3m 自动涨到 8m
+    target_expansion = CurriculumTermCfg(
+        func=curriculum_expand_target_range,
+        params={
+            "command_name": "target_pose",
+            "min_limit": 3.0,  # 初始难度：3米（新手区）
+            "max_limit": 8.0,  # 最终难度：8米（专家区）
+            "start_step": 0,  # 从第0步开始
+            "end_step": 300_000_000,  # 在300M物理步完成爬坡（约3000 iterations）
+        }
+    )
 
 @configclass
 class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
@@ -993,10 +1053,11 @@ class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
     episode_length_s = 90.0  # ✅ [架构师修正 2026-01-24] 课程学习：从 60s 增加到 90s（1350步），给机器人更多时间绕过障碍物
     scene = DashgoSceneV2Cfg(num_envs=16, env_spacing=15.0)
     sim = sim_utils.SimulationCfg(dt=1/60, render_interval=10)
-    
+
     actions = DashgoActionsCfg()
     observations = DashgoObservationsCfg()
     commands = DashgoCommandsCfg()
     events = DashgoEventsCfg()
     rewards = DashgoRewardsCfg()
     terminations = DashgoTerminationsCfg()
+    curriculum = DashgoCurriculumCfg()  # ✅ [v5.0] 启用自动课程学习
