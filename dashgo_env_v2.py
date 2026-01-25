@@ -767,9 +767,12 @@ class DashgoObservationsCfg:
     class PolicyCfg(ObservationGroupCfg):
         history_length = 3
 
-        # [兼容] headless 模式下禁用 lidar 观测（传感器不存在）
-        if not is_headless_mode():
-            lidar = ObservationTermCfg(func=process_lidar_ranges, params={"sensor_cfg": SceneEntityCfg("lidar_sensor")})
+        # [v3.0修复] 强制启用LiDAR观测，无论是否Headless
+        # Headless模式只是不渲染GUI，物理引擎和RayCaster正常工作
+        lidar = ObservationTermCfg(
+            func=process_lidar_ranges,
+            params={"sensor_cfg": SceneEntityCfg("lidar_sensor")}
+        )
 
         target_polar = ObservationTermCfg(func=obs_target_polar, params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")})
         lin_vel = ObservationTermCfg(func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")})
@@ -902,12 +905,12 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         history_length=3, track_air_time=True
     )
 
-    # [修复 2026-01-25] 对齐实物EAI F4激光雷达规格
+    # [v3.0修复] 对齐实物EAI F4激光雷达规格，强制启用LiDAR传感器
     # 从深度相机改为RayCaster（360° LiDAR仿真）
     # 参考官方文档: Isaac Lab RayCaster Sensor
     # 实物规格: 360°扫描、6-12m范围、5-10Hz频率
-    if not is_headless_mode():
-        lidar_sensor = RayCasterCfg(
+    # Headless模式RayCaster正常工作，无需条件判断
+    lidar_sensor = RayCasterCfg(
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
