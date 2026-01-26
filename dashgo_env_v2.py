@@ -317,6 +317,50 @@ def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
 
     return depth_sectors
 
+
+# ============================================================================
+# [Geo-Distill V2.2] 4向深度相机拼接处理函数
+# ============================================================================
+
+def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    [Geo-Distill V2.2] 4向深度相机拼接 + 降采样 (360 → 72)
+
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    修复原因：单相机无法实现360° FOV，使用4个90°相机拼接
+
+    数据流：
+        1. 获取4个相机深度数据 [N, 90] each
+        2. 拼接成360度全景 (逆时针：Front→Left→Back→Right)
+        3. 降采样到72点 (每5°一个点)
+        4. 归一化到 [0, 1]
+
+    Returns:
+        torch.Tensor: 形状为 [num_envs, 72] 的归一化LiDAR数据
+
+    对齐实物：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
+    """
+    # 1. 获取4个相机的深度数据
+    d_front = env.scene["sensor_camera_front"].data.distance_to_image_plane  # [N, 90]
+    d_left = env.scene["sensor_camera_left"].data.distance_to_image_plane    # [N, 90]
+    d_back = env.scene["sensor_camera_back"].data.distance_to_image_plane    # [N, 90]
+    d_right = env.scene["sensor_camera_right"].data.distance_to_image_plane  # [N, 90]
+
+    # 2. 拼接成360度 (逆时针：Front→Left→Back→Right)
+    #    对齐实车EAI F4雷达的逆时针扫描方向
+    full_scan = torch.cat([d_front, d_left, d_back, d_right], dim=1)  # [N, 360]
+
+    # 3. 处理无效值
+    max_range = 12.0  # EAI F4 最大距离
+    full_scan = torch.nan_to_num(full_scan, posinf=max_range, neginf=0.0)
+    full_scan = torch.clamp(full_scan, min=0.0, max=max_range)
+
+    # 4. 降采样 360 → 72 (每5个取1个)
+    downsampled = full_scan[:, ::5]  # [N, 72]
+
+    # 5. 归一化到 [0, 1]
+    return downsampled / max_range
+
 # =============================================================================
 # [v5.0 Ultimate] 自动课程学习核心函数
 # =============================================================================
@@ -411,12 +455,25 @@ def reward_position_command_error_tanh(env, std: float, command_name: str, asset
 
 def reward_target_speed(env, asset_cfg):
     """
-    [v5.0] 速度对齐奖励：鼓励使用接近最优速度的速度
+    [Geo-Distill V2.2] 速度奖励：只奖励前进，严禁倒车
 
-    优化版本：直接鼓励向前移动，更简单直接
+    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
+    修复原因：防止"倒车刷分"导致醉汉走路
+
+    奖励逻辑：
+        - 前进（vel > 0）：指数奖励（鼓励接近0.25 m/s）
+        - 倒车（vel < 0）：直接惩罚（2倍惩罚力度）
     """
     vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
-    return torch.clamp(vel, min=0.0)
+    target_vel = 0.25
+
+    # 前进：指数奖励
+    forward_reward = torch.exp(-torch.abs(vel - target_vel) / 0.1)
+
+    # 倒车：直接惩罚 (2倍惩罚)
+    backward_penalty = torch.where(vel < 0, -2.0 * torch.abs(vel), 0.0)
+
+    return forward_reward + backward_penalty
 
 def reward_facing_target(env, command_name, asset_cfg):
     """
@@ -768,11 +825,11 @@ class DashgoObservationsCfg:
     class PolicyCfg(ObservationGroupCfg):
         history_length = 3
 
-        # [v3.0修复] 强制启用LiDAR观测，无论是否Headless
-        # Headless模式只是不渲染GUI，物理引擎和RayCaster正常工作
+        # [Geo-Distill V2.2] 使用4向拼接LiDAR (72维)
+        # 修复原因：单相机无法360° FOV，4个90°相机拼接实现全向扫描
         lidar = ObservationTermCfg(
-            func=process_lidar_ranges,
-            params={"sensor_cfg": SceneEntityCfg("lidar_sensor")}
+            func=process_stitched_lidar,
+            params={}  # 无需sensor_cfg，函数内部直接访问4个相机
         )
 
         target_polar = ObservationTermCfg(func=obs_target_polar, params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")})
@@ -906,32 +963,88 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         history_length=3, track_air_time=True
     )
 
-    # [v7.0 终极修复] 使用深度相机模拟LiDAR（绕过Warp Mesh限制）
+    # ============================================================================
+    # [Geo-Distill V2.2] 4向深度相机拼接方案
+    # ============================================================================
     #
-    # 问题：RayCaster基于Warp，只支持单一mesh，无法看到障碍物
-    # 解决：使用深度相机生成深度图，模拟360° LiDAR数据
+    # 问题：单相机无法实现360° FOV (Pinhole>170°会严重畸变)
+    # 解决：使用4个90°相机拼接成360°全景深度图
     #
-    # 优点：
-    #   - 基于PhysX/渲染，能看到所有物理碰撞体（墙、柱子、障碍物）
-    #   - 不受Warp Mesh限制
-    #   - Sim-to-Real标准做法
+    # 拼接顺序（逆时针）：Front(0°) → Left(+90°) → Back(180°) → Right(-90°)
+    # 降采样：360 rays → 72 points (每5°一个点)
     #
-    # 实物规格：EAI F4 LiDAR，360°扫描、6-12m范围、5-10Hz频率
-    lidar_sensor = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
+    # 实物对齐：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
+    # ============================================================================
+
+    # 1. 前向相机 (Front, 0°)
+    camera_front = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_front",
         update_period=0.1,  # 10 Hz（接近实物5-10Hz）
-        height=1,  # 高度1像素（模拟单线扫描）
-        width=180,  # 宽度180像素（对应180°视野）
-        data_types=["distance_to_image_plane"],  # 获取深度数据
+        height=1, width=90,  # 90°分辨率
+        data_types=["distance_to_image_plane"],
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,  # 广角镜头
+            focal_length=24.0,
             focus_distance=400.0,
-            horizontal_aperture=20.955,
-            clipping_range=(0.1, 10.0),  # 最小0.1米，最大10米
+            horizontal_aperture=20.955,  # 90° FOV
+            clipping_range=(0.1, 12.0),  # 对齐EAI F4最大距离
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.13),  # 安装高度13cm
-            rot=(0.0, 0.0, 0.0, 1.0),  # 无旋转
+            rot=(1.0, 0.0, 0.0, 0.0),  # Identity quaternion (0°)
+        ),
+    )
+
+    # 2. 左侧相机 (Left, +90°)
+    camera_left = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_left",
+        update_period=0.1,
+        height=1, width=90,
+        data_types=["distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 12.0),
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.13),
+            rot=(0.707, 0.0, 0.0, 0.707),  # Z+90° (sin45=0.707, cos45=0.707)
+        ),
+    )
+
+    # 3. 后向相机 (Back, 180°)
+    camera_back = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_back",
+        update_period=0.1,
+        height=1, width=90,
+        data_types=["distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 12.0),
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.13),
+            rot=(0.0, 0.0, 1.0, 0.0),  # Z+180° (0,0,1,0)
+        ),
+    )
+
+    # 4. 右侧相机 (Right, -90° / 270°)
+    camera_right = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_right",
+        update_period=0.1,
+        height=1, width=90,
+        data_types=["distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 12.0),
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.13),
+            rot=(-0.707, 0.0, 0.0, 0.707),  # Z-90° (sin-45=-0.707, cos-45=0.707)
         ),
     )
     
