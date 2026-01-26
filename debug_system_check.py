@@ -124,7 +124,15 @@ def main():
 
     # 运行 30 步
     for i in range(30):
-        obs, rewards, dones, extras = env.step(action)
+        # [Fix 2026-01-27] 兼容 Gymnasium 的 5 返回值解包
+        # 旧版 Gym: (obs, reward, done, info) - 4个
+        # 新版 Gymnasium: (obs, reward, terminated, truncated, info) - 5个
+        step_result = env.step(action)
+        if len(step_result) == 5:
+            obs, rewards, terminated, truncated, extras = step_result
+            dones = terminated | truncated  # 合并 terminated 和 truncated
+        else:
+            obs, rewards, dones, extras = step_result
 
         if i % 10 == 0:
             print(f"\n--- Step {i} ---")
