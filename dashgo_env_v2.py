@@ -567,11 +567,16 @@ def reward_target_speed(env, asset_cfg):
     修复原因：防止"倒车刷分"导致醉汉走路
 
     奖励逻辑：
-        - 前进（vel > 0）：指数奖励（鼓励接近0.25 m/s）
+        - 前进（vel > 0）：指数奖励（鼓励接近0.3 m/s）
         - 倒车（vel < 0）：直接惩罚（2倍惩罚力度）
+
+    [2026-01-27] 调整目标速度：0.25 → 0.3 m/s
+    - 物理限制：max_wheel_vel=5.0 rad/s → max_lin_vel=0.316 m/s
+    - 目标速度：0.3 m/s（接近物理上限，保证效率）
+    - 绝对安全：硬件级锁死在0.316 m/s，永远不超过0.5 m/s
     """
     vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
-    target_vel = 0.25
+    target_vel = 0.3  # [2026-01-27] 调整为0.3 m/s
 
     # 前进：指数奖励
     forward_reward = torch.exp(-torch.abs(vel - target_vel) / 0.1)
