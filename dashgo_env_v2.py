@@ -452,9 +452,13 @@ def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCf
     """
     # [Fix 2026-01-27] 使用正确的属性名 net_forces_w
     # Isaac Lab ContactSensor 的属性名是 net_forces_w，而非 net_contact_forces
-    # data.net_forces_w 的形状是 [num_envs, 3]
-    contact_data = env.scene[sensor_cfg.name].data.net_forces_w  # [N, 3]
-    force_mag = torch.norm(contact_data, dim=-1)  # [N]
+    # data.net_forces_w 的形状是 [num_envs, num_bodies, 3]
+    contact_data = env.scene[sensor_cfg.name].data.net_forces_w  # [N, num_bodies, 3]
+
+    # [Fix 2026-01-27] 计算合力大小并降维
+    # 先计算力的模长 -> [N, num_bodies]
+    # 然后取最大值（假设底盘有多个碰撞体，取受力最大的那个）-> [N]
+    force_mag = torch.norm(contact_data, dim=-1).max(dim=1)[0]  # [N]
 
     # 任何超过阈值的接触都给予惩罚
     has_contact = force_mag > threshold
