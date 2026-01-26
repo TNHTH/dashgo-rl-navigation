@@ -46,7 +46,7 @@ DASHGO_D1_CFG = ArticulationCfg(
     ),
 
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.05),
+        pos=(0.0, 0.0, 0.15),  # 抬高到15cm，防止轮子陷入地下（轮子半径6.32cm）
         rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={".*": 0.0},
     ),

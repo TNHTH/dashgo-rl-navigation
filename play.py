@@ -115,11 +115,9 @@ def main():
         ep_count = 0
         while simulation_app.is_running():
             with torch.no_grad():
-                # 传入 policy 需要的观测部分
-                # 根据 RSL-RL 的实现，act_inference 可能需要特定格式
-                # 大多数情况下传 obs_dict['policy'] 即可
-                input_obs = obs_dict['policy']
-                actions = policy.act_inference(input_obs)
+                # [v6.1 修复] 传入完整观测字典，让 ActorCritic 内部用 obs_groups 提取
+                # 不要传入 obs_dict['policy']，否则会报 IndexError: too many indices
+                actions = policy.act_inference(obs_dict)
 
             # 执行动作
             step_ret = env.step(actions)
