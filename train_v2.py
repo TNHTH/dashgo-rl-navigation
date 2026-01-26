@@ -20,6 +20,7 @@ DashGo机器人导航训练脚本
     2026-01-24: 修复KeyError('num_steps_per_env') - 配置扁平化
     2026-01-24: 修复KeyError('obs_groups') - 新版API兼容性
                 修复--headless参数传递 - 注册AppLauncher标准参数
+    2026-01-27: 修复--enable_cameras参数被"吞掉" - 调用add_app_launcher_args()
                 Isaac Sim Architect Final Fix
 """
 
@@ -56,11 +57,12 @@ def create_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    # [架构师修正] 手动添加 Isaac Lab 标准参数
-    # Isaac Lab 4.5 / 0.46+ 中 AppLauncher.add_argparse_args() 已被移除
-    # 需要手动添加 --headless 等参数防止 argparse 报错
-    parser.add_argument("--headless", action="store_true", default=False,
-                       help="强制无GUI模式运行 (Isaac Lab Standard)")
+    # [关键修复 2026-01-27] 注册所有 AppLauncher 标准参数
+    # Isaac Lab Architect: 必须调用此方法，否则 --enable_cameras 等参数会被"吞掉"
+    # 参考: Isaac Sim 4.5 官方文档
+    AppLauncher.add_app_launcher_args(parser)
+
+    # [兼容性保留] 以下是用户自定义参数，已由上面的调用覆盖了 --headless
 
     # 用户自定义参数
     parser.add_argument("--video", action="store_true", default=False,
