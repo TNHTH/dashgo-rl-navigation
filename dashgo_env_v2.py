@@ -341,10 +341,12 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     对齐实物：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
     """
     # 1. 获取4个相机的深度数据
-    d_front = env.scene["sensor_camera_front"].data.distance_to_image_plane  # [N, 90]
-    d_left = env.scene["sensor_camera_left"].data.distance_to_image_plane    # [N, 90]
-    d_back = env.scene["sensor_camera_back"].data.distance_to_image_plane    # [N, 90]
-    d_right = env.scene["sensor_camera_right"].data.distance_to_image_plane  # [N, 90]
+    # [Fix 2026-01-27] 修正键名：场景中的实际键名是 "camera_front" 而非 "sensor_camera_front"
+    # 参考错误日志：Available Entities: [..., 'camera_front', 'camera_left', 'camera_back', 'camera_right', ...]
+    d_front = env.scene["camera_front"].data.distance_to_image_plane  # [N, 90]
+    d_left = env.scene["camera_left"].data.distance_to_image_plane    # [N, 90]
+    d_back = env.scene["camera_back"].data.distance_to_image_plane    # [N, 90]
+    d_right = env.scene["camera_right"].data.distance_to_image_plane  # [N, 90]
 
     # 2. 拼接成360度 (逆时针：Front→Left→Back→Right)
     #    对齐实车EAI F4雷达的逆时针扫描方向
