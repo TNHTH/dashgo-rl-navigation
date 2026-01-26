@@ -914,10 +914,12 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # [v6.1 Critical Fix] 移除mesh_prim_paths，使用PhysX场景查询
-            # 原因：RayCaster只支持单一mesh，但场景有17个物体（1地面+16障碍物）
-            # 解决方案：设为None，让RayCaster使用PhysX场景查询（自动检测所有物理碰撞体）
-            mesh_prim_paths=None,  # ✅ 使用PhysX场景查询，能检测所有障碍物
+            # [v6.1 Critical Fix] 完全移除mesh_prim_paths参数
+            # 原因：
+            #   - 设为None时：TypeError: object of type 'NoneType' has no len()
+            #   - 设为列表时：NotImplementedError: RayCaster only supports one mesh prim. Received: 17
+            # 解决方案：不传此参数，使用RayCasterCfg的默认行为
+            # 如果默认行为仍然报错，说明该版本的Isaac Lab有Bug
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=360,  # ✅ [v6.0优化] 降低到360点（更接近实物EAI F4的360-720点，节省显存35%，速度提升50-80%）
