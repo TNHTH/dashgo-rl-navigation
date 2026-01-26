@@ -341,26 +341,32 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     对齐实物：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
     """
     # 1. 获取4个相机的深度数据
-    # [Fix 2026-01-27] 修正键名：场景中的实际键名是 "camera_front" 而非 "sensor_camera_front"
-    # 参考错误日志：Available Entities: [..., 'camera_front', 'camera_left', 'camera_back', 'camera_right', ...]
-    d_front = env.scene["camera_front"].data.distance_to_image_plane  # [N, 90]
-    d_left = env.scene["camera_left"].data.distance_to_image_plane    # [N, 90]
-    d_back = env.scene["camera_back"].data.distance_to_image_plane    # [N, 90]
-    d_right = env.scene["camera_right"].data.distance_to_image_plane  # [N, 90]
+    # [Fix 2026-01-27] Isaac Lab 相机数据存储在 .data.output 字典中
+    # 架构师诊断：CameraData 将所有请求的数据类型存储在 output 字典中
+    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]  # [N, 1, 90]
+    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]    # [N, 1, 90]
+    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]    # [N, 1, 90]
+    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]  # [N, 1, 90]
 
-    # 2. 拼接成360度 (逆时针：Front→Left→Back→Right)
+    # 2. 压缩维度 [N, 1, 90] → [N, 90]
+    scan_front = d_front.squeeze(1)
+    scan_left = d_left.squeeze(1)
+    scan_back = d_back.squeeze(1)
+    scan_right = d_right.squeeze(1)
+
+    # 3. 拼接成360度 (逆时针：Front→Left→Back→Right)
     #    对齐实车EAI F4雷达的逆时针扫描方向
-    full_scan = torch.cat([d_front, d_left, d_back, d_right], dim=1)  # [N, 360]
+    full_scan = torch.cat([scan_front, scan_left, scan_back, scan_right], dim=1)  # [N, 360]
 
-    # 3. 处理无效值
+    # 4. 处理无效值
     max_range = 12.0  # EAI F4 最大距离
     full_scan = torch.nan_to_num(full_scan, posinf=max_range, neginf=0.0)
     full_scan = torch.clamp(full_scan, min=0.0, max=max_range)
 
-    # 4. 降采样 360 → 72 (每5个取1个)
+    # 5. 降采样 360 → 72 (每5个取1个)
     downsampled = full_scan[:, ::5]  # [N, 72]
 
-    # 5. 归一化到 [0, 1]
+    # 6. 归一化到 [0, 1]
     return downsampled / max_range
 
 # =============================================================================
