@@ -198,6 +198,45 @@ AppLauncher.add_app_launcher_args(parser)
 **相关提交**：
 - commit: 86cf316 (2026-01-27)
 
+---
+
+### 问题3：相机场景键名不匹配（2026-01-27 修复）
+
+**错误现象**：
+```
+KeyError: "Scene entity with key 'sensor_camera_front' not found.
+Available Entities: [..., 'camera_front', 'camera_left', 'camera_back', 'camera_right', ...]"
+```
+
+**根本原因**：
+- 代码中使用了错误的键名 `env.scene["sensor_camera_front"]`
+- Isaac Lab 使用变量名作为场景实体键名
+- 实际键名是 `"camera_front"`（与 `DashgoSceneCfg` 中的变量名一致）
+
+**修复代码**：
+
+**位置**：`dashgo_env_v2.py` 第344-347行
+
+**修改前**：
+```python
+d_front = env.scene["sensor_camera_front"].data.distance_to_image_plane
+d_left = env.scene["sensor_camera_left"].data.distance_to_image_plane
+d_back = env.scene["sensor_camera_back"].data.distance_to_image_plane
+d_right = env.scene["sensor_camera_right"].data.distance_to_image_plane
+```
+
+**修改后**：
+```python
+# [Fix 2026-01-27] 修正键名：场景中的实际键名是 "camera_front" 而非 "sensor_camera_front"
+d_front = env.scene["camera_front"].data.distance_to_image_plane
+d_left = env.scene["camera_left"].data.distance_to_image_plane
+d_back = env.scene["camera_back"].data.distance_to_image_plane
+d_right = env.scene["camera_right"].data.distance_to_image_plane
+```
+
+**相关提交**：
+- commit: 61d1491 (2026-01-27)
+
 ### 更新文档
 
 **相关文档**：
