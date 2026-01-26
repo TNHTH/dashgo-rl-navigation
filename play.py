@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-DashGo机器人导航推理脚本 (v5.0 签名匹配版)
+DashGo机器人导航推理脚本 (v6.0 最终稳定版)
 
 针对环境: Isaac Lab 0.46 + RSL-RL (特定签名版)
-核心修复: 严格按照 ActorCritic(obs, obs_groups, num_actions, ...) 签名构建网络
+核心修复:
+  1. 严格按照 ActorCritic(obs, obs_groups, num_actions, ...) 签名构建网络
+  2. 开启 actor/critic_obs_normalization=True，匹配训练 Checkpoint
 """
 
 import argparse
@@ -82,6 +84,9 @@ def main():
             critic_hidden_dims=[512, 256, 128],
             activation='elu',
             init_noise_std=1.0,
+            # [v6.0 核心修复] 开启归一化，匹配训练 Checkpoint 结构
+            actor_obs_normalization=True,
+            critic_obs_normalization=True,
         ).to(device)
 
         # 5. 加载权重
