@@ -138,7 +138,7 @@ File "/home/gwh/IsaacLab/source/isaaclab/isaaclab/sensors/camera/camera.py", lin
 
 ## 🔧 实施记录
 
-### 修改文件
+### 问题1：缺少 --enable_cameras 参数
 
 **无需修改代码**，只需修改启动命令
 
@@ -151,6 +151,52 @@ python train_v2.py --headless --num_envs 80
 ```bash
 python train_v2.py --headless --enable_cameras --num_envs 32
 ```
+
+---
+
+### 问题2：参数被"吞掉"（2026-01-27 修复）
+
+**错误现象**：
+```bash
+# 添加了 --enable_cameras 参数，但仍然报错
+~/IsaacLab/isaaclab.sh -p train_v2.py --headless --enable_cameras --num_envs 1
+# 结果：仍然报 RuntimeError
+```
+
+**架构师诊断**：
+> 这是一个非常经典的 **"参数被吞"** 问题。`train_v2.py` 的参数解析器没有调用 `AppLauncher.add_app_launcher_args(parser)`，所以 argparse 根本不认识 `--enable_cameras` 这个参数。
+
+**根本原因**：
+- `create_parser()` 函数手动添加了 `--headless` 参数
+- 但没有注册 `AppLauncher` 的所有标准参数
+- 导致 `--enable_cameras` 被argparse忽略
+
+**修复代码**：
+
+**位置**：`train_v2.py` 第62行
+
+**修改前**：
+```python
+# [架构师修正] 手动添加 Isaac Lab 标准参数
+parser.add_argument("--headless", action="store_true", default=False,
+                   help="强制无GUI模式运行 (Isaac Lab Standard)")
+```
+
+**修改后**：
+```python
+# [关键修复 2026-01-27] 注册所有 AppLauncher 标准参数
+# Isaac Lab Architect: 必须调用此方法，否则 --enable_cameras 等参数会被"吞掉"
+AppLauncher.add_app_launcher_args(parser)
+```
+
+**验证命令**：
+```bash
+# 应该能正常工作
+~/IsaacLab/isaaclab.sh -p train_v2.py --headless --enable_cameras --num_envs 32
+```
+
+**相关提交**：
+- commit: 86cf316 (2026-01-27)
 
 ### 更新文档
 
