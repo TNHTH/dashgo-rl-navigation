@@ -974,9 +974,15 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
     # 降采样：360 rays → 72 points (每5°一个点)
     #
     # 实物对齐：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
+    #
+    # [架构师建议 2026-01-27] ⚠️ 重要：四元数顺序验证
+    # - Isaac Sim 使用 (w, x, y, z) 顺序
+    # - 必须在 GUI 中手动验证相机朝向（避免装反）
+    # - 验证方法：打开 Isaac Sim GUI → 检查 4 个相机的视野是否正确
     # ============================================================================
 
     # 1. 前向相机 (Front, 0°)
+    #    Quaternion: (w, x, y, z) = (1.0, 0.0, 0.0, 0.0) → Identity (0°旋转)
     camera_front = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_front",
         update_period=0.1,  # 10 Hz（接近实物5-10Hz）
@@ -990,11 +996,13 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.13),  # 安装高度13cm
-            rot=(1.0, 0.0, 0.0, 0.0),  # Identity quaternion (0°)
+            rot=(1.0, 0.0, 0.0, 0.0),  # ✅ Identity quaternion (0°)
         ),
     )
 
     # 2. 左侧相机 (Left, +90°)
+    #    Quaternion: (w, x, y, z) = (0.707, 0.0, 0.0, 0.707)
+    #    公式: (cos45°, 0, 0, sin45°) → Z轴+90°旋转
     camera_left = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_left",
         update_period=0.1,
@@ -1008,11 +1016,13 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.13),
-            rot=(0.707, 0.0, 0.0, 0.707),  # Z+90° (sin45=0.707, cos45=0.707)
+            rot=(0.707, 0.0, 0.0, 0.707),  # ✅ Z+90° (sin45=0.707, cos45=0.707)
         ),
     )
 
     # 3. 后向相机 (Back, 180°)
+    #    Quaternion: (w, x, y, z) = (0.0, 0.0, 1.0, 0.0)
+    #    公式: (cos90°, 0, 0, sin90°) → Z轴+180°旋转
     camera_back = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_back",
         update_period=0.1,
@@ -1026,11 +1036,13 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.13),
-            rot=(0.0, 0.0, 1.0, 0.0),  # Z+180° (0,0,1,0)
+            rot=(0.0, 0.0, 1.0, 0.0),  # ✅ Z+180° (0,0,1,0)
         ),
     )
 
     # 4. 右侧相机 (Right, -90° / 270°)
+    #    Quaternion: (w, x, y, z) = (-0.707, 0.0, 0.0, 0.707)
+    #    公式: (cos(-45°), 0, 0, sin(-45°)) → Z轴-90°旋转
     camera_right = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_right",
         update_period=0.1,
@@ -1044,7 +1056,7 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.13),
-            rot=(-0.707, 0.0, 0.0, 0.707),  # Z-90° (sin-45=-0.707, cos-45=0.707)
+            rot=(-0.707, 0.0, 0.0, 0.707),  # ✅ Z-90° (sin-45=-0.707, cos-45=0.707)
         ),
     )
     
