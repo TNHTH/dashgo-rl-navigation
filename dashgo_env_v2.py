@@ -375,14 +375,11 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.25) -> torch.Tensor:
     """
-    [v8.0 业界标准] 速度-距离 动态约束
+    [v8.1 修复版] 速度-距离 动态约束
+
+    修复：先展平所有相机数据，确保 min_dist 是 [N] 形状，而不是 [N, W]
 
     核心逻辑："离得近没关系，但离得近还**跑得快**，就是找死。"
-
-    设计理念：
-        - 宽阔马路：距离0.5m，允许限速0.5m/s
-        - 狭窄通道：距离0.1m，限速0.05m/s
-        - 超速才惩罚：鼓励在窄处"慢慢蹭"而不是"躺平"
 
     数学公式：
         safe_vel_limit = clamp(min_dist, max=0.5)
@@ -400,26 +397,36 @@ def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_
     架构师: Isaac Sim Architect (2026-01-27)
     参考方案: ETH Zurich RSL-RL, OpenAI Navigation, ROS2 Nav2
     """
-    # 1. 获取最小雷达距离
+    # 1. 获取所有相机数据 [N, H, W]
+    # 注意：使用 .data.output[...] 获取渲染数据
     d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]
     d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]
     d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]
     d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]
 
-    all_dist = torch.cat([d_front, d_left, d_back, d_right], dim=1).squeeze(1)  # [N, 360]
-    min_dist = torch.min(all_dist, dim=1)[0]  # [N]
+    # 2. 拼接并展平
+    # [N, H, W] -> [N, 4*H*W]
+    batch_size = d_front.shape[0]
+    all_pixels = torch.cat([d_front, d_left, d_back, d_right], dim=1).view(batch_size, -1)
 
-    # 2. 获取当前速度
-    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]  # X轴速度 [N]
+    # 3. 获取全场最近距离 [N]
+    # 过滤 inf (未探测到) 为最大距离，避免 min 取到 inf 导致逻辑错误
+    all_pixels = torch.nan_to_num(all_pixels, posinf=12.0)
+    min_dist = torch.min(all_pixels, dim=1)[0]
 
-    # 3. 定义"安全速度极限" (距离越近，限速越低)
-    safe_vel_limit = torch.clamp(min_dist, max=0.5)  # 0.5m/s 最大安全速度
+    # 4. 获取当前速度 [N]
+    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
 
-    # 4. 计算"超速量" (只有当 实际速度 > 安全限速 时，才惩罚)
+    # 5. 计算惩罚
+    # 距离 < 0.25m 时，限制最大速度
+    # 0.25m -> 限速 0.25m/s
+    # 0.10m -> 限速 0.10m/s
+    safe_vel_limit = torch.clamp(min_dist, max=0.5)
+
+    # 计算超速量 (只有 > 0 才惩罚)
     overspeed = torch.clamp(vel - safe_vel_limit, min=0.0)
 
-    # 5. 给予惩罚 (权重由 RewardsCfg 控制)
-    return -overspeed  # 超速越多，扣分越狠
+    return -overspeed
 
 
 def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 0.1) -> torch.Tensor:
