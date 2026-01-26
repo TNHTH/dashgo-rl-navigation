@@ -133,10 +133,12 @@ def main():
 
         if args_cli.test == "straight_line":
             print("\n🔍 嫌疑人三测试：强制走直线")
-            print("说明：强制输出 v=0.3, w=0.0，观察机器人是否走直线")
+            print("说明：强制输出 v=0.5, w=0.0，观察机器人是否走直线")
             print("判定标准：")
-            print("  ✅ 走直线 → 物理参数正常，问题在神经网络")
-            print("  ❌ 画弧线 → 物理参数有问题（URDF/摩擦力/重心）")
+            print("  ✅ 走直线 → x 坐标持续增加，y 坐标保持不变")
+            print("  ❌ 画弧线 → y 坐标明显偏离，yaw 角度变化")
+            print("  会每50步打印一次位置和朝向")
+            print("  Episode结束后自动重置，持续测试")
             print()
 
         elif args_cli.test == "print_obs":
@@ -172,10 +174,21 @@ def main():
             with torch.no_grad():
                 # 根据测试模式决定动作
                 if args_cli.test == "straight_line":
-                    # 强制走直线
+                    # 强制走直线（提高速度以便观察）
                     actions = torch.zeros(args_cli.num_envs, 2, device=device)
-                    actions[:, 0] = 0.3  # 线速度 0.3 m/s
+                    actions[:, 0] = 0.5  # 线速度 0.5 m/s（提高速度）
                     actions[:, 1] = 0.0  # 角速度 0 rad/s
+
+                    # 每50步打印一次位置，方便观察轨迹
+                    if step_count % 50 == 0:
+                        root_pos = env.scene["robot"].data.root_pos_w[0]
+                        root_yaw = env.scene["robot"].data.root_quat_w[0]
+                        # 从四元数计算偏航角
+                        import math
+                        yaw = math.atan2(2 * (root_yaw[0]*root_yaw[1] + root_yaw[2]*root_yaw[3]),
+                                        1 - 2*(root_yaw[1]**2 + root_yaw[2]**2))
+                        print(f"[Step {step_count:04d}] 位置: x={root_pos[0]:7.2f}, y={root_pos[1]:7.2f}, yaw={yaw:6.2f}rad")
+
                 else:
                     # 使用神经网络
                     actions = policy.act_inference(obs_dict)
@@ -216,13 +229,15 @@ def main():
             # Episode 计数
             if torch.any(dones):
                 ep_count += torch.sum(dones).item()
-                print(f"\n[INFO] Episode 完成，总计数: {int(ep_count)}")
+                print(f"\n[INFO] Episode #{int(ep_count)} 完成")
+
+                # 自动重置环境，继续测试
+                obs_dict, _ = env.reset()
+                print(f"[INFO] 环境已重置，继续测试...\n")
 
                 if args_cli.num_episodes and ep_count >= args_cli.num_episodes:
+                    print(f"[INFO] 已完成 {args_cli.num_episodes} 个 episodes，结束测试")
                     break
-
-                # 重置后继续
-                obs_dict, _ = env.reset()
 
     except KeyboardInterrupt:
         print("\n[INFO] 用户中断")
