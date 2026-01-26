@@ -39,7 +39,9 @@ def main():
     parser.add_argument("--test", type=str, default=None,
                        choices=["straight_line", "print_obs", "no_norm"],
                        help="测试类型：straight_line=强制走直线, print_obs=打印观测, no_norm=关闭归一化")
-    parser.add_argument("--num_episodes", type=int, default=1, help="运行集数")
+    parser.add_argument("--num_episodes", type=int, default=3, help="运行集数（默认3个，便于观察趋势）")
+    parser.add_argument("--max_steps", type=int, default=500,
+                       help="单个Episode最大步数（默认500，约33秒）")
     args_cli, _ = parser.parse_known_args()
 
     app_launcher = AppLauncher(args_cli)
@@ -61,7 +63,11 @@ def main():
         # 2. 创建环境
         env_cfg = DashgoNavEnvV2Cfg()
         env_cfg.scene.num_envs = args_cli.num_envs
-        print(f"\n[INFO] 创建环境 (num_envs={args_cli.num_envs})...")
+        # 增加 episode 长度，确保有足够时间观察
+        env_cfg.queries.time_out_resets.time_out_enabled = True
+        env_cfg.queries.time_out_resets.max_episode_length = args_cli.max_steps
+
+        print(f"\n[INFO] 创建环境 (num_envs={args_cli.num_envs}, max_steps={args_cli.max_steps})...")
         env = ManagerBasedRLEnv(cfg=env_cfg)
         device = env.unwrapped.device
 
@@ -179,8 +185,8 @@ def main():
                     actions[:, 0] = 0.5  # 线速度 0.5 m/s（提高速度）
                     actions[:, 1] = 0.0  # 角速度 0 rad/s
 
-                    # 每50步打印一次位置，方便观察轨迹
-                    if step_count % 50 == 0:
+                    # 每25步打印一次位置，方便观察轨迹
+                    if step_count % 25 == 0:
                         root_pos = env.scene["robot"].data.root_pos_w[0]
                         root_yaw = env.scene["robot"].data.root_quat_w[0]
                         # 从四元数计算偏航角
