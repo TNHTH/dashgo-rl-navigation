@@ -914,10 +914,17 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # [官方示例] mesh_prim_paths使用具体路径，不支持USD通配符
-            # 参考: ~/IsaacLab/source/isaaclab/isaaclab/scene/interactive_scene_cfg.py
-            # 使用地面作为碰撞检测对象（所有环境共享）
-            mesh_prim_paths=["/World/GroundPlane"],  # ✅ 使用真实地面名称（第786行定义）
+            # [v6.1 Critical Fix] 添加所有障碍物到mesh_prim_paths
+            # 修复前：只检测地面，LiDAR完全失效（所有射线返回1.0m）
+            # 修复后：检测地面+16个障碍物，LiDAR正常工作
+            # 使用通配符模式匹配所有环境的障碍物
+            mesh_prim_paths=[
+                "/World/GroundPlane",  # 地面
+                "{ENV_REGEX_NS}/Obs_In_1", "{ENV_REGEX_NS}/Obs_In_2", "{ENV_REGEX_NS}/Obs_In_3", "{ENV_REGEX_NS}/Obs_In_4",
+                "{ENV_REGEX_NS}/Obs_In_5", "{ENV_REGEX_NS}/Obs_In_6", "{ENV_REGEX_NS}/Obs_In_7", "{ENV_REGEX_NS}/Obs_In_8",
+                "{ENV_REGEX_NS}/Obs_Out_1", "{ENV_REGEX_NS}/Obs_Out_2", "{ENV_REGEX_NS}/Obs_Out_3", "{ENV_REGEX_NS}/Obs_Out_4",
+                "{ENV_REGEX_NS}/Obs_Out_5", "{ENV_REGEX_NS}/Obs_Out_6", "{ENV_REGEX_NS}/Obs_Out_7", "{ENV_REGEX_NS}/Obs_Out_8",
+            ],
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=360,  # ✅ [v6.0优化] 降低到360点（更接近实物EAI F4的360-720点，节省显存35%，速度提升50-80%）

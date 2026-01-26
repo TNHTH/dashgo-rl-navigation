@@ -229,8 +229,40 @@ def main():
                     # 使用神经网络
                     actions = policy.act_inference(obs_dict)
 
-                # 打印观测值（仅在 print_obs 模式）
+                # 打印观测值（print_obs 模式）或动作值（no_norm 模式）
                 if args_cli.test == "print_obs" and step_count % 10 == 0:
+                    obs = obs_dict['policy'][0].cpu().numpy()  # 取第一个环境
+
+                    # 提取关键观测
+                    target_dist = obs[108]
+                    target_angle = obs[109]
+                    lin_vel_x = obs[114]
+                    ang_vel_z = obs[131]
+                    last_action_v = obs[132]
+                    last_action_w = obs[133]
+
+                    # 打印动作
+                    action_v = actions[0, 0].item()
+                    action_w = actions[0, 1].item()
+
+                    print(f"[Step {step_count:04d}] "
+                          f"目标: d={target_dist:6.2f}m, θ={target_angle:6.2f}rad | "
+                          f"速度: vx={lin_vel_x:6.2f}, ωz={ang_vel_z:6.2f} | "
+                          f"动作: v={action_v:6.2f}, w={action_w:6.2f}")
+
+                elif args_cli.test == "no_norm" and step_count % 10 == 0:
+                    # 打印动作值（用于对比归一化开启/关闭的差异）
+                    action_v = actions[0, 0].item()
+                    action_w = actions[0, 1].item()
+
+                    # 从观测中提取目标信息（方便理解机器人行为）
+                    obs = obs_dict['policy'][0].cpu().numpy()
+                    target_dist = obs[108]
+                    target_angle = obs[109]
+
+                    print(f"[Step {step_count:04d}] "
+                          f"目标: d={target_dist:6.2f}m, θ={target_angle:6.2f}rad | "
+                          f"动作: v={action_v:6.2f}, w={action_w:6.2f}")
                     obs = obs_dict['policy'][0].cpu().numpy()  # 取第一个环境
 
                     # 提取关键观测
