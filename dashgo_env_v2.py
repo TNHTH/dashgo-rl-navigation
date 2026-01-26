@@ -1221,10 +1221,11 @@ class DashgoRewardsCfg:
 
     # [架构师紧急修复 2026-01-27] 修复"指南针"：标准负距离奖励
     # 问题：shaping_distance=0.0000（tanh函数失效），机器人没有方向感
-    # 解决：使用Isaac Lab标准position_command_error函数（负号=距离越小奖励越大）
+    # 解决：使用本地log_distance_to_goal函数（欧几里得距离，负号=距离越小奖励越大）
     # 数学原理：reward = -distance，距离从5m→1m，奖励从-5→-1（单调递增）
+    # 注意：使用本地函数而非mdp.rewards.position_command_error（API不存在于Isaac Sim 4.5）
     shaping_distance = RewardTermCfg(
-        func=mdp.rewards.position_command_error,  # ✅ 使用Isaac Lab标准函数
+        func=log_distance_to_goal,  # ✅ 使用本地已定义函数（line 745）
         weight=-1.0,  # ⚠️ 负号：距离越小，(距离*-1)越大
         params={
             "command_name": "target_pose",
