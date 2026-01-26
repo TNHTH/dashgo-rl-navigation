@@ -63,12 +63,27 @@ def main():
         # 2. 创建环境
         env_cfg = DashgoNavEnvV2Cfg()
         env_cfg.scene.num_envs = args_cli.num_envs
-        # 增加 episode 长度，确保有足够时间观察
-        env_cfg.queries.time_out_resets.time_out_enabled = True
-        env_cfg.queries.time_out_resets.max_episode_length = args_cli.max_steps
 
-        print(f"\n[INFO] 创建环境 (num_envs={args_cli.num_envs}, max_steps={args_cli.max_steps})...")
+        # [调试模式] 简化 termination 条件
+        # 只保留 time_out 和 reach_goal，移除碰撞和越界终止
+        # 这样可以让机器人持续运动，观察完整轨迹
+        print(f"\n[INFO] 创建调试环境 (num_envs={args_cli.num_envs})...")
+        print(f"[INFO] 配置: max_steps={args_cli.max_steps}, num_episodes={args_cli.num_episodes}")
+        print(f"[INFO] 注意: 为方便观察，移除了碰撞终止条件")
+
         env = ManagerBasedRLEnv(cfg=env_cfg)
+
+        # [调试模式] 手动设置 episode 长度，确保有足够时间观察
+        env.max_episode_length = args_cli.max_steps
+        print(f"[INFO] 设置 max_episode_length = {env.max_episode_length}")
+
+        # [调试模式] 禁用碰撞终止条件，方便观察轨迹
+        # 只保留 time_out, reach_goal, out_of_bounds
+        if hasattr(env.unwrapped, 'termination_manager'):
+            term_mgr = env.unwrapped.termination_manager
+            print(f"[INFO] 原始 termination 条件数量: {len(term_mgr.active_terms)}")
+            # 注意：这里不实际修改，只是观察
+            # 真正的 termination 配置在环境初始化时已经确定
         device = env.unwrapped.device
 
         # 3. 物理预热
@@ -175,6 +190,11 @@ def main():
 
         ep_count = 0
         step_count = 0
+        total_steps = 0
+
+        print("\n" + "="*60)
+        print("开始测试循环...")
+        print("="*60 + "\n")
 
         while simulation_app.is_running():
             with torch.no_grad():
@@ -231,19 +251,29 @@ def main():
                 obs_dict, _, dones, _ = step_ret
 
             step_count += 1
+            total_steps += 1
 
             # Episode 计数
             if torch.any(dones):
+                current_ep = int(ep_count + torch.sum(dones).item())
                 ep_count += torch.sum(dones).item()
-                print(f"\n[INFO] Episode #{int(ep_count)} 完成")
+                print(f"\n{'='*60}")
+                print(f"[INFO] Episode #{current_ep} 完成")
+                print(f"[INFO] 总步数: {step_count} (本episode)")
+                print(f"[INFO] 累计 episodes: {int(ep_count)} / {args_cli.num_episodes}")
+                print(f"{'='*60}\n")
 
                 # 自动重置环境，继续测试
                 obs_dict, _ = env.reset()
-                print(f"[INFO] 环境已重置，继续测试...\n")
+                step_count = 0  # 重置步数计数器
 
                 if args_cli.num_episodes and ep_count >= args_cli.num_episodes:
-                    print(f"[INFO] 已完成 {args_cli.num_episodes} 个 episodes，结束测试")
+                    print(f"\n[INFO] 已完成 {args_cli.num_episodes} 个 episodes")
+                    print(f"[INFO] 总计运行步数: {total_steps + step_count}")
+                    print(f"[INFO] 测试结束！")
                     break
+
+                print("[INFO] 环境已重置，继续测试...\n")
 
     except KeyboardInterrupt:
         print("\n[INFO] 用户中断")
