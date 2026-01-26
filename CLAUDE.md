@@ -369,6 +369,32 @@ You are Claude Code, Anthropic's official CLI.
 以下文件**禁止修改**:
 - `CLAUDE.md` (this file)
 - `.claude/skills/dialogue_optimizer.md`
+- **`dashgo/` 文件夹（所有内容，严禁任何修改）**
+
+**⚠️ 特别强调：dashgo/ 文件夹绝对禁止修改**
+
+`dashgo/` 文件夹包含实物DashGo D1机器人的ROS配置和参数，是Sim2Real对齐的**唯一真实来源**。
+
+**为什么不能修改？**
+1. **实物参数的真实性**: 这些参数来自真实机器人，修改会破坏Sim2Real
+2. **训练的关键**: 仿真参数必须严格对齐实物，否则策略无法部署
+3. **独立版本控制**: dashgo/有独立的git历史，不应被项目代码修改
+
+**正确使用方式**:
+```python
+# ✅ 正确：只读取参数
+from dashgo_config import DashGoROSParams
+ros_params = DashGoROSParams.from_yaml()
+wheel_radius = ros_params.wheel_radius  # 使用真实参数
+
+# ❌ 严重错误：修改dashgo/文件
+# 严禁编辑 dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml
+```
+
+**如果需要参数调整**:
+1. 在仿真代码（`dashgo_env_v2.py`）中调整
+2. 添加注释说明与实物的差异
+3. 记录到问题文档（`issues/`）
 
 ### Allowed Modifications
 你可以修改:
