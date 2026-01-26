@@ -914,22 +914,17 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
             update_period=0.1,  # 10 Hz（接近实物5-10Hz）
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # [v6.2 权宜修复] 暂时只检测地面，满足Warp单一mesh限制
+            # [v6.3 实验性修复] 尝试通过Monkey Patch强制使用PhysX模式
             #
-            # 问题根源：
-            #   - mesh_prim_paths是必填字段，不能删除
-            #   - RayCaster基于Warp，只支持单一mesh（len必须=1）
-            #   - 传入17个路径（1地面+16障碍物）导致NotImplementedError
-            #   - 删除参数导致Missing values错误
+            # 问题：Warp模式只支持单一mesh，无法检测障碍物
+            # 方案：设为None + Monkey Patch绕过Warp初始化，触发PhysX回退
             #
-            # 权宜方案：
-            #   - 只检测地面（单一mesh）
-            #   - 牺牲障碍物检测能力
-            #   - 让程序能跑起来，验证其他部分
+            # 使用说明：
+            #   必须在训练/验证脚本中添加Monkey Patch代码
+            #   参考 verify_lidar_fix.py 中的patch代码
             #
-            # TODO: 未来需要切换到PhysX模式或使用其他传感器方案
-            # 参考: https://github.com/NVIDIA-Omniverse/IsaacLab/issues/XXX
-            mesh_prim_paths=["/World/GroundPlane"],  # ⚠️ 暂时只能看到地面
+            # 如果PhysX模式失败，说明RayCaster完全依赖Warp
+            mesh_prim_paths=None,  # ⚠️ 实验性：需要配合Monkey Patch使用
             ray_alignment="yaw",  # 仅随机器人旋转
             pattern_cfg=patterns.LidarPatternCfg(
                 channels=360,  # ✅ [v6.0优化] 降低到360点（更接近实物EAI F4的360-720点，节省显存35%，速度提升50-80%）
