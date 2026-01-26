@@ -64,9 +64,13 @@ def main():
         # 签名: (self, obs, obs_groups, num_actions, actor_hidden_dims=..., ...)
         print("[INFO] 构建神经网络 (基于真实签名)...")
 
-        # 构造 obs_groups (假设策略需要 "policy" 组，对应 obs_dict 中的 "policy" 键)
-        # RSL-RL 会根据这个字典去 obs 中找数据
-        obs_groups = {"policy": ["policy"]}
+        # [v5.1 核心修复]
+        # RSL-RL 强制要求 obs_groups 包含 "critic" 键
+        # 我们的环境只输出了 "policy" 组，所以让 critic 指向同一组数据
+        obs_groups = {
+            "policy": ["policy"],
+            "critic": ["policy"]  # <--- 必须添加这一行，否则报错 KeyError: 'critic'
+        }
 
         # 注意：这里直接传整个 obs_dict 作为第一个参数 'obs'
         # RSL-RL 内部会用 obs_groups 去解析它
