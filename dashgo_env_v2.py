@@ -369,6 +369,91 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     # 6. 归一化到 [0, 1]
     return downsampled / max_range
 
+# ============================================================================
+# [v8.0] 业界标准避障策略 - 速度-距离动态约束
+# ============================================================================
+
+def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.25) -> torch.Tensor:
+    """
+    [v8.0 业界标准] 速度-距离 动态约束
+
+    核心逻辑："离得近没关系，但离得近还**跑得快**，就是找死。"
+
+    设计理念：
+        - 宽阔马路：距离0.5m，允许限速0.5m/s
+        - 狭窄通道：距离0.1m，限速0.05m/s
+        - 超速才惩罚：鼓励在窄处"慢慢蹭"而不是"躺平"
+
+    数学公式：
+        safe_vel_limit = clamp(min_dist, max=0.5)
+        overspeed = clamp(vel - safe_vel_limit, min=0.0)
+        penalty = -overspeed
+
+    Args:
+        env: 环境对象
+        asset_cfg: 机器人配置
+        min_dist_threshold: 最小安全距离（默认0.25m）
+
+    Returns:
+        torch.Tensor: 超速惩罚 [N]
+
+    架构师: Isaac Sim Architect (2026-01-27)
+    参考方案: ETH Zurich RSL-RL, OpenAI Navigation, ROS2 Nav2
+    """
+    # 1. 获取最小雷达距离
+    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]
+    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]
+    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]
+    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]
+
+    all_dist = torch.cat([d_front, d_left, d_back, d_right], dim=1).squeeze(1)  # [N, 360]
+    min_dist = torch.min(all_dist, dim=1)[0]  # [N]
+
+    # 2. 获取当前速度
+    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]  # X轴速度 [N]
+
+    # 3. 定义"安全速度极限" (距离越近，限速越低)
+    safe_vel_limit = torch.clamp(min_dist, max=0.5)  # 0.5m/s 最大安全速度
+
+    # 4. 计算"超速量" (只有当 实际速度 > 安全限速 时，才惩罚)
+    overspeed = torch.clamp(vel - safe_vel_limit, min=0.0)
+
+    # 5. 给予惩罚 (权重由 RewardsCfg 控制)
+    return -overspeed  # 超速越多，扣分越狠
+
+
+def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 0.1) -> torch.Tensor:
+    """
+    [v8.0] 轻微接触惩罚 - 第二层防御
+
+    核心逻辑：只要碰到任何东西（力 > 0.1N），就每帧扣分
+
+    设计理念：
+        - 第一层（Termination）：猛烈碰撞（>50N）直接重置
+        - 第二层（Reward）：轻微接触（0.1N）给予疼痛感，但不重置
+        - 目的：让机器人学会"别碰我"，但不会因为轻轻蹭一下就死
+
+    Args:
+        env: 环境对象
+        sensor_cfg: 接触力传感器配置
+        threshold: 接触力阈值（默认0.1N，极低的阈值）
+
+    Returns:
+        torch.Tensor: 接触惩罚 [N]
+
+    架构师: Isaac Sim Architect (2026-01-27)
+    """
+    # 获取接触力数据
+    contact_data = env.scene[sensor_cfg.name].data.net_contact_forces  # [N, 3]
+    force_mag = torch.norm(contact_data, dim=-1)  # [N]
+
+    # 任何超过阈值的接触都给予惩罚
+    has_contact = force_mag > threshold
+
+    # 返回惩罚（轻微扣分，权重由 RewardsCfg 控制）
+    return -torch.where(has_contact, 1.0, 0.0)
+
+
 # =============================================================================
 # [v5.0 Ultimate] 自动课程学习核心函数
 # =============================================================================
@@ -1150,14 +1235,36 @@ class DashgoRewardsCfg:
         weight=0.01,  # ✅ [v6.0修复] 修复双重负号错误（负函数×负权重=正奖励刷分漏洞）
     )
 
-    # [约束] 碰撞惩罚：-50.0 + 10.0阈值
-    # 作用：痛感教育，确立安全边界
+    # [约束] 猛烈碰撞惩罚：-200.0（绝对禁止）
+    # 作用：撞击直接重置前的负反馈（虽然 Termination 会处理，但额外扣分加强记忆）
     collision = RewardTermCfg(
         func=penalty_collision_force,
-        weight=-50.0,
+        weight=-200.0,  # ✅ [v8.0] 提升到-200（比所有过程扣分都痛）
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
-            "threshold": 10.0  # ✅ [v5.0] 放宽到10.0（避免误触发）
+            "threshold": 10.0
+        }
+    )
+
+    # [v8.0 新增] 轻微接触惩罚：-1.0（第二层防御）
+    # 作用：擦碰给小痛感，但不重置。防止"贴墙走"坏习惯
+    undesired_contacts = RewardTermCfg(
+        func=penalty_undesired_contacts,
+        weight=-1.0,  # 轻微扣分，可以忍受
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces_base"),
+            "threshold": 0.1  # 极低阈值，擦碰也算
+        }
+    )
+
+    # [v8.0 新增] 速度-距离动态约束：-5.0（第三层防御 - 虚拟防撞垫）
+    # 作用：窄处必须减速，鼓励"优雅通过"而非"贴墙蹭"或"直接撞"
+    unsafe_speed_penalty = RewardTermCfg(
+        func=penalty_unsafe_speed,
+        weight=-5.0,  # 中等扣分，超速必罚
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "min_dist_threshold": 0.25  # 0.25m 安全距离（机器人半径0.2m + 余量0.05m）
         }
     )
 
@@ -1201,7 +1308,7 @@ class DashgoTerminationsCfg:
 
     object_collision = TerminationTermCfg(
         func=check_collision_simple,
-        params={"sensor_cfg_base": SceneEntityCfg("contact_forces_base"), "threshold": 150.0}
+        params={"sensor_cfg_base": SceneEntityCfg("contact_forces_base"), "threshold": 50.0}  # ✅ [v8.0] 降低到50N，更敏感
     )
     out_of_bounds = TerminationTermCfg(func=check_out_of_bounds, params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")})
     base_height = TerminationTermCfg(func=check_base_height_bad, params={"min_height": -0.50, "max_height": 1.0, "asset_cfg": SceneEntityCfg("robot")})
