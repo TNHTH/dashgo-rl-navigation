@@ -237,6 +237,45 @@ d_right = env.scene["camera_right"].data.distance_to_image_plane
 **相关提交**：
 - commit: 61d1491 (2026-01-27)
 
+---
+
+### 问题4：相机数据访问API错误（2026-01-27 修复）
+
+**错误现象**：
+```
+AttributeError: 'CameraData' object has no attribute 'distance_to_image_plane'
+```
+
+**根本原因**：
+- Isaac Lab 的相机数据不直接作为 `.data` 的属性
+- 所有渲染数据存储在 `.data.output` **字典**中
+- 需要通过键名访问：`data.output["distance_to_image_plane"]`
+
+**修复代码**：
+
+**位置**：`dashgo_env_v2.py` 第346-349行
+
+**修改前**：
+```python
+d_front = env.scene["camera_front"].data.distance_to_image_plane  # [N, 90]
+```
+
+**修改后**：
+```python
+# [Fix 2026-01-27] Isaac Lab 相机数据存储在 .data.output 字典中
+d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]  # [N, 1, 90]
+
+# 压缩维度 [N, 1, 90] → [N, 90]
+scan_front = d_front.squeeze(1)
+```
+
+**关键改动**：
+1. 使用 `.data.output["distance_to_image_plane"]` 而非 `.data.distance_to_image_plane`
+2. 添加 `.squeeze(1)` 压缩 Height 维度：`[N, 1, 90] → [N, 90]`
+
+**相关提交**：
+- commit: 423bd27 (2026-01-27)
+
 ### 更新文档
 
 **相关文档**：
