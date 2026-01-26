@@ -53,6 +53,14 @@ def main():
         print("[INFO] 环境预热 & 获取观测样本...", flush=True)
         obs_dict, _ = env.reset()
 
+        # [v6.2 修复] 添加与训练脚本相同的物理预热循环
+        # 让机器人有足够时间落到地面，避免穿模
+        zero_actions = torch.zeros(args_cli.num_envs, 2, device=device)
+        print("[INFO] 物理预热中（10步）...", flush=True)
+        for _ in range(10):
+            env.step(zero_actions)
+        obs_dict, _ = env.reset()  # 重新获取观测
+
         # 确保动作空间维度正确
         if hasattr(env.action_manager, "action_term_dim"):
             dim = env.action_manager.action_term_dim
