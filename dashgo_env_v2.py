@@ -443,8 +443,10 @@ def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCf
 
     架构师: Isaac Sim Architect (2026-01-27)
     """
-    # 获取接触力数据
-    contact_data = env.scene[sensor_cfg.name].data.net_contact_forces  # [N, 3]
+    # [Fix 2026-01-27] 使用正确的属性名 net_forces_w
+    # Isaac Lab ContactSensor 的属性名是 net_forces_w，而非 net_contact_forces
+    # data.net_forces_w 的形状是 [num_envs, 3]
+    contact_data = env.scene[sensor_cfg.name].data.net_forces_w  # [N, 3]
     force_mag = torch.norm(contact_data, dim=-1)  # [N]
 
     # 任何超过阈值的接触都给予惩罚
