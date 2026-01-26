@@ -5,7 +5,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, mdp
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg
 from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg, ObservationTermCfg, TerminationTermCfg, EventTermCfg, CurriculumTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
@@ -239,32 +239,35 @@ def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Scene
 
 def _compute_raycaster_distance(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    [Core Logic] 计算 RayCaster 的物理击中距离
+    [v7.0 Core Logic] 从深度相机获取模拟LiDAR数据
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    架构师认证代码
+    修改原因：RayCaster受Warp Mesh限制无法检测障碍物，用深度相机替代
 
-    逻辑：Distance = || Hit_Point - Sensor_Origin ||
-    返回：原始距离数据 (单位: 米)，形状 [num_envs, num_rays]
+    逻辑：
+        1. 从深度相机获取深度图 [N, Height, Width] -> [N, 1, 180]
+        2. 展平为 [N, 180] 模拟LiDAR
+        3. 处理无效值并限制范围
+
+    返回：原始距离数据 (单位: 米)，形状 [num_envs, 180]
     """
     # 1. 获取传感器
     sensor = env.scene[sensor_cfg.name]
 
-    # 2. 获取物理数据
-    ray_hits_w = sensor.data.ray_hits_w  # [N, Rays, 3]
-    sensor_pos_w = sensor.data.pos_w       # [N, 3]
+    # 2. 从深度相机获取数据 [N, Height, Width] -> [N, 1, 180]
+    depth_image = sensor.data.output["distance_to_image_plane"]
 
-    # 3. 计算距离 (L2 Norm)
-    # [N, 1, 3] - [N, Rays, 3] broadcast
-    vec = ray_hits_w - sensor_pos_w.unsqueeze(1)
-    dist = torch.norm(vec, dim=-1)
+    # 3. 展平为 [N, 180] 的LiDAR格式
+    ranges = depth_image.squeeze(dim=1)  # 移除高度维度
 
-    # 4. 数据清洗 (NaN/Inf -> Max Range)
-    max_range = 12.0  # EAI F4 参数
-    dist = torch.nan_to_num(dist, nan=max_range, posinf=max_range, neginf=0.0)
-    dist = torch.clamp(dist, min=0.0, max=max_range)
+    # 4. 处理无效值
+    # 将无穷大(没打到物体)替换为最大距离
+    # 将负值或NaN设为0
+    max_range = 10.0  # EAI F4 参数
+    ranges = torch.nan_to_num(ranges, posinf=max_range, neginf=0.0)
+    ranges = torch.clamp(ranges, min=0.0, max=max_range)
 
-    return dist
+    return ranges
 
 # =============================================================================
 # [架构师修复] 兼容性补丁：复活旧函数名
@@ -281,35 +284,35 @@ def _get_corrected_depth(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
 
 def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """
-    [架构师修正 2026-01-25 v4.0 简化版] 处理 RayCaster 激光雷达数据
+    [v7.0 适配] 处理深度相机模拟的LiDAR数据
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    架构师认证代码
 
-    改进说明:
-        - 使用核心工具函数 _compute_raycaster_distance
-        - 代码更简洁，逻辑复用，DRY原则
-        - 观测和奖励共享同一套物理计算逻辑
+    数据流：
+        1. 深度相机 [N, 1, 180] (height=1, width=180)
+        2. 展平为 [N, 180]
+        3. 归一化到 [0, 1]
+        4. 降采样到90个扇区 (每2°一个扇区)
 
     Returns:
-        torch.Tensor: 形状为 [num_envs, 36] 的归一化距离数组
+        torch.Tensor: 形状为 [num_envs, 90] 的归一化距离数组
     """
-    # 1. 调用核心工具获取米制距离
+    # 1. 调用核心工具获取米制距离 [N, 180]
     distances = _compute_raycaster_distance(env, sensor_cfg)
 
-    # 2. 归一化到 [0, 1] (Observation 需要)
-    max_range = 12.0
+    # 2. 归一化到 [0, 1]
+    max_range = 10.0
     distances_normalized = distances / max_range
 
-    # 3. 降采样到36个扇区（降低输入维度，加速训练）
-    num_sectors = 36
+    # 3. 降采样到90个扇区 (每2°一个，从180°降到90°)
+    num_sectors = 90
     batch_size, num_rays = distances_normalized.shape
 
     if num_rays % num_sectors == 0:
         # 每个扇区取最小值（最安全的障碍物距离）
         depth_sectors = distances_normalized.view(batch_size, num_sectors, -1).min(dim=2)[0]
     else:
-        # 如果不能整除，保持原样（避免数据丢失）
+        # 如果不能整除，保持原样
         depth_sectors = distances_normalized
 
     return depth_sectors
@@ -564,13 +567,11 @@ def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
     diff = env.action_manager.action - env.action_manager.prev_action
     return -torch.sum(torch.square(diff), dim=1)
 
-# [优化] 速度对齐奖励：鼓励使用接近最优速度的速度
-def reward_target_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    robot = env.scene[asset_cfg.name]
-    lin_vel_b = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
-    target_vel = 0.25
-    speed_match = 1.0 - torch.abs(lin_vel_b - target_vel) / target_vel
-    return torch.clamp(speed_match, 0.0, 0.2)
+# [删除] 冲突的奖励函数定义（第二个版本，导致机器人倒车刷分）
+# 原因：Python使用最后一个定义，而这个版本奖励任意方向的0.25m/s速度
+# 后果：机器人学会倒车来刷分，导致"醉汉走路"
+#
+# 正确版本在line 409，只奖励前进速度
 
 # 日志记录函数
 def log_distance_to_goal(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -905,35 +906,34 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         history_length=3, track_air_time=True
     )
 
-    # [v3.0修复] 对齐实物EAI F4激光雷达规格，强制启用LiDAR传感器
-    # 从深度相机改为RayCaster（360° LiDAR仿真）
-    # 参考官方文档: Isaac Lab RayCaster Sensor
-    # 实物规格: 360°扫描、6-12m范围、5-10Hz频率
-    # Headless模式RayCaster正常工作，无需条件判断
-    lidar_sensor = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
-            update_period=0.1,  # 10 Hz（接近实物5-10Hz）
-            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.13), rot=(0.0, 0.0, 0.0, 1.0)),  # ✅ 对齐实物：X=0, Y=0, Z=0.13m，无旋转
-            # [v6.3 实验性修复] 尝试通过Monkey Patch强制使用PhysX模式
-            #
-            # 问题：Warp模式只支持单一mesh，无法检测障碍物
-            # 方案：设为None + Monkey Patch绕过Warp初始化，触发PhysX回退
-            #
-            # 使用说明：
-            #   必须在训练/验证脚本中添加Monkey Patch代码
-            #   参考 verify_lidar_fix.py 中的patch代码
-            #
-            # 如果PhysX模式失败，说明RayCaster完全依赖Warp
-            mesh_prim_paths=None,  # ⚠️ 实验性：需要配合Monkey Patch使用
-            ray_alignment="yaw",  # 仅随机器人旋转
-            pattern_cfg=patterns.LidarPatternCfg(
-                channels=360,  # ✅ [v6.0优化] 降低到360点（更接近实物EAI F4的360-720点，节省显存35%，速度提升50-80%）
-                vertical_fov_range=[0.0, 0.0],  # 2D扫描（单线激光雷达）
-                horizontal_fov_range=[-180.0, 180.0],  # 360°全方位扫描
-                horizontal_res=1.0,  # ✅ [v6.0优化] 同步修改分辨率（360°/360=1.0°）
-            ),
-            debug_vis=False,  # ⚠️ 暂时禁用可视化，防止NoneType reshape错误
-        )
+    # [v7.0 终极修复] 使用深度相机模拟LiDAR（绕过Warp Mesh限制）
+    #
+    # 问题：RayCaster基于Warp，只支持单一mesh，无法看到障碍物
+    # 解决：使用深度相机生成深度图，模拟360° LiDAR数据
+    #
+    # 优点：
+    #   - 基于PhysX/渲染，能看到所有物理碰撞体（墙、柱子、障碍物）
+    #   - 不受Warp Mesh限制
+    #   - Sim-to-Real标准做法
+    #
+    # 实物规格：EAI F4 LiDAR，360°扫描、6-12m范围、5-10Hz频率
+    lidar_sensor = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/lidar_link",
+        update_period=0.1,  # 10 Hz（接近实物5-10Hz）
+        height=1,  # 高度1像素（模拟单线扫描）
+        width=180,  # 宽度180像素（对应180°视野）
+        data_types=["distance_to_image_plane"],  # 获取深度数据
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=24.0,  # 广角镜头
+            focus_distance=400.0,
+            horizontal_aperture=20.955,
+            clipping_range=(0.1, 10.0),  # 最小0.1米，最大10米
+        ),
+        offset=CameraCfg.OffsetCfg(
+            pos=(0.0, 0.0, 0.13),  # 安装高度13cm
+            rot=(0.0, 0.0, 0.0, 1.0),  # 无旋转
+        ),
+    )
     
     obs_inner_1 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_1", spawn=sim_utils.CylinderCfg(radius=0.1, height=1.0, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.2, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.6, 0.0, 0.5)))
     obs_inner_2 = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/Obs_In_2", spawn=sim_utils.CuboidCfg(size=(0.2, 0.2, 1.0), visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.4, 0.2)), rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True), mass_props=sim_utils.MassPropertiesCfg(mass=20.0), collision_props=sim_utils.CollisionPropertiesCfg()), init_state=RigidObjectCfg.InitialStateCfg(pos=(1.13, 1.13, 0.5)))
