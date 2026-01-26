@@ -111,9 +111,37 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **禁止操作**:
-- ❌ 修改 `dashgo/` 中的文件（只读参考）
+- ❌ **修改 `dashgo/` 中的文件（只读参考，严禁任何修改）**
 - ❌ 将 `policy.onnx`、`*.pth`、`*.ckpt` 提交到git
 - ❌ 提交敏感配置（`.claude.json`、`.mcp.json`）
+
+**⚠️ 特别强调：dashgo/ 文件夹绝对禁止修改**
+
+`dashgo/` 文件夹包含实物机器人的ROS配置和参数，是Sim2Real对齐的**唯一真实来源**：
+
+**为什么不能修改？**
+1. **实物参数的真实性**: 这些参数来自真实的DashGo D1机器人
+2. **Sim2Real的关键**: 仿真必须严格对齐实物，否则训练的策略无法部署
+3. **版本控制**: dashgo/文件有独立的git历史，不应被项目代码混淆
+
+**正确使用方式**:
+```python
+# ✅ 正确：只读取参数
+from dashgo_config import DashGoROSParams
+ros_params = DashGoROSParams.from_yaml("dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml")
+wheel_radius = ros_params.wheel_radius  # 使用真实参数
+
+# ❌ 错误：修改dashgo/文件
+# 不要编辑 dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml
+```
+
+**参数来源表**:
+| 参数 | 来源文件 | 用途 |
+|------|----------|------|
+| wheel_radius | dashgo/EAI驱动/.../my_dashgo_params.yaml | 轮子半径 |
+| wheel_track | dashgo/EAI驱动/.../my_dashgo_params.yaml | 轮距 |
+| max_vel_x | dashgo/.../base_local_planner_params.yaml | 最大线速度 |
+| max_rot_vel | dashgo/.../base_local_planner_params.yaml | 最大角速度 |
 
 ### 5. 官方文档优先原则（版本锁定）
 
