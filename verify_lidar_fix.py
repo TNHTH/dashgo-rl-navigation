@@ -24,8 +24,22 @@ def main():
         from isaaclab.envs import ManagerBasedRLEnv
         from dashgo_env_v2 import DashgoNavEnvV2Cfg
 
+        # [HACK] 强制RayCaster使用PhysX模式，绕过Warp单mesh限制
+        # 原理：patch _initialize_warp_meshes，让None时不报错，从而触发PhysX回退
+        from isaaclab.sensors.ray_caster import RayCaster
+        original_init = RayCaster._initialize_warp_meshes
+
+        def patched_init_warp(self):
+            if self.cfg.mesh_prim_paths is None:
+                print("[HACK] mesh_prim_paths=None，跳过Warp初始化，尝试使用PhysX...")
+                return  # 跳过Warp，让RayCaster回退到PhysX
+            original_init(self)
+
+        RayCaster._initialize_warp_meshes = patched_init_warp
+        print("[INFO] Monkey Patch已应用：RayCaster强制PhysX模式")
+
         print("="*60)
-        print("[VERIFY] LiDAR修复验证 (v2.0)")
+        print("[VERIFY] LiDAR修复验证 (v2.1 + PhysX Hack)")
         print("="*60)
 
         # 1. 创建环境
@@ -107,7 +121,9 @@ def main():
             print("-" * 60)
 
             # 执行一步空动作
-            obs_dict, _, _, _ = env.step(zero_actions)
+            outputs = env.step(zero_actions)
+            # ManagerBasedRLEnv返回(obs_dict, rewards, dones, infos)或更多
+            obs_dict = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
 
         print("\n" + "="*60)
         print("验证脚本执行完毕！")
