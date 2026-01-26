@@ -209,11 +209,11 @@ def main():
         if args_cli.num_envs:
             env_cfg.scene.num_envs = args_cli.num_envs
         else:
-            # [架构师修正 2026-01-24] RTX 4060 Laptop (8GB) 优化值
-            # 显存占用 3.7G/8G，GPU占用50%，大幅提升到256个环境
-            # 预计占用 5-6GB 显存，提高GPU利用率到 80-90%
-            print("[INFO] 未指定 num_envs，默认使用 256 个环境 (RTX 4060 Laptop 8GB显存优化值)")
-            env_cfg.scene.num_envs = 256
+            # [架构师修正 2026-01-27] RTX 4060 Laptop (8GB) + 4 Cameras 安全值
+            # 开启4个相机+拼接LiDAR后，显存压力极大，256环境会OOM
+            # 保守设置64环境，防止训练中途崩溃
+            print("[INFO] 未指定 num_envs，默认使用 64 个环境 (RTX 4060 Laptop 8GB + 4 Cameras)")
+            env_cfg.scene.num_envs = 64
 
         # =============================================================================================
         # [v6.0新增] 自动自适应课程学习 (Auto-Adaptive Curriculum)
