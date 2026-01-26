@@ -29,9 +29,11 @@ def main():
 
         # 预热
         print("\n[INFO] 环境预热...")
+        device = env.unwrapped.device  # 获取环境设备
         obs_dict, _ = env.reset()
+        zero_actions = torch.zeros(args_cli.num_envs, 2, device=device)
         for _ in range(10):
-            env.step(torch.zeros(args_cli.num_envs, 2))
+            env.step(zero_actions)
         obs_dict, _ = env.reset()
 
         print("\n[INFO] LiDAR 配置信息：")
