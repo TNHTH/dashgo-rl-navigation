@@ -73,9 +73,9 @@ def main():
 
         env = ManagerBasedRLEnv(cfg=env_cfg)
 
-        # [调试模式] 手动设置 episode 长度，确保有足够时间观察
-        env.max_episode_length = args_cli.max_steps
-        print(f"[INFO] 设置 max_episode_length = {env.max_episode_length}")
+        # [调试模式] 使用默认 episode 长度（90秒，约1125步）
+        # 不修改 max_episode_length（只读属性）
+        print(f"[INFO] 默认 episode 长度: {env.max_episode_length} 步")
 
         # [调试模式] 禁用碰撞终止条件，方便观察轨迹
         # 只保留 time_out, reach_goal, out_of_bounds
