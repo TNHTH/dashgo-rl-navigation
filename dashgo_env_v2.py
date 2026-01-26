@@ -919,10 +919,11 @@ class RelativeRandomTargetCommandCfg(mdp.UniformPoseCommandCfg):
     asset_name: str = "robot"
     body_name: str = "base_link"
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
-    # [v5.0 Ultimate] 自动课程学习：初始3m范围（新手区）
-    # 修改历史：(-1.0, 1.0) → (0.1, 0.5)送分题 → (0.5, 1.5)正常训练 → (-3.0, 3.0)v5.0自动课程
+    # [架构师紧急修复 2026-01-27] 降低初始难度：从3m→1.5m
+    # 问题：机器人连路都不会走，3m范围太难
+    # 解决：先在幼儿园（1.5m范围）学会基本导航，再扩展
     ranges: mdp.UniformPoseCommandCfg.Ranges = mdp.UniformPoseCommandCfg.Ranges(
-        pos_x=(-3.0, 3.0), pos_y=(-3.0, 3.0), pos_z=(0.0, 0.0),  # ✅ 3m x 3m正方形区域
+        pos_x=(-1.5, 1.5), pos_y=(-1.5, 1.5), pos_z=(0.0, 0.0),  # ✅ 1.5m x 1.5m正方形区域（难度降低75%）
         roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(-math.pi, math.pi)
     )
     debug_vis: bool = False
@@ -1218,12 +1219,17 @@ class DashgoRewardsCfg:
         }
     )
 
-    # [引导] 黄金平衡点 0.75 + tanh
-    # 作用：提供方向感，但tanh限制了单步收益，防止刷分
+    # [架构师紧急修复 2026-01-27] 修复"指南针"：标准负距离奖励
+    # 问题：shaping_distance=0.0000（tanh函数失效），机器人没有方向感
+    # 解决：使用Isaac Lab标准position_command_error函数（负号=距离越小奖励越大）
+    # 数学原理：reward = -distance，距离从5m→1m，奖励从-5→-1（单调递增）
     shaping_distance = RewardTermCfg(
-        func=reward_position_command_error_tanh,  # ✅ [v5.0 Hotfix] 使用自定义函数（修复API不匹配）
-        weight=0.75,  # ✅ [v5.0] 黄金平衡点（从0.5提升）
-        params={"std": 4.0, "command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}  # ✅ [v6.0修复] 扩大std到4.0（6m处奖励提升19倍，解决梯度消失）
+        func=mdp.rewards.position_command_error,  # ✅ 使用Isaac Lab标准函数
+        weight=-1.0,  # ⚠️ 负号：距离越小，(距离*-1)越大
+        params={
+            "command_name": "target_pose",
+            "asset_cfg": SceneEntityCfg("robot")
+        }
     )
 
     # [辅助] Dense奖励组 (保留v3优势)
