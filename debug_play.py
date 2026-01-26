@@ -144,7 +144,17 @@ def main():
         print(f"[INFO] 归一化状态: {'开启' if enable_norm else '关闭'}")
 
         loaded_dict = torch.load(ckpt_path, map_location=device)
-        policy.load_state_dict(loaded_dict['model_state_dict'])
+        model_state_dict = loaded_dict['model_state_dict']
+
+        # [修复] 如果关闭归一化，删除归一化层参数（避免加载错误）
+        if not enable_norm:
+            keys_to_remove = [k for k in model_state_dict.keys() if 'normalizer' in k]
+            for key in keys_to_remove:
+                del model_state_dict[key]
+            if keys_to_remove:
+                print(f"[INFO] 已删除 {len(keys_to_remove)} 个归一化层参数（因关闭归一化）")
+
+        policy.load_state_dict(model_state_dict)
         policy.eval()
 
         # 6. 推理循环
