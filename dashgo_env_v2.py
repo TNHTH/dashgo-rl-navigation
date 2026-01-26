@@ -1355,13 +1355,14 @@ class DashgoCurriculumCfg:
     作用：从3m自动扩展到8m（线性插值，300M物理步完成）
     原理：通过CurriculumTermCfg注册课程函数，自动在环境重置时调用
     """
-    # 注册自动化课程：从 3m 自动涨到 8m
+    # 注册自动化课程：从 1.5m 自动涨到 8m
+    # [架构师修正 2026-01-27] 同步修改起跑线：3.0→1.5（与commands配置对齐）
     target_expansion = CurriculumTermCfg(
         func=curriculum_expand_target_range,
         params={
             "command_name": "target_pose",
-            "min_limit": 3.0,  # 初始难度：3米（新手区）
-            "max_limit": 8.0,  # 最终难度：8米（专家区）
+            "min_limit": 1.5,  # ✅ 初始难度：1.5米（幼儿园）- 与commands配置对齐
+            "max_limit": 8.0,  # 最终难度：8米（专家区）- 保持不变
             "start_step": 0,  # 从第0步开始
             "end_step": 300_000_000,  # 在300M物理步完成爬坡（约3000 iterations）
         }
