@@ -110,13 +110,26 @@ def main():
         # 延迟导入 Isaac Lab 模块
         from isaaclab.envs import ManagerBasedRLEnv
         from dashgo_env_v2 import DashgoNavEnvV2Cfg
-        from rsl_rl.modules import ActorCritic # 直接导入网络类
+        from rsl_rl.modules import ActorCritic
+        from tensordict import TensorDict
 
         print("[INFO] 初始化推理流程...", flush=True)
 
         # 2. 加载配置
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        cfg_path = os.path.join(script_dir, "train_cfg_v2.yaml")
         log_root = os.path.join(script_dir, "logs")
+
+        train_cfg = OmegaConf.load(cfg_path)
+        agent_cfg = OmegaConf.to_container(train_cfg, resolve=True)
+
+        # [关键修复] 配置扁平化处理
+        if "runner" in agent_cfg:
+            runner_cfg = agent_cfg.pop("runner")
+            agent_cfg.update(runner_cfg)
+
+        if "obs_groups" not in agent_cfg:
+            agent_cfg["obs_groups"] = {"policy": ["policy"]}
 
         # 3. 创建环境配置
         env_cfg = DashgoNavEnvV2Cfg()
@@ -161,7 +174,7 @@ def main():
             if isinstance(action_dim_info, (tuple, list)):
                 num_actions = action_dim_info[0]
             else:
-                num_actions = action_dim_info # 可能是 int
+                num_actions = action_dim_info
         else:
             # 回退方案
             num_actions = 2
@@ -170,15 +183,30 @@ def main():
         print(f"[INFO] 网络维度: Obs={num_obs}, Actions={num_actions}")
         print(f"[INFO] 设备: {device}")
 
-        # 6. 构建策略网络 (必须与训练时的参数一致)
+        # 6. 读取网络结构配置
+        policy_cfg = agent_cfg.get("policy", {})
+        actor_hidden_dims = policy_cfg.get("actor_hidden_dims", [512, 256, 128])
+        critic_hidden_dims = policy_cfg.get("critic_hidden_dims", [512, 256, 128])
+        activation = policy_cfg.get("activation", "elu")
+        init_noise_std = policy_cfg.get("init_noise_std", 1.0)
+
+        print(f"[INFO] 网络结构: Actor {actor_hidden_dims}, Critic {critic_hidden_dims}")
+
+        # 7. 构造观测张量用于网络初始化 (RSL-RL要求TensorDict)
+        obs_tensor = TensorDict({
+            "policy": torch.randn(args_cli.num_envs, num_obs, device=device)
+        }, batch_size=[args_cli.num_envs])
+
+        # 8. 构建ActorCritic网络
         print("[INFO] 构建ActorCritic网络...")
         policy = ActorCritic(
-            num_actor_obs=num_obs,
-            num_critic_obs=num_obs,
+            obs=obs_tensor,
+            obs_groups=agent_cfg["obs_groups"],
             num_actions=num_actions,
-            actor_hidden_dims=[512, 256, 128],
-            critic_hidden_dims=[512, 256, 128],
-            activation='elu',
+            actor_hidden_dims=actor_hidden_dims,
+            critic_hidden_dims=critic_hidden_dims,
+            activation=activation,
+            init_noise_std=init_noise_std,
         ).to(device)
 
         # 7. 加载权重
