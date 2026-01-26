@@ -907,6 +907,11 @@ class UniDiffDriveActionCfg(mdp.actions.JointVelocityActionCfg):
     class_type = UniDiffDriveAction
     asset_name: str = "robot"
     joint_names: list[str] = ["left_wheel_joint", "right_wheel_joint"]
+    # [架构师修正 2026-01-27] 必须设为 1.0！
+    # 因为 UniDiffDriveAction 内部已经完成了从 [0,1] 到 [rad/s] 的物理转换
+    # 如果 scale != 1.0，会导致双重缩放，速度失控
+    scale: float = 1.0
+    use_default_offset: bool = False
 
 @configclass
 class RelativeRandomTargetCommandCfg(mdp.UniformPoseCommandCfg):
