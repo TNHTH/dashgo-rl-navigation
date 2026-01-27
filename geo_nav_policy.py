@@ -6,16 +6,17 @@ from rsl_rl.utils import unpad_trajectories
 
 class GeoNavPolicy(ActorCritic):
     """
-    [Sim2Real] 轻量级导航策略网络 (1D-CNN + GRU)
+    [Sim2Real] 轻量级导航策略网络 (1D-CNN + MLP)
 
     架构特点：
     1. 混合输入：自动将观测数据切分为 LiDAR(216) 和 State(30)
     2. 空间感知：使用 1D-CNN 提取雷达特征
-    3. 时序记忆：使用 GRU 处理遮挡和历史状态
+    3. 短时记忆：history_length=3 提供3帧历史堆叠
     4. 轻量化：参数量 < 300K，适配 Jetson Nano
 
-    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    架构师方案: 方案2 - 直接训练轻量网络
+    [架构师修复 2026-01-27] 移除GRU，改用MLP
+    原因：GRU隐状态在训练时未传递，导致"失忆"Bug
+    方案：3帧历史堆叠 + CNN已足够，使用简单MLP更稳定
     """
 
     def __init__(self, num_actor_obs, num_critic_obs, num_actions,
@@ -75,10 +76,14 @@ class GeoNavPolicy(ActorCritic):
             nn.ELU()
         )
 
-        # 3. 记忆单元 (GRU)
-        # 注意：训练时RSL-RL使用无状态方式，GRU退化为特征变换
-        # 部署时可以使用显式状态传递
-        self.gru = nn.GRU(input_size=128, hidden_size=128, batch_first=True)
+        # 3. 记忆层 (MLP)
+        # [架构师修复 2026-01-27] 替换GRU为MLP，消除"失忆"Bug
+        # 原理：history_length=3已提供短时记忆，CNN+MLP足够
+        # 优势：训练和部署表现一致，无需处理隐状态传递
+        self.memory_layer = nn.Sequential(
+            nn.Linear(128, 128),
+            nn.ELU()
+        )
 
         # 4. 决策头 (Actor Head)
         self.actor_head = nn.Sequential(
@@ -111,14 +116,12 @@ class GeoNavPolicy(ActorCritic):
         fused = torch.cat([geo_feat, state], dim=1)  # [N, 64+state]
         x = self.fusion_layer(fused)                 # [N, 128]
 
-        # 4. GRU 处理 (训练时视为单步序列)
-        # 将维度扩展为 [N, 1, 128] 以满足GRU输入要求
-        x = x.unsqueeze(1)                           # [N, 1, 128]
-        gru_out, _ = self.gru(x)                    # [N, 1, 128]
-        gru_out = gru_out.squeeze(1)                 # [N, 128]
+        # 4. 记忆层处理 (MLP)
+        # [架构师修复 2026-01-27] 直接使用MLP，消除状态传递风险
+        x = self.memory_layer(x)                       # [N, 128]
 
         # 5. 输出动作
-        mu = self.actor_head(gru_out)
+        mu = self.actor_head(x)
         return mu
 
     # 重写父类的 act 方法以使用我们的 forward_actor
