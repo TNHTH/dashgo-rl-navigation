@@ -176,6 +176,31 @@ action = [v_norm, w_norm] ∈ [-1, 1]  # 归一化速度
 - Isaac Lab 0.46.4
 - CUDA 12.9 / PyTorch CUDA 12.8
 
+### 核心依赖
+
+**强化学习算法库**：
+- **RSL-RL** (rsl_rl-lib) v3.0.1
+  - 许可证：BSD-3-Clause
+  - 主页：https://github.com/leggedrobotics/rsl_rl
+  - 特点：GPU优化的PPO实现，专为并行训练设计
+  - 支持自定义策略网络、TensorDict观测、经验归一化
+
+**关键依赖版本**：
+```
+torch >= 2.6.0
+torchvision >= 0.5.0
+tensordict >= 7.0.0
+numpy >= 1.16.4
+GitPython
+onnx
+```
+
+**版本兼容性**：
+- ✅ RSL-RL 3.0.1 与 Isaac Sim 4.5 + Isaac Lab 0.46.4 完全兼容
+- ✅ 支持自定义策略网络（GeoNavPolicy）
+- ✅ 支持TensorDict观测格式
+- ✅ 支持经验归一化（empirical_normalization）
+
 ### 安装步骤
 
 ```bash
