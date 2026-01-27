@@ -1246,13 +1246,17 @@ class DashgoRewardsCfg:
         params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}
     )
 
-    # [移除 2026-01-27] 删除velodyne_style_reward
-    # 原因：
-    # 1. Geo-Distill V2.2使用4相机拼接，不再使用单独的lidar_sensor
-    # 2. reward_navigation_sota函数依赖lidar_sensor，但传感器已不存在
-    # 3. is_headless_mode()检测不可靠，导致headless模式也报错
-    # 影响：权重仅1.0，移除不影响训练（其他奖励已足够）
-    # 相关文档：issues/2026-01-25_1230_传感器配置不一致问题_LiDARvs深度相机.md
+    # [兼容] 保留velodyne_style_reward（正常模式下）
+    if not is_headless_mode():
+        velodyne_style_reward = RewardTermCfg(
+            func=reward_navigation_sota,
+            weight=1.0,
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "sensor_cfg": SceneEntityCfg("lidar_sensor"),
+                "command_name": "target_pose"
+            }
+        )
 
     # [约束] 动作平滑：0.01
     # 作用：抑制高频抖动，治愈Noise 17.0
