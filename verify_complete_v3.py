@@ -1,28 +1,47 @@
 """
-DashGo 全栈诊断工具 v3.0 (Assistant Enhanced)
-集成特性：
+DashGo 全栈诊断工具 v3.1 (Fixed Import Order)
+
+修复说明:
+- 必须先启动AppLauncher，再导入依赖omni的模块
+- 否则会报错: ModuleNotFoundError: No module named 'omni.physics'
+
+集成特性:
 1. 物理/动力学诊断 (架构师核心)
 2. 深度数据审计 (NaN/Inf/Keys)
 3. 奖励分项透视 (助手增强) - 关键!
 4. 增强版 ASCII 可视化
 
-用途：在 Headless 模式下，一键验证环境的"硬件"（物理/传感器）与"软件"（观测/奖励）。
-运行时间：约10秒
+运行方式:
+  ~/IsaacLab/isaaclab.sh -p verify_complete_v3.py --headless
 """
 
+import argparse
+from isaaclab.app import AppLauncher
+
+# ==============================================================================
+# [关键修复] 1. 先配置并启动仿真应用
+# ==============================================================================
+# 创建参数解析器
+parser = argparse.ArgumentParser(description="DashGo Diagnosis")
+
+# 启动 Headless 模式
+app_launcher = AppLauncher(headless=True)
+simulation_app = app_launcher.app
+
+print("\n" + "=" * 80)
+print("🤖 [Isaac Sim] 仿真引擎已启动... 正在加载环境模块")
+print("=" * 80)
+
+# ==============================================================================
+# [关键修复] 2. 仿真器启动后，再导入依赖 omni 的模块
+# ==============================================================================
 import torch
 import os
 import sys
 import numpy as np
 
-# 1. 导入
 from isaaclab.envs import ManagerBasedRLEnv
 from dashgo_env_v2 import DashgoNavEnvV2Cfg
-from isaaclab.app import AppLauncher
-
-# 2. 启动 Isaac Sim
-app_launcher = AppLauncher(headless=True)
-simulation_app = app_launcher.app
 
 def main():
     print("\n" + "=" * 80)
