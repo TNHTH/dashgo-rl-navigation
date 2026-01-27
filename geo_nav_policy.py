@@ -198,7 +198,14 @@ class GeoNavPolicy(nn.Module):
         更新动作分布（高斯分布）
 
         RSL-RL调用：在计算log_prob之前
+
+        [Fix 2026-01-27] 必须保存 action_mean，PPO 算法需要读取它
+        原因: PPO在act()后会尝试访问 policy.action_mean 来记录数据
         """
         mean = self.forward_actor(observations)
+
+        # [Fix] 必须保存 action_mean，PPO 算法需要读取它
+        self.action_mean = mean
+
         # 固定标准差 (Std)
         self.distribution = Normal(mean, mean*0. + self.std)
