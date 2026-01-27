@@ -21,10 +21,12 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 
 def main():
     parser = argparse.ArgumentParser(description="DashGo RL Inference")
-    parser.add_argument("--headless", action="store_true", default=False, help="无GUI模式")
+    # [修复 2026-01-27] 添加AppLauncher参数，支持--enable_cameras
+    AppLauncher.add_app_launcher_args(parser)
     parser.add_argument("--num_envs", type=int, default=1, help="环境数量")
     parser.add_argument("--checkpoint", type=str, default=None, help="模型路径")
     parser.add_argument("--num_episodes", type=int, default=None, help="运行集数")
+
     args_cli, _ = parser.parse_known_args()
 
     app_launcher = AppLauncher(args_cli)
