@@ -114,6 +114,47 @@ def find_best_checkpoint(log_root):
     return best_model
 
 
+# ==============================================================================
+# [架构师注入 2026-01-27] 方案2: 注册自定义轻量网络
+# ==============================================================================
+# 目标: 让RSL-RL框架使用GeoNavPolicy(1D-CNN+GRU)替代默认MLP
+# 方法: 通过setattr动态注入到rsl_rl.modules模块
+# 优势: 无需修改RSL-RL源码，保持框架可升级性
+# ==============================================================================
+
+def inject_geo_nav_policy():
+    """
+    注入GeoNavPolicy到RSL-RL模块
+
+    原理：
+        RSL-RL通过policy.class_name动态加载网络类
+        我们将GeoNavPolicy注册到rsl_rl.modules模块
+        使其可以像ActorCritic一样被配置文件引用
+
+    使用:
+        train_cfg_v2.yaml中设置: policy.class_name: "GeoNavPolicy"
+    """
+    print("[System] 正在注入 GeoNavPolicy 到 RSL-RL 模块...", flush=True)
+
+    try:
+        import rsl_rl.modules
+        from geo_nav_policy import GeoNavPolicy
+
+        # 动态注册到RSL-RL模块
+        setattr(rsl_rl.modules, "GeoNavPolicy", GeoNavPolicy)
+
+        print("[System] ✅ 注入成功！现在可以使用 policy.class_name: 'GeoNavPolicy'", flush=True)
+        print("[System] 网络架构: 1D-CNN + GRU (轻量化部署)", flush=True)
+
+    except ImportError as e:
+        print(f"[ERROR] 注入失败: {e}", flush=True)
+        print("[ERROR] 请确保 geo_nav_policy.py 在项目根目录下", flush=True)
+        raise
+
+
+# ==============================================================================
+
+
 def main():
     """
     主函数：训练DashGo机器人导航策略
@@ -144,6 +185,10 @@ def main():
         import torch
         import glob
         import re
+
+        # [方案2 2026-01-27] 注入轻量网络到RSL-RL
+        # 必须在导入rsl_rl模块之前执行
+        inject_geo_nav_policy()
 
         # 4. 导入Isaac Lab模块（必须在AppLauncher启动后导入）
         from isaaclab.envs import ManagerBasedRLEnv
