@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+  GeoNavPolicy v3.1 导航节点启动文件 (架构师修正版)
+
+  使用方法:
+    roslaunch dashgo_rl geo_nav.launch model_path:=/path/to/model.pt
+
+  参数:
+    model_path: TorchScript模型路径
+    max_lin_vel: 最大线速度 (默认: 0.3 m/s)
+    max_ang_vel: 最大角速度 (默认: 1.0 rad/s)
+  -->
+
+  <!-- 参数 -->
+  <arg name="model_path" default="$(find dashgo_rl)/models/policy_torchscript.pt" />
+  <arg name="max_lin_vel" default="0.3" />
+  <arg name="max_ang_vel" default="1.0" />
+
+  <!-- 启动导航节点 -->
+  <node name="geo_nav_node" pkg="dashgo_rl" type="geo_nav_node.py" output="screen">
+    <param name="model_path" value="$(arg model_path)" />
+    <param name="max_lin_vel" value="$(arg max_lin_vel)" />
+    <param name="max_ang_vel" value="$(arg max_ang_vel)" />
+  </node>
+
+</launch>
