@@ -7,16 +7,19 @@ from torch.distributions import Normal
 #
 # 问题演进:
 # 1. __init__ 参数: obs (TensorDict) 而非 num_actor_obs (int) ✅已修复
-# 2. 运行时 obs: act(evaluate) 传入的仍是 TensorDict ❌本次修复
+# 2. 运行时 obs: act(evaluate) 传入的仍是 TensorDict ✅已修复
+# 3. PPO 依赖: 需要 action_mean 和 action_std 属性 ✅本次修复
 #
 # 解决方案:
 # - __init__ 中: 提取并记住 policy_key，从 TensorDict 推断维度
 # - 运行时: _extract_tensor() 辅助方法，统一解包 TensorDict
+# - update_distribution(): 保存 action_mean 和 action_std，满足 PPO
 class GeoNavPolicy(nn.Module):
     """
     [Sim2Real] 轻量级导航策略网络 (1D-CNN + MLP)
 
     适配 RSL-RL 新版数据驱动接口，完整处理 TensorDict
+    包含 PPO 必需的所有属性 (action_mean, action_std)
     """
     def __init__(self, obs, obs_groups, num_actions,
                  actor_hidden_dims=[128, 64],
@@ -125,7 +128,7 @@ class GeoNavPolicy(nn.Module):
         输出:
             mu: Tensor[N, num_actions] 动作均值
         """
-        # [Fix 2026-01-27] 运行时解包 TensorDict -> Tensor
+        # [Fix] 运行时解包 TensorDict -> Tensor
         x = self._extract_tensor(obs)
 
         # 现在 x 是纯粹的 Tensor，可以安全切片
@@ -187,7 +190,7 @@ class GeoNavPolicy(nn.Module):
 
         RSL-RL调用：runner.evaluate(obs)
 
-        [Fix 2026-01-27] Critic 也需要解包 TensorDict
+        [Fix] Critic 也需要解包 TensorDict
         """
         # 运行时解包
         x = self._extract_tensor(critic_observations)
@@ -199,13 +202,17 @@ class GeoNavPolicy(nn.Module):
 
         RSL-RL调用：在计算log_prob之前
 
-        [Fix 2026-01-27] 必须保存 action_mean，PPO 算法需要读取它
-        原因: PPO在act()后会尝试访问 policy.action_mean 来记录数据
+        [Fix 2026-01-27] 计算并保存 action_mean 和 action_std
+        原因: PPO算法需要读取这两个属性来记录训练轨迹
+        - self.transition.action_mean = self.policy.action_mean.detach()
+        - self.transition.action_sigma = self.policy.action_std.detach()
         """
         mean = self.forward_actor(observations)
 
-        # [Fix] 必须保存 action_mean，PPO 算法需要读取它
+        # [Fix] 计算并保存 action_mean 和 action_std
+        # PPO 算法必须读取这两个属性才能工作
         self.action_mean = mean
+        self.action_std = mean * 0. + self.std  # 扩展到 [Batch, Actions]
 
-        # 固定标准差 (Std)
-        self.distribution = Normal(mean, mean*0. + self.std)
+        # 创建高斯分布
+        self.distribution = Normal(self.action_mean, self.action_std)
