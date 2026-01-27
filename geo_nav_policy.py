@@ -1,31 +1,67 @@
-# geo_nav_policy.py
-import torch
-import torch.nn as nn
-from torch.distributions import Normal
-
-# [架构师适配 2026-01-27] 适配 RSL-RL 新版数据驱动接口 & TensorDict
+# geo_nav_policy.py v3.1 - 梯度爆炸修复版
+# [架构师修复 2026-01-27] 添加LayerNorm + Input Clamp + Orthogonal Init
 #
 # 修复历史:
 # 1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
 # 2. [Fix] 增加 _extract_tensor，解决 TensorDict 解包错误
 # 3. [Fix] 增加 action_mean/action_std，解决 PPO 属性缺失
 # 4. [Fix] 增加 update_normalization，解决 PPO 接口缺失
+# 5. [Fix v3.1] 添加 LayerNorm 到所有网络层，防止梯度爆炸
+# 6. [Fix v3.1] 添加输入截断，防止 Inf/NaN 污染
+# 7. [Fix v3.1] 使用正交初始化，PPO 标准做法
+# 8. [Fix v3.1] 修复 Critic 网络（添加 LayerNorm + 确保 ELU 存在）
 #
 # 解决方案:
 # - __init__ 中: 提取并记住 policy_key，从 TensorDict 推断维度
 # - 运行时: _extract_tensor() 辅助方法，统一解包 TensorDict
 # - update_distribution(): 保存 action_mean 和 action_std，满足 PPO
 # - update_normalization(): 空方法，满足 empirical_normalization 配置
+# - v3.1: 所有 Linear/Conv 层后添加 LayerNorm（归一化输出）
+# - v3.1: forward_actor/evaluate 中截断输入到 [-10, 10]
+# - v3.1: 使用 init_orthogonal() 替代默认初始化
+# - v3.1: Critic 网络添加 LayerNorm + ELU 激活
+
+import torch
+import torch.nn as nn
+import numpy as np
+from torch.distributions import Normal
+
+
+# ============================================================================
+# [辅助函数] 正交初始化 (Orthogonal Initialization)
+# ============================================================================
+def init_orthogonal(layer, std=np.sqrt(2), bias_const=0.0):
+    """
+    PPO 标准初始化方法
+
+    参数:
+        layer: nn.Linear 或 nn.Conv1d
+        std: 权重标准差（默认 np.sqrt(2) 适合 ELU）
+        bias_const: 偏置常量
+
+    返回:
+        layer（初始化后的层）
+    """
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
 class GeoNavPolicy(nn.Module):
     """
-    [Sim2Real] 轻量级导航策略网络 (1D-CNN + MLP)
+    [Sim2Real] 轻量级导航策略网络 v3.1 (1D-CNN + MLP)
 
     修复历史:
     1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
     2. [Fix] 增加 _extract_tensor，解决 TensorDict 解包错误
     3. [Fix] 增加 action_mean/action_std，解决 PPO 属性缺失
     4. [Fix] 增加 update_normalization，解决 PPO 接口缺失
+    5. [Fix v3.1] 添加 LayerNorm 到所有网络层，防止梯度爆炸
+    6. [Fix v3.1] 添加输入截断，防止 Inf/NaN 污染
+    7. [Fix v3.1] 使用正交初始化，PPO 标准做法
+    8. [Fix v3.1] 修复 Critic 网络（添加 LayerNorm + 确保 ELU 存在）
     """
+
     def __init__(self, obs, obs_groups, num_actions,
                  actor_hidden_dims=[128, 64],
                  critic_hidden_dims=[512, 256, 128],
@@ -39,7 +75,7 @@ class GeoNavPolicy(nn.Module):
         if hasattr(obs, "get"):
             # 优先尝试获取 'policy' 键，如果没有则回退到 raw obs
             self.policy_key = "policy" if "policy" in obs.keys() else list(obs.keys())[0]
-            print(f"[GeoNavPolicy] 检测到 TensorDict，使用键: '{self.policy_key}'")
+            print(f"[GeoNavPolicy v3.1] 检测到 TensorDict，使用键: '{self.policy_key}'")
             policy_tensor = obs[self.policy_key]
         else:
             self.policy_key = None
@@ -53,54 +89,84 @@ class GeoNavPolicy(nn.Module):
         self.num_lidar = 216  # 72线 * 3帧
         self.num_state = self.num_actor_obs - self.num_lidar
 
-        print(f"[GeoNavPolicy] 最终架构确认:")
+        print(f"[GeoNavPolicy v3.1] 最终架构确认:")
         print(f"  - 输入维度: {self.num_actor_obs} (LiDAR={self.num_lidar})")
         print(f"  - 动作维度: {self.num_actions}")
+        print(f"  - 梯度爆炸防护: LayerNorm + Input Clamp + Orthogonal Init")
 
         # --- 3. 定义网络组件 ---
         self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
 
-        # A. 视觉编码器 (1D-CNN)
+        # ======================================================================
+        # A. 视觉编码器 (1D-CNN) + LayerNorm
+        # ======================================================================
         # Input: [N, 1, 216] -> Output: [N, 64]
         self.geo_encoder = nn.Sequential(
+            # Conv Block 1: [1, 216] -> [16, 108]
             nn.Conv1d(1, 16, kernel_size=5, stride=2, padding=2),
+            nn.LayerNorm([16, 108]),  # ← [v3.1 新增] 归一化输出
             nn.ELU(),
+
+            # Conv Block 2: [16, 108] -> [32, 54]
             nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.LayerNorm([32, 54]),   # ← [v3.1 新增] 归一化输出
             nn.ELU(),
+
+            # Flatten + Linear
             nn.Flatten(),
             nn.Linear(32 * 54, 64),
+            nn.LayerNorm(64),         # ← [v3.1 新增] 归一化全连接输出
             nn.ELU()
         )
 
-        # B. 特征融合层
+        # ======================================================================
+        # B. 特征融合层 + LayerNorm
+        # ======================================================================
         self.fusion_layer = nn.Sequential(
             nn.Linear(64 + self.num_state, 128),
+            nn.LayerNorm(128),       # ← [v3.1 新增]
             nn.ELU()
         )
 
-        # C. 记忆/推理层 (MLP 替代 GRU)
+        # ======================================================================
+        # C. 记忆/推理层 (MLP 替代 GRU) + LayerNorm
+        # ======================================================================
         # [架构师修复] GRU隐状态在训练时未传递导致"失忆"Bug
         # 使用简单MLP更稳定，history_length=3已提供短期记忆
         self.memory_layer = nn.Sequential(
             nn.Linear(128, 128),
+            nn.LayerNorm(128),       # ← [v3.1 新增]
             nn.ELU()
         )
 
-        # D. Actor 输出头
+        # ======================================================================
+        # D. Actor 输出头 + LayerNorm + 小权重初始化
+        # ======================================================================
+        # [v3.1] Actor 输出层使用小权重初始化（std=0.01），初始输出接近 0
+        actor_output = init_orthogonal(nn.Linear(64, num_actions), std=0.01)
         self.actor_head = nn.Sequential(
             nn.Linear(128, 64),
+            nn.LayerNorm(64),        # ← [v3.1 新增]
             nn.ELU(),
-            nn.Linear(64, num_actions)
+            actor_output            # ← [v3.1 新增] 小权重初始化
         )
 
-        # E. Critic 网络
+        # ======================================================================
+        # E. Critic 网络 + LayerNorm + 正交初始化
+        # ======================================================================
         # 强力裁判：[512, 256, 128]
+        # [v3.1 修复] 添加 LayerNorm + 确保有 ELU 激活
         critic_layers = []
         in_dim = self.num_critic_obs
+
         for dim in critic_hidden_dims:
-            critic_layers.append(nn.Linear(in_dim, dim))
-            critic_layers.append(nn.ELU())
+            layer = nn.Linear(in_dim, dim)
+            init_orthogonal(layer, std=np.sqrt(2))  # ← [v3.1 新增] 正交初始化
+            critic_layers.append(layer)
+            critic_layers.append(nn.LayerNorm(dim))  # ← [v3.1 新增] 归一化
+            critic_layers.append(nn.ELU())           # ← 激活函数（必须有）
             in_dim = dim
+
         critic_layers.append(nn.Linear(in_dim, 1))
         self.critic = nn.Sequential(*critic_layers)
 
@@ -120,7 +186,9 @@ class GeoNavPolicy(nn.Module):
         # 已经是 Tensor 或其他情况
         return obs
 
-    # --- 核心前向传播 ---
+    # ======================================================================
+    # 核心前向传播（带输入截断）
+    # ======================================================================
     def forward_actor(self, obs):
         """
         Actor前向传播
@@ -131,8 +199,9 @@ class GeoNavPolicy(nn.Module):
         输出:
             mu: Tensor[N, num_actions] 动作均值
         """
-        # [Fix] 运行时解包 TensorDict -> Tensor
+        # [Fix v3.1] 输入截断：防止 Inf/NaN 进入网络
         x = self._extract_tensor(obs)
+        x = torch.clamp(x, min=-10.0, max=10.0)  # ← [v3.1 新增] 硬截断到 [-10, 10]
 
         # 现在 x 是纯粹的 Tensor，可以安全切片
         # x shape: [Batch, 246]
@@ -155,7 +224,9 @@ class GeoNavPolicy(nn.Module):
         mu = self.actor_head(h)
         return mu
 
-    # --- RSL-RL 必需接口 (The "Must-Haves") ---
+    # ======================================================================
+    # RSL-RL 必需接口 (The "Must-Haves")
+    # ======================================================================
 
     @property
     def is_recurrent(self):
@@ -194,9 +265,11 @@ class GeoNavPolicy(nn.Module):
         RSL-RL调用：runner.evaluate(obs)
 
         [Fix] Critic 也需要解包 TensorDict
+        [Fix v3.1] 添加输入截断，防止 Inf/NaN 进入 Critic
         """
         # 运行时解包
         x = self._extract_tensor(critic_observations)
+        x = torch.clamp(x, min=-10.0, max=10.0)  # ← [v3.1 新增] Critic 输入也要截断
         return self.critic(x)
 
     def update_distribution(self, observations):
