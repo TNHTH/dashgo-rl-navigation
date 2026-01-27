@@ -942,6 +942,11 @@ class DashgoObservationsCfg:
     class PolicyCfg(ObservationGroupCfg):
         history_length = 3
 
+        # [架构师警告 2026-01-27] ⚠️ lidar 必须保持在第一位！
+        # 原因：GeoNavPolicy依赖lidar在最前面进行数据切片
+        # 风险：如果lidar移到其他位置，网络会将速度数据当成雷达数据
+        # 操作：添加/删除观测项时，确保lidar始终是第一个定义的
+
         # [Geo-Distill V2.2] 使用4向拼接LiDAR (72维)
         # 修复原因：单相机无法360° FOV，4个90°相机拼接实现全向扫描
         lidar = ObservationTermCfg(
