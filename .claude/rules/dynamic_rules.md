@@ -312,11 +312,48 @@
     bad: "架构师说'修改config.yaml' → AI直接修改根目录的config.yaml（错误） → 实际文件在config/subconfig.yaml（正确）"
     bad: "架构师说'使用import X.Y' → AI直接使用（错误） → 本地项目需要'from X import Y'（正确）"
 
+- id: DR-022
+  created: 2026-01-27
+  frequency: 1
+  category: error_management
+  title: "所有错误和修复必须记录到文档"
+  content: "当遇到任何错误、bug、异常时，必须：（1）记录完整的错误信息（traceback、错误类型、错误消息）（2）分析根本原因（3）记录修复方案（4）记录验证方法（5）更新到issues/目录或相关文档。禁止修复后不记录，导致相同错误重复发生。"
+  rationale: "用户明确要求'将记录错误也写进规则里'。错误记录是项目知识积累的重要部分，避免重复踩坑。每次错误都应该成为项目的经验教训。"
+  impact:
+    knowledge_accumulation: critical
+    error_prevention: high
+    project_maintenance: high
+    priority: highest
+  status: active
+  examples:
+    good: "遇到TypeError → 记录完整traceback → 分析是位置参数冲突 → 修复为关键字参数 → 记录到issues/ → 更新规则"
+    good: "训练OOM错误 → 记录nvidia-smi显存占用 → 分析num_envs过大 → 降低到64 → 验证训练正常 → 记录到issues/"
+    bad: "遇到NameError → 快速修复后继续 → 没有记录原因 → 下次遇到相同错误又要重新排查"
+
+- id: DR-023
+  created: 2026-01-27
+  frequency: 1
+  category: python_best_practices
+  title: "继承父类__init__时必须使用关键字参数"
+  content: "在Python中，当子类继承父类并调用super().__init__()时，必须全部使用关键字参数（keyword arguments），严禁使用位置参数（positional arguments）。原因：（1）避免参数顺序冲突导致'got multiple values for argument'错误（2）父类参数顺序可能变化，关键字参数更稳健（3）代码可读性更好，明确知道每个参数的用途。"
+  rationale: "本次训练启动时遇到TypeError: ActorCritic.__init__() got multiple values for argument 'actor_obs_normalization'。根本原因是使用位置参数super().__init__(num_actor_obs, num_critic_obs, ...)与父类参数顺序冲突。架构师诊断后明确要求'全部改用关键字参数'。"
+  impact:
+    error_prevention: critical
+    code_quality: high
+    maintainability: high
+    priority: highest
+  status: active
+  examples:
+    good: "super().__init__(num_actor_obs=num_actor_obs, num_critic_obs=num_critic_obs, **kwargs)"
+    bad: "super().__init__(num_actor_obs, num_critic_obs, num_actions, actor_hidden_dims, ...)"
+    good: "明确指定每个参数名，不依赖顺序"
+    bad: "按顺序传递参数，假设父类接口不变"
+
 ```
 
 ## Rule Statistics
-- Total rules: 21
-- Active: 21
+- Total rules: 23
+- Active: 23
 - Deprecated: 0
 - Last updated: 2026-01-27
 - Next merge check: At 25 rules
