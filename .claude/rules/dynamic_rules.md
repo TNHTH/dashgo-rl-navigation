@@ -272,13 +272,32 @@
   examples:
     good: "用户说'优化奖励函数' → AI触发Robot-Nav-Architect → 并行查询官方文档+扫描项目历史+搜索官方示例 → 基于官方规范输出代码"
     good: "用户说'训练不稳定' → AI触发Robot-Nav-Architect → 检查历史错误日志 → 验证超参数是否符合官方推荐 → 给出稳定方案"
+
+- id: DR-020
+  created: 2026-01-27
+  frequency: 1
+  category: project_control
+  title: "训练和脚本执行前必须获得用户明确许可"
+  content: "任何训练命令（train_v2.py、python train.py等）或测试脚本（play.py、验证脚本等）的执行，必须先询问用户并获得明确同意（'可以执行'、'yes'、'go ahead'、'执行'等）。严禁在用户未明确同意的情况下启动训练或测试。"
+  rationale: "用户明确要求'没有经过我允许，不准私自启动训练或者脚本测试，进行前必须得问我并且我同意，将这个精简后写进CLAUDE.md'。这是项目控制的核心要求，避免未经授权的长时间运行操作浪费资源或引入风险。"
+  impact:
+    resource_control: critical
+    risk_prevention: critical
+    user_trust: critical
+    priority: highest
+  status: active
+  examples:
+    good: "AI：需要启动训练吗？（用户：yes）→ AI执行训练"
+    good: "AI：准备执行测试脚本play.py，是否继续？（用户：go ahead）→ AI执行"
+    bad: "用户说'修改参数' → AI直接启动训练（违反规则）"
+    bad: "用户说'检查配置' → AI自动运行play.py测试（违反规则）"
     bad: "用户说'优化奖励' → AI直接给代码（未验证官方规范） → 可能违反Isaac Lab API规范 → 训练失败"
 
 ```
 
 ## Rule Statistics
-- Total rules: 15
-- Active: 15
+- Total rules: 20
+- Active: 20
 - Deprecated: 0
-- Last updated: 2026-01-23
-- Next merge check: At 20 rules
+- Last updated: 2026-01-27
+- Next merge check: At 25 rules
