@@ -1,5 +1,6 @@
-# geo_nav_policy.py v3.1 - 梯度爆炸修复版
+# geo_nav_policy.py v3.2 - 梯度爆炸修复版 + TorchScript导出支持
 # [架构师修复 2026-01-27] 添加LayerNorm + Input Clamp + Orthogonal Init
+# [架构师修复 2026-01-28] 添加标准forward()函数，支持TorchScript导出
 #
 # 修复历史:
 # 1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
@@ -10,6 +11,7 @@
 # 6. [Fix v3.1] 添加输入截断，防止 Inf/NaN 污染
 # 7. [Fix v3.1] 使用正交初始化，PPO 标准做法
 # 8. [Fix v3.1] 修复 Critic 网络（添加 LayerNorm + 确保 ELU 存在）
+# 9. [Fix v3.2] 添加标准 forward() 函数，支持 TorchScript 导出和ROS推理
 #
 # 解决方案:
 # - __init__ 中: 提取并记住 policy_key，从 TensorDict 推断维度
@@ -20,6 +22,7 @@
 # - v3.1: forward_actor/evaluate 中截断输入到 [-10, 10]
 # - v3.1: 使用 init_orthogonal() 替代默认初始化
 # - v3.1: Critic 网络添加 LayerNorm + ELU 激活
+# - v3.2: 添加标准 forward() 函数，支持 torch.jit.trace 导出
 
 import torch
 import torch.nn as nn
@@ -49,7 +52,7 @@ def init_orthogonal(layer, std=np.sqrt(2), bias_const=0.0):
 
 class GeoNavPolicy(nn.Module):
     """
-    [Sim2Real] 轻量级导航策略网络 v3.1 (1D-CNN + MLP)
+    [Sim2Real] 轻量级导航策略网络 v3.2 (1D-CNN + MLP + TorchScript导出支持)
 
     修复历史:
     1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
@@ -60,6 +63,7 @@ class GeoNavPolicy(nn.Module):
     6. [Fix v3.1] 添加输入截断，防止 Inf/NaN 污染
     7. [Fix v3.1] 使用正交初始化，PPO 标准做法
     8. [Fix v3.1] 修复 Critic 网络（添加 LayerNorm + 确保 ELU 存在）
+    9. [Fix v3.2] 添加标准 forward() 函数，支持 TorchScript 导出和ROS推理
     """
 
     def __init__(self, obs, obs_groups, num_actions,
@@ -89,10 +93,11 @@ class GeoNavPolicy(nn.Module):
         self.num_lidar = 216  # 72线 * 3帧
         self.num_state = self.num_actor_obs - self.num_lidar
 
-        print(f"[GeoNavPolicy v3.1] 最终架构确认:")
+        print(f"[GeoNavPolicy v3.2] 最终架构确认:")
         print(f"  - 输入维度: {self.num_actor_obs} (LiDAR={self.num_lidar})")
         print(f"  - 动作维度: {self.num_actions}")
         print(f"  - 梯度爆炸防护: LayerNorm + Input Clamp + Orthogonal Init")
+        print(f"  - TorchScript导出: ✅ 支持标准forward()函数")
 
         # --- 3. 定义网络组件 ---
         self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
@@ -221,6 +226,45 @@ class GeoNavPolicy(nn.Module):
         h = self.memory_layer(h)
 
         # 5. 输出
+        mu = self.actor_head(h)
+        return mu
+
+    # ======================================================================
+    # [v3.2 新增] 标准forward()函数 - 支持TorchScript导出
+    # ======================================================================
+    def forward(self, obs):
+        """
+        标准推理入口（用于TorchScript导出和实机部署）
+
+        torch.jit.trace和ROS推理默认调用forward()方法
+
+        Args:
+            obs: 输入观测 Tensor [Batch, 246]
+
+        Returns:
+            mu: 动作均值 Tensor [Batch, 2]
+        """
+        # 兼容TensorDict输入
+        x = self._extract_tensor(obs)
+
+        # [v3.1] 输入截断：防止 Inf/NaN 进入网络
+        x = torch.clamp(x, min=-10.0, max=10.0)
+
+        # 数据切片
+        lidar = x[:, :self.num_lidar].unsqueeze(1)  # [Batch, 1, 216]
+        state = x[:, self.num_lidar:]               # [Batch, 30]
+
+        # 视觉编码
+        geo_feat = self.geo_encoder(lidar)
+
+        # 特征融合
+        fused = torch.cat([geo_feat, state], dim=1)
+        h = self.fusion_layer(fused)
+
+        # 推理
+        h = self.memory_layer(h)
+
+        # 输出
         mu = self.actor_head(h)
         return mu
 
