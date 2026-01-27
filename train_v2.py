@@ -246,7 +246,8 @@ def main():
         # 默认：Policy 和 Critic 都使用 "policy" 观测组
         # Isaac Sim Architect: 2026-01-24
         if "obs_groups" not in agent_cfg:
-            agent_cfg["obs_groups"] = {"policy": ["policy"]}
+            # [Fix 2026-01-27] 显式定义 critic 观测组，消除 UserWarning
+            agent_cfg["obs_groups"] = {"policy": ["policy"], "critic": ["policy"]}
 
         # 确保 device 参数存在
         if "device" not in agent_cfg:

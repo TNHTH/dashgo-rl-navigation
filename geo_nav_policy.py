@@ -26,10 +26,18 @@ class GeoNavPolicy(ActorCritic):
                  init_noise_std=1.0,
                  **kwargs):
 
-        # 调用父类初始化 (RSL-RL 标准流程)
-        super().__init__(num_actor_obs, num_critic_obs, num_actions,
-                         actor_hidden_dims, critic_hidden_dims,
-                         activation, init_noise_std, **kwargs)
+        # [Fix 2026-01-27] 使用关键字参数调用，避免 TypeError: multiple values
+        # 问题：位置参数与父类参数顺序冲突，导致 actor_obs_normalization 重复传递
+        super().__init__(
+            num_actor_obs=num_actor_obs,
+            num_critic_obs=num_critic_obs,
+            num_actions=num_actions,
+            actor_hidden_dims=actor_hidden_dims,
+            critic_hidden_dims=critic_hidden_dims,
+            activation=activation,
+            init_noise_std=init_noise_std,
+            **kwargs
+        )
 
         # --------------------------------------------------------
         # [架构师核心修改] 替换 Actor 网络为 CNN+GRU
