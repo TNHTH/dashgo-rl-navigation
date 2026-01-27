@@ -205,8 +205,8 @@ class GeoNavPolicy(nn.Module):
 
         RSL-RL调用：在计算log_prob之前
 
-        [Fix 2026-01-27] 计算并保存 action_mean 和 action_std
-        原因: PPO算法需要读取这两个属性来记录训练轨迹
+        [Fix 2026-01-27] 计算并保存 action_mean、action_std 和 entropy
+        原因: PPO算法需要读取这些属性来记录训练轨迹和计算损失
         """
         mean = self.forward_actor(observations)
 
@@ -217,6 +217,11 @@ class GeoNavPolicy(nn.Module):
 
         # 创建高斯分布
         self.distribution = Normal(self.action_mean, self.action_std)
+
+        # [Fix 2026-01-27] 计算并保存熵 (Entropy)
+        # PPO 算法用它来计算 Loss（探索正则化项）
+        # entropy shape: [Batch] (对 Actions 维度求和)
+        self.entropy = self.distribution.entropy().sum(dim=-1)
 
     # [Fix 2026-01-27] 补全 update_normalization 接口
     def update_normalization(self, observations):
