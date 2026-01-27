@@ -609,10 +609,6 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 - [Legged Robotics](https://leggedrobotics.github.io/) - 四足机器人控制
 - [Isaac Gym](https://github.com/NVIDIA-OmniIsaacGym/IsaacGym) - 并行仿真
 
-**特别感谢**：
-- Robot-Nav-Architect Agent（架构师方案设计）
-- Claude Code AI System（自动化开发）
-
 ---
 
 **维护者**: TNHTH
