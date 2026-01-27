@@ -1,0 +1,8 @@
+prefix=/home/gwh/dashgo_rl_project/catkin_ws/install
+
+Name: dashgo_rl
+Description: Description of dashgo_rl
+Version: 1.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy std_msgs geometry_msgs sensor_msgs nav_msgs tf2_ros tf2_geometry_msgs
