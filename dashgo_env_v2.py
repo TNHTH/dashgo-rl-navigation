@@ -1281,34 +1281,38 @@ class DashgoRewardsCfg:
         }
     )
 
-    # [v8.0 新增] 轻微接触惩罚：-1.0（第二层防御）
-    # 作用：擦碰给小痛感，但不重置。防止"贴墙走"坏习惯
+    # [融合方案: Architect激进策略] 强化物理避障防线
+    # 阈值1.0N过滤空气摩擦噪声，权重-2.0严厉惩罚撞墙
+    # 信任PhysX引擎的接触力检测（比视觉更可靠）
     undesired_contacts = RewardTermCfg(
         func=penalty_undesired_contacts,
-        weight=-1.0,  # 轻微扣分，可以忍受
+        weight=-2.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
-            "threshold": 0.1  # 极低阈值，擦碰也算
+            "threshold": 1.0  # 提高阈值，过滤噪声（从0.1N改为1.0N）
         }
     )
 
-    # [v8.0 新增] 速度-距离动态约束：-5.0（第三层防御 - 虚拟防撞垫）
-    # 作用：窄处必须减速，鼓励"优雅通过"而非"贴墙蹭"或"直接撞"
+    # [融合方案: Assistant优化] 扩大安全距离，更符合Sim2Real需求
+    # 0.25m对于半径0.2m的机器人来说就是贴脸，0.5m是合理的安全余量
     unsafe_speed_penalty = RewardTermCfg(
         func=penalty_unsafe_speed,
         weight=-5.0,  # 中等扣分，超速必罚
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "min_dist_threshold": 0.25  # 0.25m 安全距离（机器人半径0.2m + 余量0.05m）
+            "min_dist_threshold": 0.5  # ✅ 从0.25m改为0.5m（更合理的安全余量）
         }
     )
 
-    alive_penalty = RewardTermCfg(func=reward_alive, weight=0.0)
+    # [融合方案: Architect激进策略 + Assistant战术优化]
+    # 激活生存压力：-0.1/步，逼迫机器人动起来
+    # 总步数500步→扣50分，相比+2000的大奖微不足道，但足以阻止原地发呆
+    alive_penalty = RewardTermCfg(func=reward_alive, weight=-0.1)
 
-    # [日志] 距离和速度日志
+    # [融合方案: Assistant优化] 日志项不参与训练，但设为1.0方便TensorBoard观察
     log_distance = RewardTermCfg(
         func=log_distance_to_goal,
-        weight=1e-6,
+        weight=1.0,
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
@@ -1331,12 +1335,13 @@ class DashgoRewardsCfg:
 class DashgoTerminationsCfg:
     time_out = TerminationTermCfg(func=check_time_out, time_out=True)
 
-    # [v5.0 Ultimate] reach_goal阈值0.5m（与奖励函数一致）
+    # [融合方案: Architect+Assistant共识] 放宽通关判定，先让它容易赢建立信心
+    # 逻辑：由宽入窄。训练初期0.5m太严，1.0m更符合局部导航实际需求
     reach_goal = TerminationTermCfg(
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 0.5,  # ✅ v5.0使用0.5m阈值（与奖励函数一致）
+            "threshold": 1.0,  # ✅ 从0.5m放宽到1.0m
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
