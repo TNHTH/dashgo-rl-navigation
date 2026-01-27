@@ -124,27 +124,32 @@ def find_best_checkpoint(log_root):
 
 def inject_geo_nav_policy():
     """
-    注入GeoNavPolicy到RSL-RL模块
+    注入GeoNavPolicy到RSL-RL模块（Targeted Injection Fix）
+
+    [架构师修复 2026-01-27] 解决NameError: name 'GeoNavPolicy' is not defined
+    问题根源: eval()只搜索当前模块的globals，之前注入到rsl_rl.modules无效
+    解决方案: 直接注入到on_policy_runner模块的globals
 
     原理：
-        RSL-RL通过policy.class_name动态加载网络类
-        我们将GeoNavPolicy注册到rsl_rl.modules模块
-        使其可以像ActorCritic一样被配置文件引用
+        RSL-RL的on_policy_runner.py使用eval("GeoNavPolicy")动态加载网络
+        eval()只在自己模块的globals中查找
+        我们将GeoNavPolicy直接注入到rsl_rl.runners.on_policy_runner模块
+        使eval()可以正确解析
 
     使用:
         train_cfg_v2.yaml中设置: policy.class_name: "GeoNavPolicy"
     """
-    print("[System] 正在注入 GeoNavPolicy 到 RSL-RL 模块...", flush=True)
+    print("[System] 正在将 GeoNavPolicy 靶向注入到 rsl_rl.runners.on_policy_runner ...", flush=True)
 
     try:
-        import rsl_rl.modules
+        import rsl_rl.runners.on_policy_runner as runner_module
         from geo_nav_policy import GeoNavPolicy
 
-        # 动态注册到RSL-RL模块
-        setattr(rsl_rl.modules, "GeoNavPolicy", GeoNavPolicy)
+        # [关键修复] 注入到on_policy_runner模块的globals，而不是rsl_rl.modules
+        setattr(runner_module, "GeoNavPolicy", GeoNavPolicy)
 
-        print("[System] ✅ 注入成功！现在可以使用 policy.class_name: 'GeoNavPolicy'", flush=True)
-        print("[System] 网络架构: 1D-CNN + GRU (轻量化部署)", flush=True)
+        print("[System] ✅ 注入成功！eval('GeoNavPolicy') 现在可以被正确解析。", flush=True)
+        print("[System] 网络架构: 1D-CNN + MLP (轻量化部署，已修复GRU失忆Bug)", flush=True)
 
     except ImportError as e:
         print(f"[ERROR] 注入失败: {e}", flush=True)
