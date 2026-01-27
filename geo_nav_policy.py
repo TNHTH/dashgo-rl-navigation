@@ -3,16 +3,20 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-# [架构师适配 2026-01-27] 适配 RSL-RL 新版数据驱动接口
-# 新接口: __init__(obs (TensorDict), obs_groups (dict), ...)
-# 旧接口: __init__(num_actor_obs (int), num_critic_obs (int), ...)
+# [架构师适配 2026-01-27] 适配 RSL-RL 新版数据驱动接口 & TensorDict
 #
-# 核心修复：从 obs (TensorDict) 中动态推断维度，而不是依赖传入的整数
+# 问题演进:
+# 1. __init__ 参数: obs (TensorDict) 而非 num_actor_obs (int) ✅已修复
+# 2. 运行时 obs: act(evaluate) 传入的仍是 TensorDict ❌本次修复
+#
+# 解决方案:
+# - __init__ 中: 提取并记住 policy_key，从 TensorDict 推断维度
+# - 运行时: _extract_tensor() 辅助方法，统一解包 TensorDict
 class GeoNavPolicy(nn.Module):
     """
     [Sim2Real] 轻量级导航策略网络 (1D-CNN + MLP)
 
-    适配 RSL-RL 新版数据驱动接口，从 TensorDict 自动推断维度
+    适配 RSL-RL 新版数据驱动接口，完整处理 TensorDict
     """
     def __init__(self, obs, obs_groups, num_actions,
                  actor_hidden_dims=[128, 64],
@@ -22,26 +26,19 @@ class GeoNavPolicy(nn.Module):
                  **kwargs):
         super().__init__()
 
-        # --- 1. 维度自动推断 (Auto-Inference) ---
-        # 核心修复：从 obs (TensorDict) 中提取 shape，而不是依赖传入的整数
-
-        # 获取 Actor 观测维度 (从 'policy' 组)
-        # obs 结构: {'policy': Tensor[16, 246], ...}
+        # --- 1. 维度自动推断 + Key 记忆 ---
+        # 提取 Tensor 用于获取维度，并记住使用的 key
         if hasattr(obs, "get"):
-            policy_tensor = obs["policy"]
+            # 优先尝试获取 'policy' 键，如果没有则回退到 raw obs
+            self.policy_key = "policy" if "policy" in obs.keys() else list(obs.keys())[0]
+            print(f"[GeoNavPolicy] 检测到 TensorDict，使用键: '{self.policy_key}'")
+            policy_tensor = obs[self.policy_key]
         else:
-            policy_tensor = obs  # 兼容情况
+            self.policy_key = None
+            policy_tensor = obs
 
-        # [关键修复] 从 Tensor 的 shape 中获取特征维度
-        # policy_tensor.shape = [batch_size, feature_dim]
-        # 我们需要的是 feature_dim（第二维）
-        self.num_actor_obs = policy_tensor.shape[1]  # 获取特征维度 (例如 246)
-
-        # 获取 Critic 观测维度
-        # 在配置中 critic 使用 ['policy']，所以维度与 Actor 相同
-        # 如果未来使用了 privileged_obs，这里需要修改逻辑
-        self.num_critic_obs = self.num_actor_obs
-
+        self.num_actor_obs = policy_tensor.shape[1]
+        self.num_critic_obs = self.num_actor_obs  # 你的配置中 critic==policy
         self.num_actions = num_actions
 
         # --- 2. 几何参数计算 ---
@@ -60,9 +57,9 @@ class GeoNavPolicy(nn.Module):
         # A. 视觉编码器 (1D-CNN)
         # Input: [N, 1, 216] -> Output: [N, 64]
         self.geo_encoder = nn.Sequential(
-            nn.Conv1d(1, 16, kernel_size=5, stride=2, padding=2),  # 216 -> 108
+            nn.Conv1d(1, 16, kernel_size=5, stride=2, padding=2),
             nn.ELU(),
-            nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),  # 108 -> 54
+            nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.ELU(),
             nn.Flatten(),
             nn.Linear(32 * 54, 64),
@@ -75,7 +72,7 @@ class GeoNavPolicy(nn.Module):
             nn.ELU()
         )
 
-        # C. 记忆/推理层 (MLP 替代 GRU，稳健方案)
+        # C. 记忆/推理层 (MLP 替代 GRU)
         # [架构师修复] GRU隐状态在训练时未传递导致"失忆"Bug
         # 使用简单MLP更稳定，history_length=3已提供短期记忆
         self.memory_layer = nn.Sequential(
@@ -90,7 +87,7 @@ class GeoNavPolicy(nn.Module):
             nn.Linear(64, num_actions)
         )
 
-        # E. Critic 网络 (标准 MLP)
+        # E. Critic 网络
         # 强力裁判：[512, 256, 128]
         critic_layers = []
         in_dim = self.num_critic_obs
@@ -101,33 +98,55 @@ class GeoNavPolicy(nn.Module):
         critic_layers.append(nn.Linear(in_dim, 1))
         self.critic = nn.Sequential(*critic_layers)
 
-    # --- 前向传播逻辑 ---
+    def _extract_tensor(self, obs):
+        """
+        [Helper] 从 TensorDict 中提取 Tensor
+
+        输入:
+            obs: 可能是 TensorDict 或 Tensor
+
+        输出:
+            Tensor: 纯粹的张量，shape=[N, feature_dim]
+        """
+        if self.policy_key and hasattr(obs, "get"):
+            # TensorDict: {'policy': Tensor[N, 246], ...}
+            return obs[self.policy_key]
+        # 已经是 Tensor 或其他情况
+        return obs
+
+    # --- 核心前向传播 ---
     def forward_actor(self, obs):
         """
         Actor前向传播
 
         输入:
-            obs: [N, num_actor_obs] 完整观测
+            obs: 可能是 TensorDict 或 Tensor[N, 246]
 
         输出:
-            mu: [N, num_actions] 动作均值
+            mu: Tensor[N, num_actions] 动作均值
         """
+        # [Fix 2026-01-27] 运行时解包 TensorDict -> Tensor
+        x = self._extract_tensor(obs)
+
+        # 现在 x 是纯粹的 Tensor，可以安全切片
+        # x shape: [Batch, 246]
+
         # 1. 数据切片
-        lidar = obs[:, :self.num_lidar].unsqueeze(1)  # [N, 1, 216]
-        state = obs[:, self.num_lidar:]               # [N, Rest]
+        lidar = x[:, :self.num_lidar].unsqueeze(1)  # [Batch, 1, 216]
+        state = x[:, self.num_lidar:]               # [Batch, 30]
 
         # 2. 视觉编码
         geo_feat = self.geo_encoder(lidar)
 
         # 3. 特征融合
         fused = torch.cat([geo_feat, state], dim=1)
-        x = self.fusion_layer(fused)
+        h = self.fusion_layer(fused)
 
         # 4. 推理
-        x = self.memory_layer(x)
+        h = self.memory_layer(h)
 
         # 5. 输出
-        mu = self.actor_head(x)
+        mu = self.actor_head(h)
         return mu
 
     # --- RSL-RL 必需接口 ---
@@ -167,8 +186,12 @@ class GeoNavPolicy(nn.Module):
         Critic价值评估
 
         RSL-RL调用：runner.evaluate(obs)
+
+        [Fix 2026-01-27] Critic 也需要解包 TensorDict
         """
-        return self.critic(critic_observations)
+        # 运行时解包
+        x = self._extract_tensor(critic_observations)
+        return self.critic(x)
 
     def update_distribution(self, observations):
         """
