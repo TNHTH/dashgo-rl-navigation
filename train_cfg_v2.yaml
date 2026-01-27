@@ -20,13 +20,20 @@ runner:
   load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
   checkpoint: -1
 
-# 2. 策略网络 (Policy Network) - 模仿 NeuPAN 的复杂决策能力
+# 2. 策略网络 (Policy Network) - [方案2] 轻量化部署架构
+# [架构师决策 2026-01-27] 直接训练1D-CNN+GRU，一步到位Sim2Real
 policy:
-  class_name: "ActorCritic"
-  init_noise_std: 1.0         # ✅ 初始探索噪声（让机器人刚开始敢于乱动）
-  actor_hidden_dims: [512, 256, 128] # ✅ [NeuPAN风格] 更深的网络，拟合复杂避障逻辑
-  critic_hidden_dims: [512, 256, 128]
-  activation: 'elu'           # ✅ [稳定性] 比 ReLU 更平滑，减少电机抖动指令
+  class_name: "GeoNavPolicy"  # ✅ 使用注入的轻量网络（替代ActorCritic）
+  init_noise_std: 1.0
+
+  # 这些参数会传给 GeoNavPolicy 的 __init__
+  # CNN的参数已经在代码里写死了，这里主要控制全连接层
+  actor_hidden_dims: [128, 64]   # ✅ 轻量级 Head（替代512,256,128）
+  critic_hidden_dims: [128, 64]  # ✅ Critic 也轻量化（不对称架构：Actor强+Critic弱）
+  activation: 'elu'
+
+  # 注：GeoNavPolicy内部使用CNN提取LiDAR特征，GRU处理时序
+  # 参数量约300K（vs MLP 500K），适配Jetson Nano 4GB显存
 
 # 3. 算法超参数 (PPO Algorithm)
 algorithm:
