@@ -1252,16 +1252,18 @@ class DashgoRewardsCfg:
     )
 
     # [兼容] 保留velodyne_style_reward（正常模式下）
-    if not is_headless_mode():
-        velodyne_style_reward = RewardTermCfg(
-            func=reward_navigation_sota,
-            weight=1.0,
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "sensor_cfg": SceneEntityCfg("lidar_sensor"),
-                "command_name": "target_pose"
-            }
-        )
+    # [修复 2026-01-27] 注释掉：场景中没有 'lidar_sensor' 实体，导致环境创建失败
+    # 现在改用基于物理接触的避障（undesired_contacts）+ 势能引导（distance_tracking）
+    # if not is_headless_mode():
+    #     velodyne_style_reward = RewardTermCfg(
+    #         func=reward_navigation_sota,
+    #         weight=1.0,
+    #         params={
+    #             "asset_cfg": SceneEntityCfg("robot"),
+    #             "sensor_cfg": SceneEntityCfg("lidar_sensor"),  # ← 实体不存在，已弃用
+    #             "command_name": "target_pose"
+    #         }
+    #     )
 
     # [约束] 动作平滑：0.01
     # 作用：抑制高频抖动，治愈Noise 17.0
