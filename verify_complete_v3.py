@@ -24,8 +24,8 @@ from isaaclab.app import AppLauncher
 # 创建参数解析器
 parser = argparse.ArgumentParser(description="DashGo Diagnosis")
 
-# 启动 Headless 模式
-app_launcher = AppLauncher(headless=True)
+# 启动 Headless 模式 + 强制开启相机支持（环境有相机传感器）
+app_launcher = AppLauncher(headless=True, enable_cameras=True)
 simulation_app = app_launcher.app
 
 print("\n" + "=" * 80)
