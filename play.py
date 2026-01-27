@@ -1,158 +1,178 @@
 #!/usr/bin/env python3
 """
-DashGo机器人导航推理脚本 (v6.0 最终稳定版)
+DashGo 推理脚本 (play.py) v6.0
+功能：加载训练好的 GeoNavPolicy v3.1 模型并可视化运行
 
-针对环境: Isaac Lab 0.46 + RSL-RL (特定签名版)
-核心修复:
-  1. 严格按照 ActorCritic(obs, obs_groups, num_actions, ...) 签名构建网络
-  2. 开启 actor/critic_obs_normalization=True，匹配训练 Checkpoint
+修复历史:
+- v6.0: 使用 GeoNavPolicy 替代 ActorCritic，解决权重不匹配问题
+- 修复: 正确处理 TensorDict 观测
+- 修复: 添加物理预热循环
 """
 
 import argparse
-import sys
 import os
 import torch
-import numpy as np
-from omegaconf import OmegaConf
+
+# Isaac Lab 核心 - 必须最先导入
 from isaaclab.app import AppLauncher
 
-# 强制无缓冲输出
-os.environ["PYTHONUNBUFFERED"] = "1"
+# ==============================================================================
+# 1. 启动仿真器
+# ==============================================================================
+parser = argparse.ArgumentParser(description="DashGo Play Policy")
+parser.add_argument("--num_envs", type=int, default=1, help="Number of environments")
+parser.add_argument("--checkpoint", type=str, default=None, help="Path to model checkpoint")
+parser.add_argument("--num_episodes", type=int, default=None, help="Number of episodes to run")
+
+# 添加 AppLauncher 参数
+AppLauncher.add_app_launcher_args(parser)
+args_cli = parser.parse_args()
+
+# 强制开启相机（环境需要）
+if not args_cli.enable_cameras:
+    args_cli.enable_cameras = True
+
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+print("\n" + "=" * 80)
+print("🤖 [Isaac Sim] 引擎启动成功... 正在加载模块")
+print("=" * 80)
+
+# ==============================================================================
+# 2. 延迟导入其他模块
+# ==============================================================================
+from isaaclab.envs import ManagerBasedRLEnv
+from dashgo_env_v2 import DashgoNavEnvV2Cfg
+from geo_nav_policy import GeoNavPolicy  # [关键] 使用训练时的策略网络
 
 def main():
-    parser = argparse.ArgumentParser(description="DashGo RL Inference")
-    # [修复 2026-01-27] 添加AppLauncher参数，支持--enable_cameras
-    AppLauncher.add_app_launcher_args(parser)
-    parser.add_argument("--num_envs", type=int, default=1, help="环境数量")
-    parser.add_argument("--checkpoint", type=str, default=None, help="模型路径")
-    parser.add_argument("--num_episodes", type=int, default=None, help="运行集数")
+    print("\n[INFO] 初始化推理流程...")
 
-    args_cli, _ = parser.parse_known_args()
-
-    app_launcher = AppLauncher(args_cli)
-    simulation_app = app_launcher.app
+    # 1. 创建环境
+    env_cfg = DashgoNavEnvV2Cfg()
+    env_cfg.scene.num_envs = args_cli.num_envs
+    print(f"[INFO] 创建环境 (num_envs={env_cfg.scene.num_envs})...")
 
     try:
-        from isaaclab.envs import ManagerBasedRLEnv
-        from dashgo_env_v2 import DashgoNavEnvV2Cfg
-        from rsl_rl.modules import ActorCritic
-
-        print("[INFO] 初始化推理流程...", flush=True)
-
-        # 1. 配置路径
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        cfg_path = os.path.join(script_dir, "train_cfg_v2.yaml")
-        log_root = os.path.join(script_dir, "logs")
-
-        # 2. 创建环境
-        env_cfg = DashgoNavEnvV2Cfg()
-        env_cfg.scene.num_envs = args_cli.num_envs
-        print(f"[INFO] 创建环境 (num_envs={args_cli.num_envs})...")
         env = ManagerBasedRLEnv(cfg=env_cfg)
         device = env.unwrapped.device
+    except Exception as e:
+        print(f"❌ 环境创建失败: {e}")
+        simulation_app.close()
+        return
 
-        # 3. 物理预热 & 获取采样数据
-        print("[INFO] 环境预热 & 获取观测样本...", flush=True)
-        obs_dict, _ = env.reset()
+    # 2. 预热环境 & 获取观测样本
+    print("[INFO] 环境预热 & 获取观测样本...")
+    obs, _ = env.reset()
 
-        # [v6.2 修复] 添加与训练脚本相同的物理预热循环
-        # 让机器人有足够时间落到地面，避免穿模
-        zero_actions = torch.zeros(args_cli.num_envs, 2, device=device)
-        print("[INFO] 物理预热中（10步）...", flush=True)
-        for _ in range(10):
-            env.step(zero_actions)
-        obs_dict, _ = env.reset()  # 重新获取观测
+    # 物理预热（让机器人落到地面）
+    zero_actions = torch.zeros(env_cfg.scene.num_envs, 2, device=device)
+    print("[INFO] 物理预热中（10步）...")
+    for _ in range(10):
+        env.step(zero_actions)
+    obs, _ = env.reset()
 
-        # 确保动作空间维度正确
-        if hasattr(env.action_manager, "action_term_dim"):
-            dim = env.action_manager.action_term_dim
-            num_actions = dim[0] if isinstance(dim, (tuple, list)) else dim
+    # 3. 初始化 GeoNavPolicy 网络（与训练时完全一致）
+    num_actions = env.action_space.shape[1]
+    print(f"[INFO] 动作维度: {num_actions}")
+    print("[INFO] 构建 GeoNavPolicy v3.1 网络...")
+
+    policy = GeoNavPolicy(
+        obs=obs,
+        obs_groups=None,
+        num_actions=num_actions,
+        actor_hidden_dims=[128, 64],
+        critic_hidden_dims=[512, 256, 128],
+        activation='elu',
+        init_noise_std=1.0
+    ).to(device)
+
+    # 4. 查找并加载模型权重
+    if args_cli.checkpoint:
+        model_path = args_cli.checkpoint
+    else:
+        # 自动查找最新模型
+        log_root = os.path.join(os.getcwd(), "logs")
+        if not os.path.exists(log_root):
+            print(f"❌ 日志目录不存在: {log_root}")
+            simulation_app.close()
+            return
+
+        # 查找所有 model_*.pt 文件
+        import glob
+        import re
+        model_files = glob.glob(os.path.join(log_root, "model_*.pt"))
+        if not model_files:
+            print(f"❌ 在 {log_root} 未找到模型文件")
+            simulation_app.close()
+            return
+
+        # 按迭代次数排序，取最新的
+        def extract_iter(f):
+            m = re.search(r'model_(\d+).pt', f)
+            return int(m.group(1)) if m else 0
+
+        model_path = max(model_files, key=extract_iter)
+
+    print(f"[INFO] 加载权重: {model_path}")
+
+    try:
+        loaded_dict = torch.load(model_path, map_location=device)
+
+        # 处理 state_dict 键名
+        if 'model_state_dict' in loaded_dict:
+            state_dict = loaded_dict['model_state_dict']
         else:
-            num_actions = 2
+            state_dict = loaded_dict
 
-        print(f"[INFO] 动作维度: {num_actions}")
-
-        # 4. 构建网络 (严格匹配你的真实签名)
-        # 签名: (self, obs, obs_groups, num_actions, actor_hidden_dims=..., ...)
-        print("[INFO] 构建神经网络 (基于真实签名)...")
-
-        # [v5.1 核心修复]
-        # RSL-RL 强制要求 obs_groups 包含 "critic" 键
-        # 我们的环境只输出了 "policy" 组，所以让 critic 指向同一组数据
-        obs_groups = {
-            "policy": ["policy"],
-            "critic": ["policy"]  # <--- 必须添加这一行，否则报错 KeyError: 'critic'
-        }
-
-        # 注意：这里直接传整个 obs_dict 作为第一个参数 'obs'
-        # RSL-RL 内部会用 obs_groups 去解析它
-        policy = ActorCritic(
-            obs=obs_dict,                  # <--- 必须参数 1: 观测样本
-            obs_groups=obs_groups,         # <--- 必须参数 2: 分组定义
-            num_actions=num_actions,       # <--- 必须参数 3: 动作维度
-            actor_hidden_dims=[512, 256, 128],
-            critic_hidden_dims=[512, 256, 128],
-            activation='elu',
-            init_noise_std=1.0,
-            # [v6.0 核心修复] 开启归一化，匹配训练 Checkpoint 结构
-            actor_obs_normalization=True,
-            critic_obs_normalization=True,
-        ).to(device)
-
-        # 5. 加载权重
-        if args_cli.checkpoint:
-            ckpt_path = args_cli.checkpoint
-        else:
-            import glob
-            import re
-            files = glob.glob(os.path.join(log_root, "**", "model_*.pt"), recursive=True)
-            if not files: raise FileNotFoundError(f"logs目录 {log_root} 下没找到模型")
-            def extract_iter(f):
-                m = re.search(r'model_(\d+).pt', f)
-                return int(m.group(1)) if m else 0
-            ckpt_path = max(files, key=extract_iter)
-
-        print(f"[INFO] 加载权重: {ckpt_path}")
-        loaded_dict = torch.load(ckpt_path, map_location=device)
-        policy.load_state_dict(loaded_dict['model_state_dict'])
-        policy.eval()
-
-        # 6. 推理循环
-        print("-" * 60)
-        print("[INFO] 开始推理... (Ctrl+C 停止)")
-        print("-" * 60)
-
-        ep_count = 0
-        while simulation_app.is_running():
-            with torch.no_grad():
-                # [v6.1 修复] 传入完整观测字典，让 ActorCritic 内部用 obs_groups 提取
-                # 不要传入 obs_dict['policy']，否则会报 IndexError: too many indices
-                actions = policy.act_inference(obs_dict)
-
-            # 执行动作
-            step_ret = env.step(actions)
-
-            # 处理返回值 (兼容4或5个返回值)
-            if len(step_ret) == 5:
-                obs_dict, _, term, trunc, _ = step_ret
-                dones = term | trunc
-            else:
-                obs_dict, _, dones, _ = step_ret
-
-            # 简单计数
-            if torch.any(dones):
-                ep_count += torch.sum(dones).item()
-                if ep_count % 10 == 0:
-                    print(f"[Running] Completed Episodes: {int(ep_count)}")
-
-            if args_cli.num_episodes and ep_count >= args_cli.num_episodes:
-                break
+        # 加载权重（严格模式）
+        policy.load_state_dict(state_dict, strict=True)
+        print("✅ 权重加载成功！")
 
     except Exception as e:
+        print(f"❌ 权重加载失败: {e}")
         import traceback
         traceback.print_exc()
-    finally:
         simulation_app.close()
+        return
+
+    # 5. 切换到评估模式
+    policy.eval()
+
+    # 6. 推理循环
+    print("\n" + "=" * 80)
+    print("🚀 开始播放策略 (按 Ctrl+C 退出)")
+    print("=" * 80)
+
+    ep_count = 0
+    while simulation_app.is_running():
+        with torch.no_grad():
+            # 使用 act_inference (确定性策略)
+            actions = policy.act_inference(obs)
+
+        # 执行动作
+        step_ret = env.step(actions)
+
+        # 处理返回值（兼容4或5个返回值）
+        if len(step_ret) == 5:
+            obs, _, term, trunc, _ = step_ret
+            dones = term | trunc
+        else:
+            obs, _, dones, _ = step_ret
+
+        # 计数完成的episode
+        if torch.any(dones):
+            ep_count += torch.sum(dones).item()
+            if ep_count % 10 == 0:
+                print(f"[Running] 完成 {int(ep_count)} 个episode")
+
+        # 检查是否达到指定episode数
+        if args_cli.num_episodes and ep_count >= args_cli.num_episodes:
+            break
+
+    print("\n✅ 推理完成")
+    simulation_app.close()
 
 if __name__ == "__main__":
     main()
