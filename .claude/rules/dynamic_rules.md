@@ -293,11 +293,30 @@
     bad: "用户说'检查配置' → AI自动运行play.py测试（违反规则）"
     bad: "用户说'优化奖励' → AI直接给代码（未验证官方规范） → 可能违反Isaac Lab API规范 → 训练失败"
 
+- id: DR-021
+  created: 2026-01-27
+  frequency: 1
+  category: code_quality
+  title: "架构师建议必须本地化检查和修改"
+  content: "当收到架构师给出的代码建议或解决方案时，必须先针对本地项目进行检查，特别是：（1）检查文件路径是否使用相对路径或本地绝对路径（2）检查模块导入路径是否与本地项目结构匹配（3）检查类名、函数名、变量名是否与本地代码一致（4）检查是否有硬编码的路径或参数需要本地化。只有完成本地化检查和修改后才能执行。"
+  rationale: "架构师提供的通用建议可能基于不同项目环境或假设的路径结构。直接执行可能导致NameError、ModuleNotFoundError、FileNotFoundError等错误。例如：架构师建议'import rsl_rl.modules'但本地项目使用'from isaaclab_rl.rsl_rl import ...'，或架构师假设文件在根目录但实际在子目录。"
+  impact:
+    error_prevention: critical
+    adaptation_quality: high
+    reliability: high
+    priority: highest
+  status: active
+  examples:
+    good: "架构师建议'修改utils.py的第50行' → AI检查本地项目确认是utils/helpers.py → AI检查第50行内容是否匹配 → AI修改正确的文件和行号"
+    good: "架构师建议'from rsl_rl import X' → AI检查本地项目发现需要'from isaaclab_rl.rsl_rl import X' → AI使用正确的导入路径"
+    bad: "架构师说'修改config.yaml' → AI直接修改根目录的config.yaml（错误） → 实际文件在config/subconfig.yaml（正确）"
+    bad: "架构师说'使用import X.Y' → AI直接使用（错误） → 本地项目需要'from X import Y'（正确）"
+
 ```
 
 ## Rule Statistics
-- Total rules: 20
-- Active: 20
+- Total rules: 21
+- Active: 21
 - Deprecated: 0
 - Last updated: 2026-01-27
 - Next merge check: At 25 rules
