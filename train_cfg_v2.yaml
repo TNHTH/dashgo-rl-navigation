@@ -21,7 +21,7 @@ runner:
   checkpoint: -1
 
 # 2. 策略网络 (Policy Network) - [方案2] 轻量化部署架构
-# [架构师决策 2026-01-27] 直接训练1D-CNN+GRU，一步到位Sim2Real
+# [架构师决策 2026-01-27] 直接训练1D-CNN+MLP，一步到位Sim2Real
 policy:
   class_name: "GeoNavPolicy"  # ✅ 使用注入的轻量网络（替代ActorCritic）
   init_noise_std: 1.0
@@ -29,10 +29,12 @@ policy:
   # 这些参数会传给 GeoNavPolicy 的 __init__
   # CNN的参数已经在代码里写死了，这里主要控制全连接层
   actor_hidden_dims: [128, 64]   # ✅ 轻量级 Head（替代512,256,128）
-  critic_hidden_dims: [128, 64]  # ✅ Critic 也轻量化（不对称架构：Actor强+Critic弱）
+  critic_hidden_dims: [512, 256, 128]  # ✅ [架构师建议] Critic保持强网络（不对称架构）
   activation: 'elu'
 
-  # 注：GeoNavPolicy内部使用CNN提取LiDAR特征，GRU处理时序
+  # [架构师修复 2026-01-27] 移除GRU，改用MLP
+  # 原因：GRU隐状态未传递导致"失忆"Bug，MLP更稳定
+  # 优势：3帧历史堆叠已提供短时记忆，CNN+MLP足够
   # 参数量约300K（vs MLP 500K），适配Jetson Nano 4GB显存
 
 # 3. 算法超参数 (PPO Algorithm)
