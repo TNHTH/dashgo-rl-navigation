@@ -5,21 +5,26 @@ from torch.distributions import Normal
 
 # [架构师适配 2026-01-27] 适配 RSL-RL 新版数据驱动接口 & TensorDict
 #
-# 问题演进:
-# 1. __init__ 参数: obs (TensorDict) 而非 num_actor_obs (int) ✅已修复
-# 2. 运行时 obs: act(evaluate) 传入的仍是 TensorDict ✅已修复
-# 3. PPO 依赖: 需要 action_mean 和 action_std 属性 ✅本次修复
+# 修复历史:
+# 1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
+# 2. [Fix] 增加 _extract_tensor，解决 TensorDict 解包错误
+# 3. [Fix] 增加 action_mean/action_std，解决 PPO 属性缺失
+# 4. [Fix] 增加 update_normalization，解决 PPO 接口缺失
 #
 # 解决方案:
 # - __init__ 中: 提取并记住 policy_key，从 TensorDict 推断维度
 # - 运行时: _extract_tensor() 辅助方法，统一解包 TensorDict
 # - update_distribution(): 保存 action_mean 和 action_std，满足 PPO
+# - update_normalization(): 空方法，满足 empirical_normalization 配置
 class GeoNavPolicy(nn.Module):
     """
     [Sim2Real] 轻量级导航策略网络 (1D-CNN + MLP)
 
-    适配 RSL-RL 新版数据驱动接口，完整处理 TensorDict
-    包含 PPO 必需的所有属性 (action_mean, action_std)
+    修复历史:
+    1. [Fix] 独立实现，断开 ActorCritic 继承，解决 __init__ 参数冲突
+    2. [Fix] 增加 _extract_tensor，解决 TensorDict 解包错误
+    3. [Fix] 增加 action_mean/action_std，解决 PPO 属性缺失
+    4. [Fix] 增加 update_normalization，解决 PPO 接口缺失
     """
     def __init__(self, obs, obs_groups, num_actions,
                  actor_hidden_dims=[128, 64],
@@ -48,11 +53,9 @@ class GeoNavPolicy(nn.Module):
         self.num_lidar = 216  # 72线 * 3帧
         self.num_state = self.num_actor_obs - self.num_lidar
 
-        print(f"[GeoNavPolicy] 维度推断完成:")
-        print(f"  - Actor总维数: {self.num_actor_obs}")
-        print(f"  - 拆分: LiDAR={self.num_lidar}, State={self.num_state}")
-        print(f"  - Critic维数: {self.num_critic_obs}")
-        print(f"  - 动作维数: {self.num_actions}")
+        print(f"[GeoNavPolicy] 最终架构确认:")
+        print(f"  - 输入维度: {self.num_actor_obs} (LiDAR={self.num_lidar})")
+        print(f"  - 动作维度: {self.num_actions}")
 
         # --- 3. 定义网络组件 ---
         self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
@@ -152,7 +155,7 @@ class GeoNavPolicy(nn.Module):
         mu = self.actor_head(h)
         return mu
 
-    # --- RSL-RL 必需接口 ---
+    # --- RSL-RL 必需接口 (The "Must-Haves") ---
 
     @property
     def is_recurrent(self):
@@ -204,8 +207,6 @@ class GeoNavPolicy(nn.Module):
 
         [Fix 2026-01-27] 计算并保存 action_mean 和 action_std
         原因: PPO算法需要读取这两个属性来记录训练轨迹
-        - self.transition.action_mean = self.policy.action_mean.detach()
-        - self.transition.action_sigma = self.policy.action_std.detach()
         """
         mean = self.forward_actor(observations)
 
@@ -216,3 +217,32 @@ class GeoNavPolicy(nn.Module):
 
         # 创建高斯分布
         self.distribution = Normal(self.action_mean, self.action_std)
+
+    # [Fix 2026-01-27] 补全 update_normalization 接口
+    def update_normalization(self, observations):
+        """
+        PPO 算法要求的接口。
+
+        用于更新观测数据的运行均值和方差（在线归一化）。
+
+        策略决策：
+        - 暂时实现为空方法（pass-through）
+        - 理由：CNN 对输入数据的归一化不如 MLP 敏感
+        - 优先跑通训练流程，如果效果不好再开启归一化
+
+        技术说明：
+        - 配置文件中 empirical_normalization: True 时会调用此方法
+        - 标准的 ActorCritic 基类会维护运行均值/方差
+        - 自定义 CNN 结构可以依赖 BatchNorm 或原始数据泛化性
+        """
+        pass
+
+    # [Safety] 补全 reset 接口
+    def reset(self, dones=None):
+        """
+        重置网络状态
+
+        用于循环网络（RNN/GRU）在 episode 结束时重置隐状态。
+        虽然我们使用 MLP，但保留此接口以防止未来开启 is_recurrent=True 时报错。
+        """
+        pass
