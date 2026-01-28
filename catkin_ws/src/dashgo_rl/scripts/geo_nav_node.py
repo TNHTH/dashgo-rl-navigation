@@ -128,13 +128,18 @@ class GeoNavNode:
             # 5. [新增] 维度熔断检查（致命问题防护）
             # =========================================================
             rospy.loginfo("🔍 正在验证模型输入维度...")
-            dummy_input = torch.randn(1, self.total_input_dim).to(self.device)
+
+            # 🔥 修正：封装为字典（架构师建议）
+            raw_tensor = torch.randn(1, self.total_input_dim).to(self.device)
+            dummy_input_dict = {"policy": raw_tensor}  # 键名必须是 "policy"
+
             try:
-                dummy_output = self.model(dummy_input)
-                rospy.loginfo(f"✅ 维度检查通过：输入{dummy_input.shape} → 输出{dummy_output.shape}")
+                dummy_output = self.model(dummy_input_dict)
+                rospy.loginfo(f"✅ 维度检查通过：输入{raw_tensor.shape} → 输出{dummy_output.shape}")
             except Exception as dim_error:
                 rospy.logerr(f"💀 致命错误：模型维度不匹配！")
-                rospy.logerr(f"   模型期望输入：{self.total_input_dim}维 [1, {self.total_input_dim}]")
+                rospy.logerr(f"   模型期望输入：Dict[str, Tensor] 格式")
+                rospy.logerr(f"   期望键名：'policy'")
                 rospy.logerr(f"   错误信息：{dim_error}")
                 rospy.signal_shutdown("Dimension Mismatch")
                 exit(1)
@@ -325,8 +330,9 @@ class GeoNavNode:
 
         # 5. 推理
         with torch.no_grad():
-            # 输出通常是raw action (未缩放)
-            action = self.model(input_tensor).cpu().numpy()[0]
+            # 🔥 修正：封装为字典（架构师建议）
+            obs_dict = {"policy": input_tensor}  # 键名必须是 "policy"
+            action = self.model(obs_dict).cpu().numpy()[0]  # 输出通常是raw action (未缩放)
 
         # 6. 动作后处理
         # 假设训练时output range是[-1, 1]或者无限制
