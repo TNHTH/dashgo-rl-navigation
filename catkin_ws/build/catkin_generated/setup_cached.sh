@@ -8,7 +8,8 @@
 
 # modified environment variables
 export CMAKE_PREFIX_PATH="/home/gwh/dashgo_rl_project/catkin_ws/devel:$CMAKE_PREFIX_PATH"
-export LD_LIBRARY_PATH='/opt/ros/noetic/lib:/usr/local/cuda-12.9/lib64'
+export LD_LIBRARY_PATH="/home/gwh/dashgo_rl_project/catkin_ws/devel/lib:$LD_LIBRARY_PATH"
+export PKG_CONFIG_PATH="/home/gwh/dashgo_rl_project/catkin_ws/devel/lib/pkgconfig:$PKG_CONFIG_PATH"
 export PWD='/home/gwh/dashgo_rl_project/catkin_ws/build'
 export ROSLISP_PACKAGE_DIRECTORIES='/home/gwh/dashgo_rl_project/catkin_ws/devel/share/common-lisp'
 export ROS_PACKAGE_PATH="/home/gwh/dashgo_rl_project/catkin_ws/src:$ROS_PACKAGE_PATH"
