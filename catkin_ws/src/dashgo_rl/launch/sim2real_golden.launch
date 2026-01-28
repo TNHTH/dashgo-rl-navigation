@@ -74,16 +74,32 @@
 
         <!-- 注意：此简化版本需要单独spawn机器人模型 -->
         <!-- 如果需要完整机器人模型，请安装dashgo_description包 -->
+
+        <!-- ========================================================================
+             在Gazebo中spawn机器人模型
+        ======================================================================== -->
+        <node name="spawn_dashgo" pkg="gazebo_ros" type="spawn_model"
+              args="-urdf -param robot_description -model dashgo -x 0 -y 0 -z 0.05"
+              output="screen"/>
     </group>
 
     <!-- ========================================================================
-         机器人状态发布（如果Gazebo未提供）
+         机器人描述（URDF） - 必须在robot_state_publisher之前加载
+    ======================================================================== -->
+    <param name="robot_description"
+           command="$(find xacro)/xacro $(find dashgo_rl)/urdf/dashgo_d1_sim.urdf.xacro" />
+
+    <!-- ========================================================================
+         机器人状态发布
     ======================================================================== -->
     <node name="robot_state_publisher" pkg="robot_state_publisher"
           type="robot_state_publisher" />
 
     <node name="joint_state_publisher" pkg="joint_state_publisher"
-          type="joint_state_publisher" />
+          type="joint_state_publisher">
+      <param name="use_gui" value="false"/>
+      <rosparam param="source_list">[/joint_states]</rosparam>
+    </node>
 
     <!-- ========================================================================
          SLAM建图（Gmapping）
