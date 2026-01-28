@@ -79,7 +79,7 @@
              在Gazebo中spawn机器人模型
         ======================================================================== -->
         <node name="spawn_dashgo" pkg="gazebo_ros" type="spawn_model"
-              args="-urdf -param robot_description -model dashgo -x 0 -y 0 -z 0.05"
+              args="-urdf -param robot_description -model dashgo -x 0 -y 0 -z 0.0632"
               output="screen"/>
     </group>
 
