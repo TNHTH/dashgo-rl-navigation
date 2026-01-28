@@ -62,13 +62,85 @@
     </collision>
 
     <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>  <!-- 🔥 修复：重心跟随碰撞体 -->
       <mass value="${base_mass}"/>
       <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.08"/>
     </inertial>
   </link>
 
   <!-- =========================================================
-       轮子定义
+       万向轮定义（Caster Wheels）- Dashgo D1实机参数
+       布局：1+2+1（前万向 + 中驱动 + 后万向）
+    ========================================================== -->
+  <xacro:property name="caster_radius" value="0.0127"/>   <!-- 1寸万向轮半径=12.7mm -->
+  <xacro:property name="caster_mass" value="0.1"/>           <!-- 万向轮质量 -->
+
+  <!-- 前万向轮 -->
+  <link name="front_caster_link">
+    <visual>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+
+    <inertial>
+      <mass value="${caster_mass}"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="front_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_caster_link"/>
+    <!-- 前万向轮位置：底盘前方（假设1+2+1布局，前后对称） -->
+    <origin xyz="0.15 0 -0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 后万向轮 -->
+  <link name="rear_caster_link">
+    <visual>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+
+    <inertial>
+      <mass value="${caster_mass}"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="rear_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_caster_link"/>
+    <!-- 后万向轮位置：底盘后方 -->
+    <origin xyz="-0.15 0 -0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- =========================================================
+       驱动轮定义
     ========================================================== -->
   <xacro:macro name="wheel" params="prefix x_reflect y_reflect">
     <link name="${prefix}_wheel_link">
@@ -220,6 +292,25 @@
     <kd>100.0</kd>
     <minDepth>0.001</minDepth>
     <material>Gazebo/Black</material>
+  </gazebo>
+
+  <!-- 万向轮摩擦力属性（低摩擦，便于转向） -->
+  <gazebo reference="front_caster_link">
+    <mu1>0.0</mu1>  <!-- 万向轮低摩擦 -->
+    <mu2>0.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="rear_caster_link">
+    <mu1>0.0</mu1>  <!-- 万向轮低摩擦 -->
+    <mu2>0.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Grey</material>
   </gazebo>
 
 </robot>
