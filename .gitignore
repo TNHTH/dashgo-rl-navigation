@@ -104,3 +104,9 @@ check_env_fingerprint.py
 # 项目scripts生成的临时文件
 scripts/*.log
 scripts/*.tmp
+
+# ROS catkin_ws 编译产物（Build artifacts）
+catkin_ws/build/
+catkin_ws/devel/
+catkin_ws/src/*/build/
+catkin_ws/src/*/devel/
