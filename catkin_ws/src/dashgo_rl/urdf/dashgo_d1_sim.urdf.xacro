@@ -57,7 +57,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder length="0.21" radius="0.15"/>  <!-- 0.20 → 0.15 防止轮子穿模 -->
+        <cylinder length="0.21" radius="0.10"/>  <!-- 0.15 → 0.10 进一步缩小以避免轮子嵌在底盘里 -->
       </geometry>
     </collision>
 
