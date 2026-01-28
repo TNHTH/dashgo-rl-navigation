@@ -1,21 +1,27 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-GeoNavPolicy v3.1 Sim2Real 部署节点 (架构师修正版)
+GeoNavPolicy v3.2 Sim2Real 部署节点 (架构师修正版 + 安全增强)
 
 修复点:
 1. ✅ 实现了与 RSL-RL 完全一致的历史帧堆叠 (History Buffer)
 2. ✅ 增加了 /odom 订阅以获取真实速度
 3. ✅ 对齐了观测空间维度 (246维)
+4. ✅ [新增] 动态控制频率 (从launch读取)
+5. ✅ [新增] 加速度数学修正 (解决角加速度计算错误)
+6. ✅ [新增] 模型加载时维度熔断检查
+7. ✅ [新增] 使用rospkg优化模型路径
 
 作者: Isaac Sim Architect
-版本: v3.1-Architect
-日期: 2026-01-27
+版本: v3.2-Safe
+日期: 2026-01-28
 """
 import rospy
+import rospkg
 import torch
 import numpy as np
 import collections
 import tf2_ros
+import os
 from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
@@ -72,15 +78,44 @@ class GeoNavNode:
     def __init__(self):
         rospy.init_node('geo_nav_node', anonymous=False)
 
-        # --- 1. 参数配置（与训练cfg保持一致） ---
-        self.model_path = rospy.get_param('~model_path', '../models/policy_torchscript.pt')
+        # =========================================================
+        # 1. [新增] 动态控制频率配置
+        # =========================================================
+        self.control_rate = rospy.get_param('~control_rate', 20)
+        self.dt = 1.0 / self.control_rate
+        rospy.loginfo(f"📊 控制频率: {self.control_rate}Hz (dt={self.dt:.4f}s)")
+
+        # =========================================================
+        # 2. [新增] 加速度限制参数（从launch读取）
+        # =========================================================
+        self.max_acc_lin = rospy.get_param('~max_lin_acc', 1.0)  # m/s²
+        self.max_acc_ang = rospy.get_param('~max_ang_acc', 0.6)  # rad/s²
+        rospy.loginfo(f"🛡️  加速度限制: Lin={self.max_acc_lin} m/s², Ang={self.max_acc_ang} rad/s²")
+
+        # =========================================================
+        # 3. [修正] 模型路径优化（使用rospkg动态查找）
+        # =========================================================
+        try:
+            default_model_path = os.path.join(
+                rospkg.RosPack().get_path('dashgo_rl'),
+                'models/policy_torchscript.pt'
+            )
+        except rospkg.ResourceNotFound:
+            # Fallback到相对路径
+            default_model_path = '../models/policy_torchscript.pt'
+            rospy.logwarn(f"⚠️ 未找到dashgo_rl包，使用相对路径：{default_model_path}")
+
+        self.model_path = rospy.get_param('~model_path', default_model_path)
+
+        # --- 其他参数配置 ---
         self.max_v = rospy.get_param('~max_lin_vel', 0.3)  # 线速度缩放
         self.max_w = rospy.get_param('~max_ang_vel', 1.0)  # 角速度缩放
         self.lidar_dim = 72  # 训练时的雷达采样数
         self.single_obs_dim = 82  # 72(Lidar) + 2(Target) + 3(LinVel) + 3(AngVel) + 2(Action)
         self.history_len = 3
+        self.total_input_dim = self.single_obs_dim * self.history_len  # 246
 
-        # --- 2. 加载模型 ---
+        # --- 4. 加载模型 ---
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         rospy.loginfo(f"使用设备: {self.device}")
 
@@ -88,19 +123,35 @@ class GeoNavNode:
         try:
             self.model = torch.jit.load(self.model_path, map_location=self.device)
             self.model.eval()
+
+            # =========================================================
+            # 5. [新增] 维度熔断检查（致命问题防护）
+            # =========================================================
+            rospy.loginfo("🔍 正在验证模型输入维度...")
+            dummy_input = torch.randn(1, self.total_input_dim).to(self.device)
+            try:
+                dummy_output = self.model(dummy_input)
+                rospy.loginfo(f"✅ 维度检查通过：输入{dummy_input.shape} → 输出{dummy_output.shape}")
+            except Exception as dim_error:
+                rospy.logerr(f"💀 致命错误：模型维度不匹配！")
+                rospy.logerr(f"   模型期望输入：{self.total_input_dim}维 [1, {self.total_input_dim}]")
+                rospy.logerr(f"   错误信息：{dim_error}")
+                rospy.signal_shutdown("Dimension Mismatch")
+                exit(1)
+
             rospy.loginfo("✅ 模型加载成功")
         except Exception as e:
             rospy.logerr(f"❌ 模型加载失败: {e}")
             exit(1)
 
-        # --- 3. 状态管理 ---
+        # --- 6. 状态管理 ---
         self.obs_buffer = ObservationBuffer(self.history_len, self.single_obs_dim)
         self.last_action = np.zeros(2, dtype=np.float32)
         self.current_vel = np.zeros(6, dtype=np.float32)  # [vx, vy, vz, wx, wy, wz]
         self.goal_polar = np.zeros(2, dtype=np.float32)  # [dist, heading]
         self.latest_scan = None
 
-        # --- 4. ROS通讯 ---
+        # --- 7. ROS通讯 ---
         self.tf_buf = tf2_ros.Buffer()
         self.tf_lis = tf2_ros.TransformListener(self.tf_buf)
 
@@ -110,14 +161,15 @@ class GeoNavNode:
         rospy.Subscriber('/odom', Odometry, self.odom_cb, queue_size=1)
         rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_cb, queue_size=1)
 
-        # 控制频率计时器 (20Hz)
-        rospy.Timer(rospy.Duration(0.05), self.control_loop)
+        # [修正] 使用动态频率
+        rospy.Timer(rospy.Duration(self.dt), self.control_loop)
 
         rospy.loginfo("=" * 80)
-        rospy.loginfo("✅ GeoNav Sim2Real 节点启动就绪 (架构师修正版 v3.1)")
-        rospy.loginfo(f"   - 观测维度: {self.single_obs_dim * self.history_len} (单帧: {self.single_obs_dim})")
+        rospy.loginfo("✅ GeoNav Sim2Real 节点启动就绪 (安全增强版 v3.2)")
+        rospy.loginfo(f"   - 观测维度: {self.total_input_dim} (单帧: {self.single_obs_dim} × {self.history_len})")
         rospy.loginfo(f"   - LiDAR降采样: {self.lidar_dim}维")
         rospy.loginfo(f"   - 历史帧堆叠: {self.history_len}帧")
+        rospy.loginfo(f"   - 加速度限制: {self.max_acc_lin*self.dt:.4f}/{self.max_acc_ang*self.dt:.4f} per tick")
         rospy.loginfo("=" * 80)
         rospy.loginfo("🎯 等待目标点...")
 
@@ -150,26 +202,42 @@ class GeoNavNode:
 
     def process_lidar(self, msg):
         """
-        将任意线数的雷达处理成训练时的72维格式
+        [架构师修正] 将任意线数的雷达处理成训练时的72维格式
 
         处理流程:
         1. 替换Inf/NaN
-        2. 降采样到72维
+        2. Min-Pooling降采样到72维（保留最近障碍物）
         3. 填充不足的点
+
+        修正原因：
+        - 等间隔采样可能漏掉近距离障碍物
+        - Min-Pooling确保每个扇区保留最近点（安全优先）
         """
-        raw_ranges = np.array(msg.ranges)
+        raw_ranges = np.array(msg.ranges, dtype=np.float32)
 
         # 1. 替换 Inf/NaN
-        raw_ranges = np.nan_to_num(raw_ranges, nan=12.0, posinf=12.0)
+        raw_ranges = np.nan_to_num(raw_ranges, nan=12.0, posinf=12.0, neginf=0.0)
         raw_ranges = np.clip(raw_ranges, 0.0, 12.0)
 
-        # 2. 降采样 (Downsample)
         input_len = len(raw_ranges)
-        step = input_len // self.lidar_dim
-        if step < 1:
-            step = 1
 
-        processed = raw_ranges[::step][:self.lidar_dim]
+        # 2. Min-Pooling降采样（架构师修正 - 安全优先）
+        if input_len >= self.lidar_dim:
+            # 计算每个扇区的大小 (向下取整)
+            sector_size = input_len // self.lidar_dim
+
+            # 截断多余的点，确保能被整除
+            truncated_len = self.lidar_dim * sector_size
+            raw_truncated = raw_ranges[:truncated_len]
+
+            # Reshape 成 (72, N) 然后在第二个维度取 Min
+            # 这样每个扇区取最小值（最近障碍物）
+            processed = raw_truncated.reshape(self.lidar_dim, sector_size).min(axis=1)
+        else:
+            # 如果点数不够（罕见），进行线性插值
+            rospy.logwarn_throttle(5.0, f"⚠️ 雷达点数不足 ({input_len} < {self.lidar_dim})，进行插值")
+            indices = np.linspace(0, input_len-1, self.lidar_dim)
+            processed = np.interp(indices, np.arange(input_len), raw_ranges)
 
         # 3. 如果凑不够72个点，进行填充
         if len(processed) < self.lidar_dim:
@@ -269,6 +337,20 @@ class GeoNavNode:
         # 缩放 (Scale)
         cmd_v = action[0] * self.max_v  # 线速度
         cmd_w = action[1] * self.max_w  # 角速度
+
+        # [架构师修正] 软件限速与加速度限制 (Safety Filter - 数学修正版)
+        # 🔥 关键修正：根据物理加速度限制计算每周期限制
+        # acc_per_tick = max_acc * dt
+        acc_lin_per_tick = self.max_acc_lin * self.dt
+        acc_ang_per_tick = self.max_acc_ang * self.dt
+
+        # 计算上一次的真实速度（从之前的action恢复）
+        last_cmd_v = self.last_action[0] * self.max_v
+        last_cmd_w = self.last_action[1] * self.max_w
+
+        # 限制速度变化量（使用动态计算的加速度限制）
+        cmd_v = np.clip(cmd_v, last_cmd_v - acc_lin_per_tick, last_cmd_v + acc_lin_per_tick)
+        cmd_w = np.clip(cmd_w, last_cmd_w - acc_ang_per_tick, last_cmd_w + acc_ang_per_tick)
 
         # 7. 安全保护 (Sim2Real Gap保护)
         if self.goal_polar[0] < 0.2:  # 到达目标

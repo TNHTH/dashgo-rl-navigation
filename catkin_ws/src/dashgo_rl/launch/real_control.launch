@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<launch>
+    <!--
+    ========================================================================
+    DashGo RL导航 - 实车控制Launch文件（笔记本远程控制版）
+
+    版本: v1.0
+    更新: 2026-01-28
+    作者: Based on Architect's recommendation
+
+    说明:
+    - 不包含Gazebo（真实世界不需要仿真器）
+    - 不包含SLAM（通常车上电脑运行建图节点）
+    - 只运行RL导航节点和可选的本地Rviz
+
+    使用方法:
+    1. 确保已配置ROS多机通讯（运行connect_to_robot.sh）
+    2. 启动：roslaunch dashgo_rl real_control.launch
+
+    依赖:
+    - 机器人上位机已启动roscore、驱动、雷达
+    - 已配置ROS_MASTER_URI和ROS_IP
+    ========================================================================
+    -->
+
+    <arg name="model_path" default="$(find dashgo_rl)/models/policy_torchscript.pt"
+         doc="TorchScript模型路径（相对路径）"/>
+
+    <arg name="max_lin_vel" default="0.3"
+         doc="最大线速度 (m/s) - 与dashgo_config.py一致"/>
+
+    <arg name="max_ang_vel" default="1.0"
+         doc="最大角速度 (rad/s) - 与dashgo_config.py一致"/>
+
+    <arg name="max_lin_acc" default="1.0"
+         doc="最大线加速度 (m/s²) - 与dashgo_config.py一致"/>
+
+    <arg name="max_ang_acc" default="0.6"
+         doc="最大角加速度 (rad/s²) - 与dashgo_config.py一致"/>
+
+    <arg name="control_rate" default="20"
+         doc="控制频率 (Hz) - 必须与底层控制器匹配"/>
+
+    <arg name="enable_rviz" default="true"
+         doc="是否启动本地Rviz可视化"/>
+
+    <arg name="rviz_config" default="$(find dashgo_rl)/rviz/nav_real.rviz"
+         doc="Rviz配置文件路径（如果不存在会使用默认配置）"/>
+
+    <!-- ========================================================================
+         RL导航节点（核心）
+    ======================================================================== -->
+    <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
+          output="screen" required="true">
+
+        <!-- 模型路径 -->
+        <param name="model_path" value="$(arg model_path)" />
+
+        <!-- 速度限制（与dashgo_config.py一致） -->
+        <param name="max_lin_vel" value="$(arg max_lin_vel)" />
+        <param name="max_ang_vel" value="$(arg max_ang_vel)" />
+
+        <!-- 🔥 [新增] 加速度限制参数（安全关键） -->
+        <param name="max_lin_acc" value="$(arg max_lin_acc)" />
+        <param name="max_ang_acc" value="$(arg max_ang_acc)" />
+
+        <!-- 🔥 [新增] 控制频率（动态计算dt） -->
+        <param name="control_rate" value="$(arg control_rate)" />
+    </node>
+
+    <!-- ========================================================================
+         可选：本地Rviz可视化
+    ======================================================================== -->
+    <group if="$(arg enable_rviz)">
+        <!-- 检查RViz配置文件是否存在，如果不存在使用默认配置 -->
+        <node pkg="rviz" type="rviz" name="rviz"
+              args="-d $(arg rviz_config)"
+              unless="$(eval not('$(exists $(arg rviz_config))'))"/>
+
+        <!-- 如果配置文件不存在，使用默认配置启动 -->
+        <node pkg="rviz" type="rviz" name="rviz"
+              if="$(eval not('$(exists $(arg rviz_config))'))"/>
+    </group>
+
+</launch>
