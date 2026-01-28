@@ -55,9 +55,9 @@
     </visual>
 
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
       <geometry>
-        <cylinder length="0.21" radius="0.10"/>  <!-- 0.15 → 0.10 进一步缩小以避免轮子嵌在底盘里 -->
+        <cylinder length="0.10" radius="0.10"/>  <!-- 抬高5cm避免拖底，厚度减半，半径保持0.10避免水平碰撞 -->
       </geometry>
     </collision>
 
