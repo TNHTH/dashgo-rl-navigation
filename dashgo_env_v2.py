@@ -10,10 +10,15 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
-# [架构师V3.1要求] 直接硬导入，拒绝吞掉错误
-# 如果导入失败，说明环境没配置好，必须报错退出
-from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
-import omni.isaac.lab.terrains.height_field as hf_gen
+# [架构师V3.2] 现代化导入：直接从 isaaclab 包导入所有地形类
+# 绕过 omni 命名空间冲突，拥抱新的 isaaclab.* 包结构
+from isaaclab.terrains import (
+    TerrainGeneratorCfg,
+    TerrainImporterCfg,
+    MeshPlaneTerrainCfg,        # 替代 hf_gen.MeshPlaneTerrainCfg
+    MoundsTerrainCfg,           # 替代 hf_gen.MoundsTerrainCfg
+    DiscreteObstaclesTerrainCfg # 替代 hf_gen.DiscreteObstaclesTerrainCfg
+)
 
 # 设置标志（移除try-except）
 TERRAIN_GEN_AVAILABLE = True
@@ -1115,17 +1120,18 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         num_rows=5,  # 5行不同难度
         num_cols=5,  # 5列不同地形
         sub_terrains={
+            # [架构师V3.2] 去掉 hf_gen 前缀，直接使用导入的类
             # 1. 空旷地带 (20%) - 初期训练走直线
-            "flat": hf_gen.MeshPlaneTerrainCfg(proportion=0.2),
+            "flat": MeshPlaneTerrainCfg(proportion=0.2),
             # 2. 随机障碍柱 (40%) - 训练避障
-            "random_obstacles": hf_gen.MoundsTerrainCfg(
+            "random_obstacles": MoundsTerrainCfg(
                 proportion=0.4,
                 min_height=0.5, max_height=1.0,
                 step=0.1,
                 platform_width=1.0,
             ),
             # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
-            "maze": hf_gen.DiscreteObstaclesTerrainCfg(
+            "maze": DiscreteObstaclesTerrainCfg(
                 proportion=0.4,
                 obstacle_height=1.0,
                 obstacle_width=0.5,
