@@ -1119,19 +1119,36 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         num_rows=5,  # 5行不同难度
         num_cols=5,  # 5列不同地形
         sub_terrains={
-            # [架构师V3.4] Isaac Lab 0.46.x 使用 Hf 前缀类名
-            # 1. 空旷地带 (20%) - 初期训练走直线
-            "flat": HfTerrainBaseCfg(proportion=0.2),
+            # [架构师V3.5] 补全所有必需参数，通过configclass验证
+            # 1. 空旷地带 (20%) - 使用高度为0的随机地形代替纯平地
+            "flat": HfRandomUniformTerrainCfg(
+                proportion=0.2,
+                min_height=0.0,
+                max_height=0.0,
+                step=0.01,
+                platform_width=1.0,
+                noise_range=(0.0, 0.0),
+                noise_step=0.0,
+            ),
             # 2. 随机障碍柱 (40%) - 训练避障
             "random_obstacles": HfRandomUniformTerrainCfg(
                 proportion=0.4,
+                min_height=0.05,
+                max_height=0.2,
+                step=0.05,
+                platform_width=1.0,
+                noise_range=(0.0, 0.05),
+                noise_step=0.01,
             ),
             # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
             "maze": HfDiscreteObstaclesTerrainCfg(
                 proportion=0.4,
-                horizontal_scale=0.1,  # 离散化精度
-                vertical_scale=0.1,     # 高度缩放
-                border_width=1.0,       # 障碍物宽度
+                horizontal_scale=0.1,
+                vertical_scale=0.1,
+                border_width=1.0,
+                obstacle_height_range=(0.5, 1.0),
+                obstacle_width_range=(0.5, 2.0),
+                num_obstacles=40,
             ),
         },
         curriculum=True,  # 自动难度提升
