@@ -1110,44 +1110,55 @@ class DashgoEventsCfg:
 
 @configclass
 class DashgoSceneV2Cfg(InteractiveSceneCfg):
-    # [架构师V3.1] 程序化地形生成（强制启用，不允许回退）
-    # 空地训练是无效训练，必须强制使用迷宫地形
-    terrain = TerrainGeneratorCfg(
-        seed=42,  # 固定种子方便复现
-        size=(20.0, 20.0),  # 训练场大小
-        border_width=2.5,
-        num_rows=5,  # 5行不同难度
-        num_cols=5,  # 5列不同地形
-        sub_terrains={
-            # [架构师V3.6最终版] 基于源码的真实参数列表
-            # 1. 空旷地带 (20%) - 纯平地（noise_range为0）
-            "flat": HfRandomUniformTerrainCfg(
-                proportion=0.2,
-                horizontal_scale=0.1,
-                vertical_scale=0.005,
-                noise_range=(0.0, 0.0),  # 高度为0 = 纯平地
-                noise_step=0.0,
-            ),
-            # 2. 随机障碍柱 (40%) - 小起伏
-            "random_obstacles": HfRandomUniformTerrainCfg(
-                proportion=0.4,
-                horizontal_scale=0.1,
-                vertical_scale=0.005,
-                noise_range=(0.05, 0.2),  # 高度范围
-                noise_step=0.01,
-            ),
-            # 3. 迷宫/走廊 (40%) - 离散障碍物
-            "maze": HfDiscreteObstaclesTerrainCfg(
-                proportion=0.4,
-                horizontal_scale=0.1,
-                vertical_scale=0.1,
-                border_width=1.0,
-                obstacle_height_range=(0.5, 1.0),
-                obstacle_width_range=(0.5, 2.0),
-                num_obstacles=40,
-            ),
-        },
-        curriculum=True,  # 自动难度提升
+    # [架构师V3.7最终修正] 必须用TerrainImporterCfg包装Generator
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=TerrainGeneratorCfg(
+            seed=42,
+            size=(20.0, 20.0),
+            border_width=2.5,
+            num_rows=5,
+            num_cols=5,
+            sub_terrains={
+                # [架构师V3.6最终版] 基于源码的真实参数列表
+                # 1. 空旷地带 (20%) - 纯平地（noise_range为0）
+                "flat": HfRandomUniformTerrainCfg(
+                    proportion=0.2,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.005,
+                    noise_range=(0.0, 0.0),
+                    noise_step=0.0,
+                ),
+                # 2. 随机障碍柱 (40%) - 小起伏
+                "random_obstacles": HfRandomUniformTerrainCfg(
+                    proportion=0.4,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.005,
+                    noise_range=(0.05, 0.2),
+                    noise_step=0.01,
+                ),
+                # 3. 迷宫/走廊 (40%) - 离散障碍物
+                "maze": HfDiscreteObstaclesTerrainCfg(
+                    proportion=0.4,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.1,
+                    border_width=1.0,
+                    obstacle_height_range=(0.5, 1.0),
+                    obstacle_width_range=(0.5, 2.0),
+                    num_obstacles=40,
+                ),
+            },
+            curriculum=True,
+        ),
+        max_init_terrain_level=5,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="average",
+            restitution_combine_mode="average",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
     )
 
     robot = DASHGO_D1_CFG.replace(prim_path="{ENV_REGEX_NS}/Dashgo")
