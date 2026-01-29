@@ -10,23 +10,13 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
-# ✅ [V3.0 修复版] 详细诊断地形生成模块导入问题
-try:
-    from isaaclab.terrains import TerrainGeneratorCfg
-    import omni.isaac.lab.terrains.height_field as hf_gen
-    TERRAIN_GEN_AVAILABLE = True
-    print("[INFO] ✅ 地形生成模块导入成功")
-except ImportError as e:
-    # 如果地形生成模块不可用，禁用该功能
-    TERRAIN_GEN_AVAILABLE = False
-    print(f"[ERROR] ❌ 地形生成模块导入失败: {e}")
-    print("[ERROR] 详细错误信息：")
-    import traceback
-    traceback.print_exc()
-    print("[HINT] 可能的原因：")
-    print("  1. omni模块未加载（Isaac Sim未初始化）")
-    print("  2. isaaclab路径不在sys.path中")
-    print("  3. 依赖包缺失（如scipy、trimesh等）")
+# [架构师V3.1要求] 直接硬导入，拒绝吞掉错误
+# 如果导入失败，说明环境没配置好，必须报错退出
+from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
+import omni.isaac.lab.terrains.height_field as hf_gen
+
+# 设置标志（移除try-except）
+TERRAIN_GEN_AVAILABLE = True
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
@@ -1116,66 +1106,34 @@ class DashgoEventsCfg:
 
 @configclass
 class DashgoSceneV2Cfg(InteractiveSceneCfg):
-    # [V3.0 修复版] 条件性启用地形生成
-    # 基础配置：简单GroundPlane（如果地形生成失败，回退到此）
-    terrain = AssetBaseCfg(prim_path="/World/GroundPlane", spawn=sim_utils.GroundPlaneCfg())
-
-    # ✅ [V3.0] 动态导入地形生成器（如果可用）
-    # 注意：下面的配置会在__post_init__中动态评估并覆盖上面的terrain
-    pass
-
-    def __post_init__(self):
-        """[V3.0 修复] 动态启用地形生成（诊断版本）"""
-        # 获取模块级别的TERRAIN_GEN_AVAILABLE变量
-        import sys
-        module = sys.modules[__name__]
-        terrain_available = getattr(module, 'TERRAIN_GEN_AVAILABLE', False)
-
-        # 如果TERRAIN_GEN_AVAILABLE为True，尝试启用程序化地形
-        if terrain_available:
-            print("[INFO] 🚀 尝试启用程序化地形生成...")
-            try:
-                # 动态检查模块是否真的可用
-                from isaaclab.terrains import TerrainGeneratorCfg
-                import omni.isaac.lab.terrains.height_field as hf_gen
-
-                # ✅ 启用程序化地形（替换上面的简单GroundPlane）
-                self.terrain = TerrainGeneratorCfg(
-                    seed=42,  # 固定种子方便复现
-                    size=(20.0, 20.0),  # 训练场大小
-                    border_width=2.5,
-                    num_rows=5,  # 5行不同难度
-                    num_cols=5,  # 5列不同地形
-                    sub_terrains={
-                        # 1. 空旷地带 (20%) - 初期训练走直线
-                        "flat": hf_gen.MeshPlaneTerrainCfg(proportion=0.2),
-                        # 2. 随机障碍柱 (40%) - 训练避障
-                        "random_obstacles": hf_gen.MoundsTerrainCfg(
-                            proportion=0.4,
-                            min_height=0.5, max_height=1.0,
-                            step=0.1,
-                            platform_width=1.0,
-                        ),
-                        # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
-                        "maze": hf_gen.DiscreteObstaclesTerrainCfg(
-                            proportion=0.4,
-                            obstacle_height=1.0,
-                            obstacle_width=0.5,
-                            num_obstacles=20,
-                        ),
-                    },
-                    curriculum=True,  # 自动难度提升
-                )
-                print("[INFO] ✅ 程序化地形生成已启用！")
-            except Exception as e:
-                print(f"[ERROR] ❌ 地形生成器初始化失败: {e}")
-                print("[WARN] ⚠️ 回退到简单GroundPlane（空地训练）")
-                import traceback
-                traceback.print_exc()
-                # 保持terrain为GroundPlane（默认值）
-        else:
-            print("[WARN] ⚠️ TERRAIN_GEN_AVAILABLE=False，使用简单GroundPlane")
-            print("[WARN] ⚠️ 机器人在空地上训练，学不到避障能力！")
+    # [架构师V3.1] 程序化地形生成（强制启用，不允许回退）
+    # 空地训练是无效训练，必须强制使用迷宫地形
+    terrain = TerrainGeneratorCfg(
+        seed=42,  # 固定种子方便复现
+        size=(20.0, 20.0),  # 训练场大小
+        border_width=2.5,
+        num_rows=5,  # 5行不同难度
+        num_cols=5,  # 5列不同地形
+        sub_terrains={
+            # 1. 空旷地带 (20%) - 初期训练走直线
+            "flat": hf_gen.MeshPlaneTerrainCfg(proportion=0.2),
+            # 2. 随机障碍柱 (40%) - 训练避障
+            "random_obstacles": hf_gen.MoundsTerrainCfg(
+                proportion=0.4,
+                min_height=0.5, max_height=1.0,
+                step=0.1,
+                platform_width=1.0,
+            ),
+            # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
+            "maze": hf_gen.DiscreteObstaclesTerrainCfg(
+                proportion=0.4,
+                obstacle_height=1.0,
+                obstacle_width=0.5,
+                num_obstacles=20,
+            ),
+        },
+        curriculum=True,  # 自动难度提升
+    )
 
     robot = DASHGO_D1_CFG.replace(prim_path="{ENV_REGEX_NS}/Dashgo")
     

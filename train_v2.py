@@ -30,18 +30,21 @@ import sys
 import os
 
 # ===============================================================================
-# [架构师V3.0补丁] 强制注入 Isaac Lab 源码路径
+# [架构师V3.1补丁] 强力注入 Isaac Lab 源码路径（抢占优先级）
 # ===============================================================================
-# 问题：isaaclab.sh 可能清洗环境变量，导致 PYTHONPATH 失效
-# 解决：在 Python 代码层面直接注入 sys.path（无法被脚本拦截）
+# 问题：sys.path.append被 Isaac Sim 的 omni 路径"劫持"，优先级不够高
+# 解决：使用 sys.path.insert(0, ...) 抢占 sys.path 的第一位，确保优先加载
+#       Isaac Sim 的 omni 模块必须在 Isaac Lab 之后导入
 isaaclab_source_path = os.path.expanduser("~/IsaacLab/source")
-sys.path.append(os.path.join(isaaclab_source_path, "isaaclab"))
-sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_assets"))
-sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_tasks"))
-sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_rl"))
 
-# 调试输出（注释掉以减少日志噪音）
-# print("[DEBUG] Isaac Lab paths injected:", sys.path[-4:])
+# 关键修复：使用 insert(0) 确保我们的路径排在 Isaac Sim 自带路径之前
+sys.path.insert(0, os.path.join(isaaclab_source_path, "isaaclab"))
+sys.path.insert(0, os.path.join(isaaclab_source_path, "isaaclab_assets"))
+sys.path.insert(0, os.path.join(isaaclab_source_path, "isaaclab_tasks"))
+sys.path.insert(0, os.path.join(isaaclab_source_path, "isaaclab_rl"))
+
+# 调试输出（确认路径插队成功）
+print("[DEBUG] Isaac Lab paths inserted at position 0:", sys.path[:4])
 
 # ===============================================================================
 
