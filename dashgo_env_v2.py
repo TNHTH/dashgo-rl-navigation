@@ -10,17 +10,17 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
-# [架构师V3.2] 现代化导入：直接从 isaaclab 包导入所有地形类
-# 绕过 omni 命名空间冲突，拥抱新的 isaaclab.* 包结构
-from isaaclab.terrains import (
-    TerrainGeneratorCfg,
-    TerrainImporterCfg,
-    MeshPlaneTerrainCfg,        # 替代 hf_gen.MeshPlaneTerrainCfg
-    MoundsTerrainCfg,           # 替代 hf_gen.MoundsTerrainCfg
-    DiscreteObstaclesTerrainCfg # 替代 hf_gen.DiscreteObstaclesTerrainCfg
+# [架构师V3.3] 精准子模块导入 - 解决 Import Error
+from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
+
+# 关键：从具体的 height_field 子模块导入地形类
+# 注意路径是 isaaclab.terrains.height_field (不是 omni.isaac.lab...)
+from isaaclab.terrains.height_field import (
+    MeshPlaneTerrainCfg,        # 平地
+    MoundsTerrainCfg,           # 随机障碍堆
+    DiscreteObstaclesTerrainCfg # 离散障碍物
 )
 
-# 设置标志（移除try-except）
 TERRAIN_GEN_AVAILABLE = True
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
