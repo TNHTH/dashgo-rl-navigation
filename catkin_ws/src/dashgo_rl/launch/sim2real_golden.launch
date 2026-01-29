@@ -189,9 +189,9 @@
     </group>
 
     <!-- ========================================================================
-         RL导航节点（核心）- 🔴 [方案A] 暂时禁用，验证传统导航
+         RL导航节点（核心）- ✅ [方案C] 已启用全局路径追踪
     ======================================================================== -->
-    <!-- <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
+    <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
           output="screen" required="true">
 
         # 模型路径
@@ -207,6 +207,6 @@
 
         # 🔥 [修正] 控制频率（动态计算dt）
         <param name="control_rate" value="$(arg control_rate)" />
-    </node> -->
+    </node>
 
 </launch>

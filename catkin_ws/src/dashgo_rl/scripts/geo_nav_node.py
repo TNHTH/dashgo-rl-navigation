@@ -156,6 +156,22 @@ class GeoNavNode:
         self.goal_polar = np.zeros(2, dtype=np.float32)  # [dist, heading]
         self.latest_scan = None
 
+        # ========== MVP新增：全局路径追踪 ==========
+        self.local_waypoint = None
+        self.waypoint_dist = 1.0  # 固定1m前瞻距离
+
+        # 订阅全局路径话题（诊断结果：/move_base/NavfnROS/plan）
+        from nav_msgs.msg import Path
+        plan_topic = "/move_base/NavfnROS/plan"
+        self.path_sub = rospy.Subscriber(
+            plan_topic, Path, self.mvp_path_cb,
+            queue_size=1  # 避免路径堆积
+        )
+
+        rospy.loginfo("✅ MVP模式：已启用全局路径追踪")
+        rospy.loginfo(f"   监听话题: {plan_topic}")
+        # =============================================
+
         # --- 7. ROS通讯 ---
         self.tf_buf = tf2_ros.Buffer()
         self.tf_lis = tf2_ros.TransformListener(self.tf_buf)
@@ -204,6 +220,45 @@ class GeoNavNode:
     def scan_cb(self, msg):
         """LiDAR回调（存储最新扫描）"""
         self.latest_scan = msg
+
+    def mvp_path_cb(self, msg):
+        """MVP版全局路径回调（修正版算法）
+
+        核心逻辑：追踪路径上前方约1m的点
+        """
+        if not msg.poses:
+            rospy.logwarn("⚠️ 收到空路径")
+            return
+
+        try:
+            # 1. 获取TF变换（base_link ← map）
+            trans = self.tf_buf.lookup_transform(
+                "base_link", "map",
+                rospy.Time(0), rospy.Duration(0.1)
+            )
+
+            # 2. 遍历路径，寻找前方约1m的点
+            for i, pose in enumerate(msg.poses):
+                pose_in_base = do_transform_pose(pose, trans)
+                dist = np.sqrt(
+                    pose_in_base.pose.position.x**2 +
+                    pose_in_base.pose.position.y**2
+                )
+
+                if dist >= self.waypoint_dist:
+                    self.local_waypoint = pose
+                    rospy.loginfo_throttle(2.0,
+                        f"✅ 追踪航点: idx={i}/{len(msg.poses)}, dist={dist:.2f}m")
+                    return
+
+            # 3. Fallback：所有点都<1m，追踪终点
+            self.local_waypoint = msg.poses[-1]
+            rospy.loginfo("🏁 接近终点，追踪最后一点")
+
+        except (tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn_throttle(2.0, f"⚠️ TF查询失败: {e}")
 
     def process_lidar(self, msg):
         """
@@ -256,23 +311,32 @@ class GeoNavNode:
         """
         计算目标点在机器人坐标系下的极坐标 (dist, heading)
 
+        MVP修改：优先级调整（支持局部航点追踪）
         Returns:
             bool: 是否成功获取目标
         """
-        if not hasattr(self, 'goal_pose'):
+        # ========== MVP修改：优先级调整 ==========
+        # 优先级1: 追踪局部航点（方案C）
+        if self.local_waypoint is not None:
+            target = self.local_waypoint
+        # 优先级2: 追踪最终目标（fallback）
+        elif hasattr(self, 'goal_pose'):
+            target = self.goal_pose
+        else:
             return False
+        # ========================================
 
         try:
-            # 获取robot -> goal的变换
+            # 获取robot -> target的变换
             trans = self.tf_buf.lookup_transform(
                 'base_link',
-                self.goal_pose.header.frame_id,
+                target.header.frame_id,  # 使用动态target而非固定的goal_pose
                 rospy.Time(0),
                 rospy.Duration(0.1)
             )
 
             # 将目标点转换到base_link坐标系
-            target_in_base = do_transform_pose(self.goal_pose, trans)
+            target_in_base = do_transform_pose(target, trans)
 
             dx = target_in_base.pose.position.x
             dy = target_in_base.pose.position.y
