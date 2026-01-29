@@ -156,6 +156,10 @@ class GeoNavNode:
         self.goal_polar = np.zeros(2, dtype=np.float32)  # [dist, heading]
         self.latest_scan = None
 
+        # ========== [新增] 保存完整路径用于到达判定 ==========
+        self.global_path = None  # 保存完整路径
+        # ========================================
+
         # ========== MVP新增：全局路径追踪 ==========
         self.local_waypoint = None
         self.waypoint_dist = 1.0  # 固定1m前瞻距离
@@ -226,6 +230,10 @@ class GeoNavNode:
 
         核心逻辑：追踪路径上前方约1m的点
         """
+        # ========== [新增] 保存完整路径 ==========
+        self.global_path = msg  # 保存完整路径用于到达判定
+        # ========================================
+
         if not msg.poses:
             rospy.logwarn("⚠️ 收到空路径")
             return
@@ -372,6 +380,28 @@ class GeoNavNode:
         has_goal = self.update_goal_polar()
         if not has_goal:
             return # 没有目标就不动
+
+        # ========== [新增] 到达判定逻辑 ==========
+        dist = self.goal_polar[0]
+
+        # 判断是否到达终点
+        if hasattr(self, 'global_path') and self.global_path is not None and self.global_path.poses:
+            # 检查当前追踪的点是否是路径终点
+            # 注意：需要比较pose对象本身，而非位置坐标
+            is_last_waypoint = (self.local_waypoint is not None and
+                                len(self.global_path.poses) > 0 and
+                                self.local_waypoint == self.global_path.poses[-1])
+
+            if dist < 0.3 and is_last_waypoint:
+                rospy.loginfo("🏁 已到达终点，停车")
+                # 发送零速度
+                stop_cmd = Twist()
+                self.pub_cmd.publish(stop_cmd)
+                # 清除目标，防止抖动
+                self.local_waypoint = None
+                self.goal_pose = None
+                return  # 跳过后续控制逻辑
+        # ========================================
 
         # 2. 组装当前帧观测 (Single Frame Obs)
         # 结构: LiDAR(72) + Target(2) + LinVel(3) + AngVel(3) + LastAction(2) = 82
