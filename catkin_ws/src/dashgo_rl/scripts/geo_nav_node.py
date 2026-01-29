@@ -163,6 +163,7 @@ class GeoNavNode:
         # ========== MVP新增：全局路径追踪 ==========
         self.local_waypoint = None
         self.waypoint_dist = 1.0  # 固定1m前瞻距离
+        self.current_waypoint_idx = -1  # 当前追踪的航点索引（用于到达判定）
 
         # 订阅全局路径话题（诊断结果：/move_base/NavfnROS/plan）
         from nav_msgs.msg import Path
@@ -232,6 +233,7 @@ class GeoNavNode:
         """
         # ========== [新增] 保存完整路径 ==========
         self.global_path = msg  # 保存完整路径用于到达判定
+        self.current_waypoint_idx = -1  # 重置索引
         # ========================================
 
         if not msg.poses:
@@ -255,12 +257,14 @@ class GeoNavNode:
 
                 if dist >= self.waypoint_dist:
                     self.local_waypoint = pose
+                    self.current_waypoint_idx = i  # 保存当前航点索引
                     rospy.loginfo_throttle(2.0,
                         f"✅ 追踪航点: idx={i}/{len(msg.poses)}, dist={dist:.2f}m")
                     return
 
             # 3. Fallback：所有点都<1m，追踪终点
             self.local_waypoint = msg.poses[-1]
+            self.current_waypoint_idx = len(msg.poses) - 1  # 终点索引
             rospy.loginfo("🏁 接近终点，追踪最后一点")
 
         except (tf2_ros.LookupException,
@@ -381,25 +385,45 @@ class GeoNavNode:
         if not has_goal:
             return # 没有目标就不动
 
-        # ========== [新增] 到达判定逻辑 ==========
+        # ========== [改进] 到达判定逻辑 ==========
         dist = self.goal_polar[0]
+        current_speed = np.sqrt(self.current_vel[0]**2 + self.current_vel[1]**2)
 
-        # 判断是否到达终点
+        # 判断是否到达终点（改进版）
         if hasattr(self, 'global_path') and self.global_path is not None and self.global_path.poses:
-            # 检查当前追踪的点是否是路径终点
-            # 注意：需要比较pose对象本身，而非位置坐标
-            is_last_waypoint = (self.local_waypoint is not None and
-                                len(self.global_path.poses) > 0 and
-                                self.local_waypoint == self.global_path.poses[-1])
+            # 方法1：通过索引判断（更可靠）
+            is_last_waypoint = (self.current_waypoint_idx >= 0 and
+                                self.current_waypoint_idx == len(self.global_path.poses) - 1)
 
-            if dist < 0.3 and is_last_waypoint:
-                rospy.loginfo("🏁 已到达终点，停车")
+            # 方法2：通过距离判断（备用）
+            # 如果索引追踪失败，直接判断距离最终目标是否<0.15m
+            is_close_to_goal = (dist < 0.15)
+
+            # 到达条件：满足以下任一
+            # A. 追踪的是最后一个航点 且 距离<0.1m
+            # B. 距离目标点<0.1m 且 速度很小（<0.05 m/s）
+            should_stop = False
+
+            if is_last_waypoint and dist < 0.1:
+                rospy.loginfo(f"🏁 到达终点（追踪最后一个航点）: dist={dist:.3f}m")
+                should_stop = True
+            elif dist < 0.1 and current_speed < 0.05:
+                rospy.loginfo(f"🏁 到达终点（距离+速度判定）: dist={dist:.3f}m, speed={current_speed:.3f}m/s")
+                should_stop = True
+            elif is_close_to_goal and current_speed < 0.03:
+                rospy.loginfo(f"🏁 到达终点（接近目标）: dist={dist:.3f}m, speed={current_speed:.3f}m/s")
+                should_stop = True
+
+            if should_stop:
                 # 发送零速度
                 stop_cmd = Twist()
+                stop_cmd.linear.x = 0.0
+                stop_cmd.angular.z = 0.0
                 self.pub_cmd.publish(stop_cmd)
                 # 清除目标，防止抖动
                 self.local_waypoint = None
                 self.goal_pose = None
+                self.current_waypoint_idx = -1
                 return  # 跳过后续控制逻辑
         # ========================================
 
@@ -457,10 +481,11 @@ class GeoNavNode:
             cmd_v = 0.0
             cmd_w = 0.0
 
-        # 绝对倒车禁止（双重保障）
-        if cmd_v < -0.05:
-            rospy.logwarn_throttle(1.0, "🚫 倒车已禁止")
-            cmd_v = 0.0
+        # [移除] 绝对倒车禁止 - 用户场景需要后退能力
+        # 保留大幅度倒车限制（>0.2m/s）作为安全保护
+        if cmd_v < -0.2:
+            rospy.logwarn_throttle(1.0, f"⚠️ 倒车速度过大: {cmd_v:.3f} m/s，限制为-0.2 m/s")
+            cmd_v = -0.2
 
         # 8. 发布
         twist = Twist()
