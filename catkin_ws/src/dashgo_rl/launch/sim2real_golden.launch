@@ -116,6 +116,15 @@
             <param name="odom_frame" value="odom"/>
             <param name="map_frame" value="map"/>
 
+            <!-- 🔥 [修复] 添加激光雷达topic参数 -->
+            <param name="scan_topic" value="/scan"/>
+
+            <!-- 🔥 [修复] 添加显式话题remap -->
+            <remap from="scan" to="scan"/>
+
+            <!-- 🔥 [调试] 启用调试输出 -->
+            <param name="debug" value="true"/>
+
             <!-- 雷达参数 -->
             <param name="map_update_interval" value="1.0"/>
             <param name="maxUrange" value="10.0"/>  <!-- 最大有效距离 -->
@@ -161,9 +170,10 @@
     </group>
 
     <!-- ========================================================================
-         MoveBase导航（传统导航栈）- 🔴 [方案A] 启用验证
+         MoveBase导航（传统导航栈）- 🔴 [方案A] 强制启动
     ======================================================================== -->
-    <group if="$(arg enable_move_base)">
+    <!-- 🔴 [修复] 移除if条件，确保move_base总是启动 -->
+    <group>
         <!-- move_base节点 -->
         <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen" clear_params="true">
 
