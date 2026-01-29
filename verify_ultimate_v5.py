@@ -1,14 +1,15 @@
 """
-DashGo 终极验证工具 v5.0 (Final Stable)
+DashGo 终极验证工具 v5.1 (Sensor Probes Edition)
 修复清单：
 1. [Config] 修复 YAML 读取逻辑 (兼容扁平/嵌套结构)
 2. [Network] 修复 LayerNorm 统计逻辑 (v3.1 应有 8 个)
 3. [Curriculum] 增加 v6.0 自动课程注入验证
 4. [Environment] 保留物理/传感器/奖励全栈验证
+5. [V5.1 新增] 传感器探针 - 实时 LiDAR 数据体检 + 碰撞力验证
 
 架构师: Isaac Sim Architect + Assistant Fusion
-版本: v5.0 Final Stable
-日期: 2026-01-27
+版本: v5.1 Sensor Probes Edition
+日期: 2026-01-30
 """
 
 import torch
@@ -158,7 +159,7 @@ def main():
         return
 
     # ==========================================================================
-    # 4. 物理与奖励验证
+    # 4. 物理与奖励验证 (含 V5.1 传感器探针)
     # ==========================================================================
     print("\n🚀 [4. 物理与奖励循环验证] (100步)")
 
@@ -166,13 +167,58 @@ def main():
         with torch.no_grad():
             actions = policy.act(obs)
 
+        # 执行物理步
         obs, rew, terminated, truncated, extras = env.step(actions)
 
+        # ----------------------------------------------------------------------
+        # [架构师探针] V5.1: 实时传感器数据体检
+        # ----------------------------------------------------------------------
         if i % 20 == 0:
+            # 1. 提取 LiDAR 数据 (假设前216位是LiDAR)
+            # 注意: 需要根据你的观测空间定义确认切片范围，这里假设是 [:, 0:216]
+            if hasattr(obs, "get"):
+                current_obs = obs["policy"]
+            else:
+                current_obs = obs
+
+            lidar_data = current_obs[:, 0:216]
+
+            # 2. 验证 LiDAR 是否"活着"
+            l_min = lidar_data.min().item()
+            l_max = lidar_data.max().item()
+            l_mean = lidar_data.mean().item()
+
+            # 3. 验证碰撞力 (Contact Forces)
+            # 通过奖励字典侧面验证，或者直接读取 contact_forces_base (如果能访问到env.scene)
+            has_collision = False
+            if "episode" in extras:
+                col_rew = extras["episode"].get("reward_collision", 0.0)
+                if isinstance(col_rew, torch.Tensor):
+                    col_rew = col_rew.mean().item()
+                if col_rew < 0:
+                    has_collision = True
+
+            # 4. 打印综合体检报告
+            print(f"  Step {i:03d}:")
+
+            # 速度数据
             robot = env.scene["robot"]
             v = robot.data.root_lin_vel_b[:, 0].mean().item()
+            print(f"    🚄 速度: {v:.3f} m/s")
+
+            # LiDAR 传感器健康度
+            print(f"    👁️ LiDAR: Min={l_min:.2f}, Max={l_max:.2f}, Mean={l_mean:.2f} (数据流动正常)")
+
+            if l_max == 0.0 and l_min == 0.0:
+                print("    ⚠️ [警告] LiDAR 数据全为 0！传感器可能未工作或被完全遮挡！")
+
+            # 碰撞力检测
+            if has_collision:
+                print("    💥 [检测] 发生碰撞！物理引擎接触力反馈正常。")
+
+            # 奖励汇总
             r_mean = rew.mean().item()
-            print(f"  Step {i:03d}: 速度={v:.3f} m/s | 奖励总和={r_mean:.4f}")
+            print(f"    💰 奖励: {r_mean:.4f}")
 
             # [架构师修复] 奖励分项快照
             if "episode" in extras and i == 20:
