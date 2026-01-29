@@ -1122,13 +1122,14 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             num_cols=5,
             sub_terrains={
                 # [架构师V3.6最终版] 基于源码的真实参数列表
+                # [架构师V3.6最终版] 基于源码的真实参数列表
                 # 1. 空旷地带 (20%) - 纯平地（noise_range为0）
                 "flat": HfRandomUniformTerrainCfg(
                     proportion=0.2,
                     horizontal_scale=0.1,
                     vertical_scale=0.005,
                     noise_range=(0.0, 0.0),
-                    noise_step=0.0,
+                    noise_step=0.01,  # [架构师V3.8] 必须非零！防止 ZeroDivisionError
                 ),
                 # 2. 随机障碍柱 (40%) - 小起伏
                 "random_obstacles": HfRandomUniformTerrainCfg(
