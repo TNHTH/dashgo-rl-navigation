@@ -10,6 +10,9 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
+# ✅ [V3.0] 添加程序化地形生成导入
+from isaaclab.terrains import TerrainGeneratorCfg
+import omni.isaac.lab.terrains.height_field as hf_gen
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
@@ -58,33 +61,35 @@ MOTION_CONFIG = {
 }
 
 # 奖励函数参数（权重和阈值）
+# [Geo-Distill V3.0] 基于博弈论的参数设计
 REWARD_CONFIG = {
-    # 进度奖励
-    "progress_weight": 1.0,   # 进度奖励权重（主要奖励来源）
+    # [1] 战术性倒车：1:100 的代价比
+    # 博弈论推导：倒车2秒代价(10) << 撞墙代价(500)
+    "backward_penalty": 5.0,       # ✅ V3.0: 从0.05提高到5.0（100倍）
+    "collision_penalty": 500.0,    # ✅ V3.0: 从0.5提高到500.0（1000倍）
 
-    # 极速奖励
-    "facing_threshold": 0.8,  # 朝向阈值（cos(angle) > 0.8，约±36度）
-    "high_speed_threshold": 0.25,  # 高速阈值 (m/s)
-    "high_speed_reward": 0.2,  # 极速奖励值
+    # [2] 旋转抑制：防止原地陀螺
+    "angular_penalty": 0.5,        # ✅ V3.0: 新增，旋转1rad/s扣0.5分
 
-    # 倒车惩罚
-    "backward_penalty": 0.05,  # 倒车惩罚系数
+    # [3] 停车诱导：势能井
+    "terminal_reward": 100.0,      # ✅ V3.0: 新增，只有停稳才给100分
+    "stop_dist_thresh": 0.25,      # ✅ V3.0: 距离阈值0.25m
+    "stop_vel_thresh": 0.1,        # ✅ V3.0: 速度阈值0.1m/s
 
-    # 避障惩罚
-    "safe_distance": 0.2,     # 安全距离 (m，约2.7倍robot_radius)
-    "collision_penalty": 0.5,  # 碰撞惩罚系数
-    "collision_decay": 4.0,   # 碰撞惩罚指数衰减速率
+    # 保留原有参数
+    "progress_weight": 1.0,
+    "facing_threshold": 0.8,
+    "high_speed_threshold": 0.25,
+    "high_speed_reward": 0.2,
+    "safe_distance": 0.2,
+    "collision_decay": 4.0,
+    "facing_reward_scale": 0.5,
+    "facing_angle_scale": 0.5,
+    "alive_penalty": 1.0,
 
-    # 对准奖励
-    "facing_reward_scale": 0.5,  # 对准奖励缩放系数
-    "facing_angle_scale": 0.5,   # 角度误差缩放
-
-    # 生存惩罚
-    "alive_penalty": 1.0,     # 生存惩罚系数
-
-    # 奖励裁剪
-    "reward_clip_min": -10.0,  # 最小奖励值
-    "reward_clip_max": 10.0,   # 最大奖励值
+    # [V3.0] 扩大奖励范围以容纳terminal_reward
+    "reward_clip_min": -20.0,  # ✅ V3.0: 从-10.0扩大到-20.0
+    "reward_clip_max": 120.0,  # ✅ V3.0: 从10.0扩大到120.0（容纳100分大奖）
 }
 
 # 观测处理参数
@@ -561,30 +566,36 @@ def reward_position_command_error_tanh(env, std: float, command_name: str, asset
 
 def reward_target_speed(env, asset_cfg):
     """
-    [Geo-Distill V2.2] 速度奖励：只奖励前进，严禁倒车
+    [Geo-Distill V3.0] 速度奖励：三重保护机制
 
     开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    修复原因：防止"倒车刷分"导致醉汉走路
+    修复原因：
+        1. 防止"倒车刷分"导致醉汉走路
+        2. 防止"原地转圈"（angular_penalty）
+        3. 倒车惩罚太弱（-2.0 → -10.0）
 
     奖励逻辑：
         - 前进（vel > 0）：指数奖励（鼓励接近0.3 m/s）
-        - 倒车（vel < 0）：直接惩罚（2倍惩罚力度）
+        - 倒车（vel < 0）：5倍惩罚（从2倍提高到5倍）
+        - 旋转（ang_vel）：-0.5 * abs(ang_vel) 新增
 
     [2026-01-27] 调整目标速度：0.25 → 0.3 m/s
-    - 物理限制：max_wheel_vel=5.0 rad/s → max_lin_vel=0.316 m/s
-    - 目标速度：0.3 m/s（接近物理上限，保证效率）
-    - 绝对安全：硬件级锁死在0.316 m/s，永远不超过0.5 m/s
+    [V3.0] 添加角速度惩罚，防止转圈
     """
     vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
+    ang_vel = env.scene[asset_cfg.name].data.root_ang_vel_b[:, 2]  # ✅ V3.0: 新增
     target_vel = 0.3  # [2026-01-27] 调整为0.3 m/s
 
     # 前进：指数奖励
     forward_reward = torch.exp(-torch.abs(vel - target_vel) / 0.1)
 
-    # 倒车：直接惩罚 (2倍惩罚)
-    backward_penalty = torch.where(vel < 0, -2.0 * torch.abs(vel), 0.0)
+    # 倒车：5倍惩罚（从2倍提高到5倍）
+    backward_penalty = torch.where(vel < 0, -10.0 * torch.abs(vel), 0.0)
 
-    return forward_reward + backward_penalty
+    # ✅ [V3.0] 角速度惩罚（抑制转圈）
+    angular_penalty = -REWARD_CONFIG["angular_penalty"] * torch.abs(ang_vel)
+
+    return forward_reward + backward_penalty + angular_penalty
 
 def reward_facing_target(env, command_name, asset_cfg):
     """
@@ -636,12 +647,12 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     """
     robot = env.scene[asset_cfg.name]
     target_pos_w = env.command_manager.get_command(command_name)[:, :3]
-    
+
     # 基础数据清洗
     forward_vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
-    # [架构师优化] 移除这里的 ang_vel 惩罚，防止机器人不敢转向
-    # ang_vel = torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0)
-    
+    # ✅ [V3.0] 恢复ang_vel惩罚（之前注释掉导致转圈问题）
+    ang_vel = torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0)
+
     forward_vel = torch.clamp(forward_vel, -10.0, 10.0)
     
     robot_pos = torch.nan_to_num(robot.data.root_pos_w, nan=0.0, posinf=0.0, neginf=0.0)
@@ -688,7 +699,21 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     # [5] 动作平滑 (移除，改为单独项并降低权重)
     # reward_rot = -0.05 * torch.abs(ang_vel)**2
 
-    total_reward = reward_progress + reward_high_speed + reward_backward + reward_collision  # + reward_rot
+    # ✅ [V3.0] 角速度惩罚（防止转圈）
+    reward_angular = -REWARD_CONFIG["angular_penalty"] * torch.abs(ang_vel)
+
+    # ✅ [V3.0] 停车诱导逻辑（势能井）
+    # 只有同时满足 dist<0.25 AND vel<0.1 才给100分
+    is_at_goal = torch.norm(delta_pos_w, p=2, dim=-1) < REWARD_CONFIG["stop_dist_thresh"]
+    is_stopped = torch.abs(forward_vel) < REWARD_CONFIG["stop_vel_thresh"]
+    reward_terminal = torch.where(
+        is_at_goal & is_stopped,
+        torch.tensor(REWARD_CONFIG["terminal_reward"], device=env.device),
+        torch.tensor(0.0, device=env.device)
+    )
+
+    total_reward = (reward_progress + reward_high_speed + reward_backward +
+                   reward_collision + reward_angular + reward_terminal)
     return torch.clamp(
         torch.nan_to_num(total_reward, nan=0.0, posinf=0.0, neginf=0.0),
         REWARD_CONFIG["reward_clip_min"],
@@ -1077,7 +1102,41 @@ class DashgoEventsCfg:
 
 @configclass
 class DashgoSceneV2Cfg(InteractiveSceneCfg):
+    # [V3.0] 地形配置：手动USD（当前） vs 程序化生成（可选）
+    # 当前使用：简单GroundPlane（手动在USD中添加障碍物）
+    # V3.0可选：取消下面terrain_procedural的注释，启用程序化地形
+
     terrain = AssetBaseCfg(prim_path="/World/GroundPlane", spawn=sim_utils.GroundPlaneCfg())
+
+    # ✅ [V3.0 可选] 程序化地形生成（Fire-and-Forget）
+    # 启用方法：注释上面terrain，取消下面terrain_procedural的注释
+    # terrain_procedural = TerrainGeneratorCfg(
+    #     seed=42,  # 固定种子方便复现
+    #     size=(20.0, 20.0),  # 训练场大小
+    #     border_width=2.5,
+    #     num_rows=5,  # 5行不同难度
+    #     num_cols=5,  # 5列不同地形
+    #     sub_terrains={
+    #         # 1. 空旷地带 (20%) - 初期训练走直线
+    #         "flat": hf_gen.MeshPlaneTerrainCfg(proportion=0.2),
+    #         # 2. 随机障碍柱 (40%) - 训练避障
+    #         "random_obstacles": hf_gen.MoundsTerrainCfg(
+    #             proportion=0.4,
+    #             min_height=0.5, max_height=1.0,
+    #             step=0.1,
+    #             platform_width=1.0,
+    #         ),
+    #         # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
+    #         "maze": hf_gen.DiscreteObstaclesTerrainCfg(
+    #             proportion=0.4,
+    #             obstacle_height=1.0,
+    #             obstacle_width=0.5,
+    #             num_obstacles=20,
+    #         ),
+    #     },
+    #     curriculum=True,  # 自动难度提升
+    # )
+
     robot = DASHGO_D1_CFG.replace(prim_path="{ENV_REGEX_NS}/Dashgo")
     
     contact_forces_base = ContactSensorCfg(
@@ -1212,14 +1271,15 @@ class DashgoRewardsCfg:
         - collision -50.0+10.0阈值：痛感教育，确立安全边界
     """
 
-    # [主导] 终点大奖：2000分
-    # 作用：确保这是唯一的全局最优解
+    # [主导] 终点大奖：100分（V3.0降低权重，防止reward hacking）
+    # ✅ [V3.0] 2000.0 → 100.0，避免过度主导
+    # ✅ [V3.0] threshold 0.5m → 0.25m，更严格的停车精度
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
-        weight=2000.0,  # ✅ [v5.0] 绝对主导值（从1000.0提升）
+        weight=100.0,  # ✅ V3.0: 从2000.0降低到100.0
         params={
             "command_name": "target_pose",
-            "threshold": 0.5,  # ✅ v5.0使用0.5m阈值（与架构师方案一致）
+            "threshold": 0.25,  # ✅ V3.0: 从0.5m降低到0.25m
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -1272,11 +1332,12 @@ class DashgoRewardsCfg:
         weight=0.01,  # ✅ [v6.0修复] 修复双重负号错误（负函数×负权重=正奖励刷分漏洞）
     )
 
-    # [约束] 猛烈碰撞惩罚：-200.0（绝对禁止）
+    # [约束] 猛烈碰撞惩罚：-500.0（绝对禁止）
+    # ✅ [V3.0] -200.0 → -500.0，死刑级惩罚
     # 作用：撞击直接重置前的负反馈（虽然 Termination 会处理，但额外扣分加强记忆）
     collision = RewardTermCfg(
         func=penalty_collision_force,
-        weight=-200.0,  # ✅ [v8.0] 提升到-200（比所有过程扣分都痛）
+        weight=-500.0,  # ✅ V3.0: 从-200.0提高到-500.0
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
             "threshold": 10.0
