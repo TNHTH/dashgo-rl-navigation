@@ -10,15 +10,14 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
-# [架构师V3.3] 精准子模块导入 - 解决 Import Error
+# [架构师V3.4最终版] 0.46.x版本专用：Hf前缀类名
 from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
 
-# 关键：从具体的 height_field 子模块导入地形类
-# 注意路径是 isaaclab.terrains.height_field (不是 omni.isaac.lab...)
+# Isaac Lab 0.46.x 使用 Hf 前缀（Height Field的缩写）
 from isaaclab.terrains.height_field import (
-    MeshPlaneTerrainCfg,        # 平地
-    MoundsTerrainCfg,           # 随机障碍堆
-    DiscreteObstaclesTerrainCfg # 离散障碍物
+    HfTerrainBaseCfg,              # 平地（替代MeshPlaneTerrainCfg）
+    HfRandomUniformTerrainCfg,     # 随机障碍（替代MoundsTerrainCfg）
+    HfDiscreteObstaclesTerrainCfg, # 迷宫（保持原名）
 )
 
 TERRAIN_GEN_AVAILABLE = True
@@ -1120,22 +1119,19 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         num_rows=5,  # 5行不同难度
         num_cols=5,  # 5列不同地形
         sub_terrains={
-            # [架构师V3.2] 去掉 hf_gen 前缀，直接使用导入的类
+            # [架构师V3.4] Isaac Lab 0.46.x 使用 Hf 前缀类名
             # 1. 空旷地带 (20%) - 初期训练走直线
-            "flat": MeshPlaneTerrainCfg(proportion=0.2),
+            "flat": HfTerrainBaseCfg(proportion=0.2),
             # 2. 随机障碍柱 (40%) - 训练避障
-            "random_obstacles": MoundsTerrainCfg(
+            "random_obstacles": HfRandomUniformTerrainCfg(
                 proportion=0.4,
-                min_height=0.5, max_height=1.0,
-                step=0.1,
-                platform_width=1.0,
             ),
             # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
-            "maze": DiscreteObstaclesTerrainCfg(
+            "maze": HfDiscreteObstaclesTerrainCfg(
                 proportion=0.4,
-                obstacle_height=1.0,
-                obstacle_width=0.5,
-                num_obstacles=20,
+                horizontal_scale=0.1,  # 离散化精度
+                vertical_scale=0.1,     # 高度缩放
+                border_width=1.0,       # 障碍物宽度
             ),
         },
         curriculum=True,  # 自动难度提升
