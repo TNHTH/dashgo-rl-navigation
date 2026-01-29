@@ -65,9 +65,9 @@
         </include>
         -->
 
-        <!-- 方案B：Fallback - 使用简单空世界（当前使用） -->
+        <!-- 方案B：使用有障碍物的导航环境（解决GMapping失效问题） -->
         <include file="$(find gazebo_ros)/launch/empty_world.launch">
-            <arg name="world_name" value="worlds/empty.world"/>
+            <arg name="world_name" value="$(find dashgo_rl)/worlds/navigation_env.world"/>
             <arg name="paused" value="false"/>
             <arg name="use_sim_time" value="true"/>
             <arg name="gui" value="true"/>
