@@ -1119,28 +1119,24 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         num_rows=5,  # 5行不同难度
         num_cols=5,  # 5列不同地形
         sub_terrains={
-            # [架构师V3.5] 补全所有必需参数，通过configclass验证
-            # 1. 空旷地带 (20%) - 使用高度为0的随机地形代替纯平地
+            # [架构师V3.6最终版] 基于源码的真实参数列表
+            # 1. 空旷地带 (20%) - 纯平地（noise_range为0）
             "flat": HfRandomUniformTerrainCfg(
                 proportion=0.2,
-                min_height=0.0,
-                max_height=0.0,
-                step=0.01,
-                platform_width=1.0,
-                noise_range=(0.0, 0.0),
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                noise_range=(0.0, 0.0),  # 高度为0 = 纯平地
                 noise_step=0.0,
             ),
-            # 2. 随机障碍柱 (40%) - 训练避障
+            # 2. 随机障碍柱 (40%) - 小起伏
             "random_obstacles": HfRandomUniformTerrainCfg(
                 proportion=0.4,
-                min_height=0.05,
-                max_height=0.2,
-                step=0.05,
-                platform_width=1.0,
-                noise_range=(0.0, 0.05),
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                noise_range=(0.05, 0.2),  # 高度范围
                 noise_step=0.01,
             ),
-            # 3. 迷宫/走廊 (40%) - 训练死胡同倒车
+            # 3. 迷宫/走廊 (40%) - 离散障碍物
             "maze": HfDiscreteObstaclesTerrainCfg(
                 proportion=0.4,
                 horizontal_scale=0.1,
