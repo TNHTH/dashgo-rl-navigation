@@ -10,9 +10,15 @@ from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
-# ✅ [V3.0] 添加程序化地形生成导入
-from isaaclab.terrains import TerrainGeneratorCfg
-import omni.isaac.lab.terrains.height_field as hf_gen
+# ✅ [V3.0] 添加程序化地形生成导入（带异常保护）
+try:
+    from isaaclab.terrains import TerrainGeneratorCfg
+    import omni.isaac.lab.terrains.height_field as hf_gen
+    TERRAIN_GEN_AVAILABLE = True
+except ImportError:
+    # 如果地形生成模块不可用，禁用该功能
+    TERRAIN_GEN_AVAILABLE = False
+    print("[WARN] V3.0 程序化地形生成模块不可用，使用手动USD地形")
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
