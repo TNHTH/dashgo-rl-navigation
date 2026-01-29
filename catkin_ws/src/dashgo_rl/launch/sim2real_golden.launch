@@ -51,6 +51,9 @@
     <arg name="enable_rviz" default="true"
          doc="是否启动Rviz可视化"/>
 
+    <arg name="enable_move_base" default="true"
+         doc="是否启用MoveBase导航（方案A验证）"/>
+
     <!-- ========================================================================
          Gazebo仿真（简化版Fallback）
     ======================================================================== -->
@@ -158,24 +161,42 @@
     </group>
 
     <!-- ========================================================================
-         RL导航节点（核心）
+         MoveBase导航（传统导航栈）- 🔴 [方案A] 启用验证
     ======================================================================== -->
-    <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
+    <group if="$(arg enable_move_base)">
+        <!-- move_base节点 -->
+        <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen" clear_params="true">
+
+            <!-- Costmap配置 -->
+            <rosparam file="$(find dashgo_rl)/param/costmap_common_params.yaml" command="load" ns="global_costmap" />
+            <rosparam file="$(find dashgo_rl)/param/costmap_common_params.yaml" command="load" ns="local_costmap" />
+            <rosparam file="$(find dashgo_rl)/param/local_costmap_params.yaml" command="load" />
+            <rosparam file="$(find dashgo_rl)/param/global_costmap_params.yaml" command="load" />
+
+            <!-- 局部规划器：使用DWA（架构师推荐，稳定可靠） -->
+            <rosparam file="$(find dashgo_rl)/param/base_local_planner_dwa_params.yaml" command="load" />
+        </node>
+    </group>
+
+    <!-- ========================================================================
+         RL导航节点（核心）- 🔴 [方案A] 暂时禁用，验证传统导航
+    ======================================================================== -->
+    <!-- <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
           output="screen" required="true">
 
-        <!-- 模型路径 -->
+        # 模型路径
         <param name="model_path" value="$(arg model_path)" />
 
-        <!-- 速度限制（与dashgo_config.py一致） -->
+        # 速度限制（与dashgo_config.py一致）
         <param name="max_lin_vel" value="$(arg max_lin_vel)" />
         <param name="max_ang_vel" value="$(arg max_ang_vel)" />
 
-        <!-- 🔥 [新增] 加速度限制参数（安全关键） -->
+        # 🔥 [新增] 加速度限制参数（安全关键）
         <param name="max_lin_acc" value="$(arg max_lin_acc)" />
         <param name="max_ang_acc" value="$(arg max_ang_acc)" />
 
-        <!-- 🔥 [修正] 控制频率（动态计算dt） -->
+        # 🔥 [修正] 控制频率（动态计算dt）
         <param name="control_rate" value="$(arg control_rate)" />
-    </node>
+    </node> -->
 
 </launch>

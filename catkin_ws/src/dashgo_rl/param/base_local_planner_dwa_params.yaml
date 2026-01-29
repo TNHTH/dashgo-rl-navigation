@@ -1,0 +1,34 @@
+DWAPlannerROS:
+  # 机器人运动参数
+  max_vel_x: 0.3  # 最大前进速度
+  min_vel_x: 0.05  # 最小前进速度
+  max_vel_theta: 1.0  # 最大角速度
+  min_in_place_vel_theta: 0.4  # 最小原地旋转角速度
+
+  acc_lim_x: 1.0  # 线加速度限制
+  acc_lim_theta: 0.5  # 角加速度限制
+
+  # 目标公差
+  xy_goal_tolerance: 0.2
+  yaw_goal_tolerance: 0.1
+
+  # 轨迹生成参数
+  sim_time: 0.8  # 预测前进时间，适当增大让轨迹更平滑
+  vx_samples: 15  # 线速度采样点数，增加让速度规划更精细
+  vtheta_samples: 15  # 角速度采样点数，减少小车左右摆动
+  sim_granularity: 0.04  # 轨迹离散化精度
+
+  # 轨迹评分参数
+  path_distance_bias: 40.0  # 增强对全局路径的跟随
+  goal_distance_bias: 30.0  # 平衡局部目标与全局路径
+  occdist_scale: 0.02  # 适当降低障碍物影响，避免不必要的躲避动作
+
+  # 机器人是否全向移动
+  holonomic_robot: false
+
+# sim_time: 0.8（原来 0.6） → 增加模拟时间，让局部轨迹更平滑。
+# vx_samples: 15（原来 12） → 增加速度采样点，减少蛇形。
+# vtheta_samples: 15（原来 20） → 减少角速度调整频率，避免小车频繁转向。
+# sim_granularity: 0.04（原来 0.05） → 提高轨迹计算精度。
+# path_distance_bias: 40.0（原来默认值 32.0） → 增强局部路径对全局路径的贴合度，让小车更稳定地沿着全局路径行驶。
+# occdist_scale: 0.02（原来默认值 0.01） → 适当降低对障碍物的敏感度，避免小车因为感知误差产生不必要的偏移。
