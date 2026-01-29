@@ -388,22 +388,32 @@ You are Claude Code, Anthropic's official CLI.
 1. **实物参数的真实性**: 这些参数来自真实机器人，修改会破坏Sim2Real
 2. **训练的关键**: 仿真参数必须严格对齐实物，否则策略无法部署
 3. **独立版本控制**: dashgo/有独立的git历史，不应被项目代码修改
+4. **实物参考标准**: 这是实物机器人的"唯一真实来源"，任何修改都会导致参考基准丢失
 
 **正确使用方式**:
 ```python
-# ✅ 正确：只读取参数
+# ✅ 正确1：只读取参数
 from dashgo_config import DashGoROSParams
-ros_params = DashGoROSParams.from_yaml()
+ros_params = DashgoROSParams.from_yaml()
 wheel_radius = ros_params.wheel_radius  # 使用真实参数
 
-# ❌ 严重错误：修改dashgo/文件
+# ✅ 正确2：复制文件后修改
+# 如果需要修改dashgo/中的launch或config文件：
+# 1. 复制到项目目录
+cp dashgo/EAI驱动/dashgo_bringup/launch/minimal.launch \
+   catkin_ws/src/dashgo_rl/launch/minimal_copy.launch
+# 2. 修改复制的文件
+# 3. 使用复制的文件
+
+# ❌ 严重错误：直接修改dashgo/文件
 # 严禁编辑 dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml
 ```
 
-**如果需要参数调整**:
-1. 在仿真代码（`dashgo_env_v2.py`）中调整
-2. 添加注释说明与实物的差异
-3. 记录到问题文档（`issues/`）
+**如果需要参数调整或文件修改**:
+1. **复制文件**: 将dashgo/中的文件复制到项目工作目录
+2. **修改副本**: 在复制的文件上进行修改
+3. **记录差异**: 添加注释说明与原文件的差异
+4. **记录到issues**: 在`issues/`目录记录修改原因和内容
 
 ### Allowed Modifications
 你可以修改:
