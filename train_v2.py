@@ -22,11 +22,29 @@ DashGo机器人导航训练脚本
                 修复--headless参数传递 - 注册AppLauncher标准参数
     2026-01-27: 修复--enable_cameras参数被"吞掉" - 调用add_app_launcher_args()
                 Isaac Sim Architect Final Fix
+    2026-01-30: [V3.0 代码级路径注入] 强制注入Isaac Lab源码路径
 """
 
 import argparse
 import sys
 import os
+
+# ===============================================================================
+# [架构师V3.0补丁] 强制注入 Isaac Lab 源码路径
+# ===============================================================================
+# 问题：isaaclab.sh 可能清洗环境变量，导致 PYTHONPATH 失效
+# 解决：在 Python 代码层面直接注入 sys.path（无法被脚本拦截）
+isaaclab_source_path = os.path.expanduser("~/IsaacLab/source")
+sys.path.append(os.path.join(isaaclab_source_path, "isaaclab"))
+sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_assets"))
+sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_tasks"))
+sys.path.append(os.path.join(isaaclab_source_path, "isaaclab_rl"))
+
+# 调试输出（注释掉以减少日志噪音）
+# print("[DEBUG] Isaac Lab paths injected:", sys.path[-4:])
+
+# ===============================================================================
+
 from omegaconf import OmegaConf
 
 # [兼容性配置] 强制无缓冲输出，确保日志实时打印
