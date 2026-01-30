@@ -54,9 +54,6 @@
     <arg name="enable_move_base" default="true"
          doc="是否启用MoveBase导航（方案A验证）"/>
 
-    <arg name="enable_p_controller" default="true"
-         doc="是否启用P控制器验证节点（优化版）"/>
-
     <!-- ========================================================================
          Gazebo仿真（简化版Fallback）
     ======================================================================== -->
@@ -68,9 +65,9 @@
         </include>
         -->
 
-        <!-- 方案B：使用有障碍物的导航环境（解决GMapping失效问题） -->
+        <!-- 方案B：Fallback - 使用简单空世界（当前使用） -->
         <include file="$(find gazebo_ros)/launch/empty_world.launch">
-            <arg name="world_name" value="$(find dashgo_rl)/worlds/navigation_env.world"/>
+            <arg name="world_name" value="worlds/empty.world"/>
             <arg name="paused" value="false"/>
             <arg name="use_sim_time" value="true"/>
             <arg name="gui" value="true"/>
@@ -192,17 +189,9 @@
     </group>
 
     <!-- ========================================================================
-         RL导航节点（核心）- 🔴 [诊断模式：已禁用]
-
-         禁用原因：用于诊断P控制器 vs RL模型的"转圈问题"
-         - 如果P控制器正常 → RL模型有问题
-         - 如果P控制器也转圈 → 底层SLAM/TF有问题
-
-         恢复方法：取消此处的注释，删除下方的rostopic节点
+         RL导航节点（核心）- 🔴 [方案A] 暂时禁用，验证传统导航
     ======================================================================== -->
-    <!-- 🔴 诊断模式：完全禁用RL导航节点 -->
-    <!--
-    <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
+    <!-- <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
           output="screen" required="true">
 
         # 模型路径
@@ -218,27 +207,6 @@
 
         # 🔥 [修正] 控制频率（动态计算dt）
         <param name="control_rate" value="$(arg control_rate)" />
-    </node>
-    -->
-
-    <!-- ========================================================================
-         P控制器验证节点（优化版）- 🆕 2026-01-30
-    ======================================================================== -->
-    <!--
-         说明：
-         - 优化版P控制器节点，用于替代或辅助RL导航
-         - 核心优化：max_w=0.6, Kp_ang=0.9, Kp_lin=0.35, stop_dist=0.25
-         - 默认启用，如果只想使用RL导航，设置enable_p_controller:=false
-    -->
-    <group if="$(arg enable_p_controller)">
-        <node pkg="dashgo_rl" type="geo_nav_verify_optimized.py" name="geo_nav_verify_opt"
-              output="screen" required="false">
-            <!-- P控制器参数（如果需要覆盖默认值，可以在这里设置） -->
-            <!-- <param name="max_w" value="0.6"/> -->
-            <!-- <param name="kp_ang" value="0.9"/> -->
-            <!-- <param name="kp_lin" value="0.35"/> -->
-            <!-- <param name="stop_dist" value="0.25"/> -->
-        </node>
-    </group>
+    </node> -->
 
 </launch>
