@@ -11,7 +11,7 @@ runner:
   policy_class_name: "ActorCritic"
   algorithm_class_name: "PPO"
   num_steps_per_env: 24       # 配合 4096 环境的大批量梯度更新
-  max_iterations: 8000        # ✅ 8000轮：给足时间让策略充分收敛（用户要求）
+  max_iterations: 9000        # ✅ 8000轮：给足时间让策略充分收敛（用户要求）
   empirical_normalization: True # ✅ 必开：自动归一化观测数据
   save_interval: 100          # ✅ 每100轮保存，安全第一
   experiment_name: "dashgo_v5_auto"
