@@ -1298,13 +1298,15 @@ class DashgoRewardsCfg:
 
     # [主导] 终点大奖：100分（V3.0降低权重，防止reward hacking）
     # ✅ [V3.0] 2000.0 → 100.0，避免过度主导
-    # ✅ [V3.0] threshold 0.5m → 0.25m，更严格的停车精度
+    # ✅ [V5.1修复 2026-01-30] threshold 0.25m → 1.0m，修复阈值错位问题
+    # 原因：终止阈值=1.0m，奖励阈值=0.25m，导致机器人触发终止时还没拿到奖励
+    # 解决：统一为1.0m，确保先拿钱后重置
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
         weight=100.0,  # ✅ V3.0: 从2000.0降低到100.0
         params={
             "command_name": "target_pose",
-            "threshold": 0.25,  # ✅ V3.0: 从0.5m降低到0.25m
+            "threshold": 1.0,  # ✅ V5.1修复: 从0.25m改为1.0m（与终止阈值一致）
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
