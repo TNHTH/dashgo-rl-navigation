@@ -376,13 +376,17 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     full_scan = torch.nan_to_num(full_scan, posinf=max_range, neginf=0.0)
     full_scan = torch.clamp(full_scan, min=0.0, max=max_range)
 
-    # 5. 降采样 360 → 72 (Max-Pooling保留每组最小距离)
-    # [Phase 1优化] 检测细小障碍物（如10cm桌腿），避免碰撞
+    # 5. 降采样 360 → 72 (Min-Pooling保留每组最小距离)
+    # [Phase 1.1修复] 架构师审计发现Max-Pooling导致42.8%漏检率
     # 原理：每5个连续点取最小值，保留最近障碍物信息
+    # 修复：torch.max → torch.min (2026-01-31)
+    # 数学：LiDAR数据值小=障碍物近(危险)，值大=空旷(安全)
+    #      min([0.5, 2.0, 3.5, 4.0, 2.5]) = 0.5m ✅ 保留危险信息
+    #      max([0.5, 2.0, 3.5, 4.0, 2.5]) = 4.0m ❌ 忽略障碍物
     N = full_scan.shape[0]
     full_scan_reshaped = full_scan.reshape(N, 4, 90)  # [N, 4, 90] = 360点分组
     full_scan_reshaped = full_scan_reshaped.reshape(N, 4, 18, 5)  # [N, 4, 18, 5] 每组5点
-    downsampled, _ = torch.max(full_scan_reshaped, dim=3)  # [N, 4, 18] 取最大值
+    downsampled, _ = torch.min(full_scan_reshaped, dim=3)  # [N, 4, 18] 取最小值 ✅
     downsampled = downsampled.reshape(N, 72)  # [N, 72] 展平为72维
 
     # 6. 归一化到 [0, 1]
