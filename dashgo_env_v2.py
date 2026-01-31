@@ -545,24 +545,6 @@ def curriculum_adaptive_distance(env, env_ids, command_name,
     current_dist = env.curriculum_stats["current_dist"]
     return torch.full((len(env_ids),), current_dist, device=env.device)
 
-    # 设置目标距离范围（围绕当前难度±10%的随机性）
-    dist_range = current_dist * 0.1
-    min_dist = max(0.5, current_dist - dist_range)  # 最小0.5m
-    max_dist_target = current_dist + dist_range
-
-    # 更新命令生成器的配置
-    if hasattr(cmd_term, "cfg"):
-        if hasattr(cmd_term.cfg, "ranges") and hasattr(cmd_term.cfg.ranges, "pos_x"):
-            cmd_term.cfg.ranges.pos_x = (-max_dist_target, max_dist_target)
-            cmd_term.cfg.ranges.pos_y = (-max_dist_target, max_dist_target)
-
-    # 同步更新RelativeRandomTargetCommand（如果使用）
-    if hasattr(cmd_term, "_impl"):
-        if hasattr(cmd_term._impl, "min_dist"):
-            cmd_term._impl.min_dist = min_dist
-            cmd_term._impl.max_dist = max_dist_target
-
-
 # =============================================================================
 # [v5.0 Legacy] 线性课程学习（保留用于对比）
 # =============================================================================
