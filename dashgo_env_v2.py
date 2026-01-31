@@ -499,100 +499,51 @@ def curriculum_adaptive_distance(env, env_ids, command_name,
                                 upgrade_threshold, downgrade_threshold,
                                 window_size):
     """
-    [v5.1 ACL] 基于成功率的自适应课程学习
-
-    架构师审计发现：线性课程可能导致机器人陷入瓶颈（SR长期<40%）
-    解决方案：动态根据成功率调整难度，保持在ZPD [40%, 80%]
-
-    ZPD理论 (Vygotsky):
-        - 最优学习区：成功率在[40%, 80%]
-        - SR > 80%：任务太简单，增加难度
-        - SR < 40%：任务太难，降低难度
-        - 40% ≤ SR ≤ 80%：难度适中，保持
-
-    数学原理：
-        Learning Efficiency ∝ Information_Gain
-        IG = H[policy] - H[policy|success]
-        最优难度：最大化 IG → SR ∈ [40%, 80%]
-
-    Args:
-        env: 管理型RL环境
-        env_ids: 本次重置的环境ID
-        command_name: 要修改的命令名称
-        initial_dist: 初始距离（米）
-        max_dist: 最大距离（米）
-        step_size: 每次调整的步长（米）
-        upgrade_threshold: 升级阈值（成功率 > 此值升级）
-        downgrade_threshold: 降级阈值（成功率 < 此值降级）
-        window_size: 评估窗口（episode数量）
+    [v5.1 Fix] 自适应课程函数 (适配 Isaac Lab 4.5 API)
+    修复: 移除了 env.reset_buf 调用，改用 env.extras 获取成功信息
     """
-    # 初始化课程统计（第一次调用时）
+    # 1. 初始化统计数据 (如果是第一次调用)
     if not hasattr(env, "curriculum_stats"):
         env.curriculum_stats = {
             "current_dist": initial_dist,
-            "success_buffer": torch.zeros(window_size, device=env.device),
-            "buffer_idx": 0,
-            "episode_count": 0
+            "window_size": window_size
         }
+        # 初始阶段直接返回基础难度
+        return torch.full((len(env_ids),), env.curriculum_stats["current_dist"], device=env.device)
 
-    stats = env.curriculum_stats
+    # 2. 安全检查: 确保 extras 中有日志数据 (刚启动时的第一次 reset extras 为空)
+    # 注意: 我们需要检查 'log' 字典中是否有 'success' 键，这通常由 Metric 或 Termination 写入
+    is_startup = not env.extras or "log" not in env.extras or "success" not in env.extras["log"]
 
-    # 检查是否有episode结束（通过reset_buf判断）
-    dones = env.reset_buf[env_ids]
+    if not is_startup:
+        # 获取当前重置环境的成功状态 [Batch_Reset]
+        # env.extras["log"]["success"] 应该是一个布尔值或 0/1 张量
+        successes = env.extras["log"]["success"][env_ids].float()
 
-    if torch.any(dones):
-        done_env_ids = env_ids[dones]
+        if len(successes) > 0:
+            batch_success_rate = torch.mean(successes)
 
-        # 评估成功：reach_goal终止 = 成功
-        # 原理：episode结束且reach_goal触发，说明任务完成
-        success_mask = env.episode_term_buf[done_env_ids] == env.termination_manager.get_term_idx("reach_goal")
-        num_successes = torch.sum(success_mask.float()).item()
-        num_total = len(done_env_ids)
-
-        # 更新滚动缓冲区
-        for _ in range(num_total):
-            idx = stats["buffer_idx"] % window_size
-            stats["success_buffer"][idx] = num_successes / num_total if num_total > 0 else 0.0
-            stats["buffer_idx"] += 1
-
-        stats["episode_count"] += num_total
-
-        # 计算滚动平均成功率（最近window_size个episode）
-        if stats["buffer_idx"] >= window_size:
-            # 缓冲区已满，计算完整窗口的平均值
-            avg_success_rate = torch.mean(stats["success_buffer"]).item()
-        elif stats["buffer_idx"] > 10:
-            # 缓冲区未满，但有足够数据（至少10个episode）
-            avg_success_rate = torch.mean(stats["success_buffer"][:stats["buffer_idx"]]).item()
-        else:
-            # 数据不足，暂不调整
-            avg_success_rate = None
-
-        # 动态调整难度（基于成功率）
-        if avg_success_rate is not None:
+            # 动态调整逻辑
+            stats = env.curriculum_stats
             current_dist = stats["current_dist"]
 
-            if avg_success_rate > upgrade_threshold:
-                # 太简单了！升级
-                new_dist = min(current_dist + step_size, max_dist)
-                if new_dist != current_dist:
-                    stats["current_dist"] = new_dist
-                    # 可选：记录日志
-                    # print(f"[ACL] 升级！SR={avg_success_rate:.2%} → {current_dist:.1f}m → {new_dist:.1f}m")
+            # 升级检查
+            if batch_success_rate > upgrade_threshold:
+                current_dist = min(current_dist + step_size, max_dist)
+                # print(f"[Curriculum] Upgrading difficulty to {current_dist:.2f}m (SR: {batch_success_rate:.2f})")
 
-            elif avg_success_rate < downgrade_threshold:
-                # 太难了！降级
-                new_dist = max(current_dist - step_size, initial_dist)
-                if new_dist != current_dist:
-                    stats["current_dist"] = new_dist
-                    # 可选：记录日志
-                    # print(f"[ACL] 降级！SR={avg_success_rate:.2%} → {current_dist:.1f}m → {new_dist:.1f}m")
+            # 降级检查
+            elif batch_success_rate < downgrade_threshold:
+                current_dist = max(current_dist - step_size, initial_dist)
+                # print(f"[Curriculum] Downgrading difficulty to {current_dist:.2f}m (SR: {batch_success_rate:.2f})")
 
-            # 40% ≤ SR ≤ 80%：保持当前难度（ZPD最优区）
+            stats["current_dist"] = current_dist
+            env.curriculum_stats = stats
 
-    # 动态修改命令生成器的距离范围
-    current_dist = stats["current_dist"]
-    cmd_term = env.command_manager.get_term(command_name)
+    # 3. 返回当前难度 (广播到所有重置的环境)
+    # 注意: 这里的返回值会被传递给 Command Generator
+    current_dist = env.curriculum_stats["current_dist"]
+    return torch.full((len(env_ids),), current_dist, device=env.device)
 
     # 设置目标距离范围（围绕当前难度±10%的随机性）
     dist_range = current_dist * 0.1
