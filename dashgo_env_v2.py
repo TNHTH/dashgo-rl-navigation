@@ -499,25 +499,26 @@ def curriculum_adaptive_distance(env, env_ids, command_name,
                                 upgrade_threshold, downgrade_threshold,
                                 window_size):
     """
-    [v5.1 Fix] 自适应课程函数 (适配 Isaac Lab 4.5 API)
-    修复: 移除了 env.reset_buf 调用，改用 env.extras 获取成功信息
+    [v5.2 Fix] 自适应课程函数 (修复 Crash + 实装难度应用)
+
+    Fix:
+    1. 返回值改为标量 Tensor (解决 RuntimeError)
+    2. 增加了对 Command Manager 的实际修改，确保难度生效
     """
-    # 1. 初始化统计数据 (如果是第一次调用)
+    # 1. 初始化统计数据
     if not hasattr(env, "curriculum_stats"):
         env.curriculum_stats = {
             "current_dist": initial_dist,
             "window_size": window_size
         }
-        # 初始阶段直接返回基础难度
-        return torch.full((len(env_ids),), env.curriculum_stats["current_dist"], device=env.device)
+        # 初始返回标量
+        return torch.tensor(env.curriculum_stats["current_dist"], device=env.device)
 
-    # 2. 安全检查: 确保 extras 中有日志数据 (刚启动时的第一次 reset extras 为空)
-    # 注意: 我们需要检查 'log' 字典中是否有 'success' 键，这通常由 Metric 或 Termination 写入
+    # 2. 安全检查: 等待 metrics 数据就绪
     is_startup = not env.extras or "log" not in env.extras or "success" not in env.extras["log"]
 
     if not is_startup:
-        # 获取当前重置环境的成功状态 [Batch_Reset]
-        # env.extras["log"]["success"] 应该是一个布尔值或 0/1 张量
+        # 获取成功状态
         successes = env.extras["log"]["success"][env_ids].float()
 
         if len(successes) > 0:
@@ -527,23 +528,45 @@ def curriculum_adaptive_distance(env, env_ids, command_name,
             stats = env.curriculum_stats
             current_dist = stats["current_dist"]
 
-            # 升级检查
+            # 升级/降级逻辑
             if batch_success_rate > upgrade_threshold:
                 current_dist = min(current_dist + step_size, max_dist)
-                # print(f"[Curriculum] Upgrading difficulty to {current_dist:.2f}m (SR: {batch_success_rate:.2f})")
-
-            # 降级检查
             elif batch_success_rate < downgrade_threshold:
                 current_dist = max(current_dist - step_size, initial_dist)
-                # print(f"[Curriculum] Downgrading difficulty to {current_dist:.2f}m (SR: {batch_success_rate:.2f})")
 
             stats["current_dist"] = current_dist
             env.curriculum_stats = stats
 
-    # 3. 返回当前难度 (广播到所有重置的环境)
-    # 注意: 这里的返回值会被传递给 Command Generator
+            # -------------------------------------------------------
+            # 🔥 核心增强: 实际修改命令生成器的范围 (Side Effect)
+            # -------------------------------------------------------
+            try:
+                # 获取 target_pose 命令项 (根据日志中的名字)
+                cmd_term = env.command_manager.get_term("target_pose")
+
+                # 修改生成范围 (适配 RelativeRandomTargetCommand)
+                # 尝试修改极坐标半径 (r)
+                if hasattr(cmd_term.cfg.ranges, "r"):
+                    # 范围设为 [1.5, current_dist] 或者 [current_dist, current_dist]
+                    # 通常 curriculum 是扩大范围上限
+                    cmd_term.cfg.ranges.r = (term_cfg.params["initial_dist"], current_dist)
+
+                # 备用: 如果是笛卡尔坐标 (pos_x, pos_y)
+                elif hasattr(cmd_term.cfg.ranges, "pos_x"):
+                    half_dist = current_dist
+                    cmd_term.cfg.ranges.pos_x = (-half_dist, half_dist)
+                    cmd_term.cfg.ranges.pos_y = (-half_dist, half_dist)
+
+            except Exception as e:
+                # 仅在第一次失败时打印，防止刷屏
+                if not hasattr(env, "cmd_update_error_logged"):
+                    print(f"[Warning] Failed to update command range: {e}")
+                    env.cmd_update_error_logged = True
+
+    # 3. 返回当前难度 (标量!)
+    # 修复了之前返回 vector 导致的 RuntimeError
     current_dist = env.curriculum_stats["current_dist"]
-    return torch.full((len(env_ids),), current_dist, device=env.device)
+    return torch.tensor(current_dist, device=env.device)
 
 # =============================================================================
 # [v5.0 Legacy] 线性课程学习（保留用于对比）
