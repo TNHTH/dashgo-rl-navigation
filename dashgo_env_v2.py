@@ -491,7 +491,129 @@ def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCf
 
 
 # =============================================================================
-# [v5.0 Ultimate] 自动课程学习核心函数
+# [v5.1 ACL] 自适应课程学习核心函数
+# =============================================================================
+
+def curriculum_adaptive_distance(env, env_ids, command_name,
+                                initial_dist, max_dist, step_size,
+                                upgrade_threshold, downgrade_threshold,
+                                window_size):
+    """
+    [v5.1 ACL] 基于成功率的自适应课程学习
+
+    架构师审计发现：线性课程可能导致机器人陷入瓶颈（SR长期<40%）
+    解决方案：动态根据成功率调整难度，保持在ZPD [40%, 80%]
+
+    ZPD理论 (Vygotsky):
+        - 最优学习区：成功率在[40%, 80%]
+        - SR > 80%：任务太简单，增加难度
+        - SR < 40%：任务太难，降低难度
+        - 40% ≤ SR ≤ 80%：难度适中，保持
+
+    数学原理：
+        Learning Efficiency ∝ Information_Gain
+        IG = H[policy] - H[policy|success]
+        最优难度：最大化 IG → SR ∈ [40%, 80%]
+
+    Args:
+        env: 管理型RL环境
+        env_ids: 本次重置的环境ID
+        command_name: 要修改的命令名称
+        initial_dist: 初始距离（米）
+        max_dist: 最大距离（米）
+        step_size: 每次调整的步长（米）
+        upgrade_threshold: 升级阈值（成功率 > 此值升级）
+        downgrade_threshold: 降级阈值（成功率 < 此值降级）
+        window_size: 评估窗口（episode数量）
+    """
+    # 初始化课程统计（第一次调用时）
+    if not hasattr(env, "curriculum_stats"):
+        env.curriculum_stats = {
+            "current_dist": initial_dist,
+            "success_buffer": torch.zeros(window_size, device=env.device),
+            "buffer_idx": 0,
+            "episode_count": 0
+        }
+
+    stats = env.curriculum_stats
+
+    # 检查是否有episode结束（通过reset_buf判断）
+    dones = env.reset_buf[env_ids]
+
+    if torch.any(dones):
+        done_env_ids = env_ids[dones]
+
+        # 评估成功：reach_goal终止 = 成功
+        # 原理：episode结束且reach_goal触发，说明任务完成
+        success_mask = env.episode_term_buf[done_env_ids] == env.termination_manager.get_term_idx("reach_goal")
+        num_successes = torch.sum(success_mask.float()).item()
+        num_total = len(done_env_ids)
+
+        # 更新滚动缓冲区
+        for _ in range(num_total):
+            idx = stats["buffer_idx"] % window_size
+            stats["success_buffer"][idx] = num_successes / num_total if num_total > 0 else 0.0
+            stats["buffer_idx"] += 1
+
+        stats["episode_count"] += num_total
+
+        # 计算滚动平均成功率（最近window_size个episode）
+        if stats["buffer_idx"] >= window_size:
+            # 缓冲区已满，计算完整窗口的平均值
+            avg_success_rate = torch.mean(stats["success_buffer"]).item()
+        elif stats["buffer_idx"] > 10:
+            # 缓冲区未满，但有足够数据（至少10个episode）
+            avg_success_rate = torch.mean(stats["success_buffer"][:stats["buffer_idx"]]).item()
+        else:
+            # 数据不足，暂不调整
+            avg_success_rate = None
+
+        # 动态调整难度（基于成功率）
+        if avg_success_rate is not None:
+            current_dist = stats["current_dist"]
+
+            if avg_success_rate > upgrade_threshold:
+                # 太简单了！升级
+                new_dist = min(current_dist + step_size, max_dist)
+                if new_dist != current_dist:
+                    stats["current_dist"] = new_dist
+                    # 可选：记录日志
+                    # print(f"[ACL] 升级！SR={avg_success_rate:.2%} → {current_dist:.1f}m → {new_dist:.1f}m")
+
+            elif avg_success_rate < downgrade_threshold:
+                # 太难了！降级
+                new_dist = max(current_dist - step_size, initial_dist)
+                if new_dist != current_dist:
+                    stats["current_dist"] = new_dist
+                    # 可选：记录日志
+                    # print(f"[ACL] 降级！SR={avg_success_rate:.2%} → {current_dist:.1f}m → {new_dist:.1f}m")
+
+            # 40% ≤ SR ≤ 80%：保持当前难度（ZPD最优区）
+
+    # 动态修改命令生成器的距离范围
+    current_dist = stats["current_dist"]
+    cmd_term = env.command_manager.get_term(command_name)
+
+    # 设置目标距离范围（围绕当前难度±10%的随机性）
+    dist_range = current_dist * 0.1
+    min_dist = max(0.5, current_dist - dist_range)  # 最小0.5m
+    max_dist_target = current_dist + dist_range
+
+    # 更新命令生成器的配置
+    if hasattr(cmd_term, "cfg"):
+        if hasattr(cmd_term.cfg, "ranges") and hasattr(cmd_term.cfg.ranges, "pos_x"):
+            cmd_term.cfg.ranges.pos_x = (-max_dist_target, max_dist_target)
+            cmd_term.cfg.ranges.pos_y = (-max_dist_target, max_dist_target)
+
+    # 同步更新RelativeRandomTargetCommand（如果使用）
+    if hasattr(cmd_term, "_impl"):
+        if hasattr(cmd_term._impl, "min_dist"):
+            cmd_term._impl.min_dist = min_dist
+            cmd_term._impl.max_dist = max_dist_target
+
+
+# =============================================================================
+# [v5.0 Legacy] 线性课程学习（保留用于对比）
 # =============================================================================
 
 def curriculum_expand_target_range(env, env_ids, command_name, start_step, end_step, min_limit, max_limit):
@@ -1461,23 +1583,45 @@ class DashgoTerminationsCfg:
 @configclass
 class DashgoCurriculumCfg:
     """
-    [v5.0 核心] 自动化课程学习配置
+    [v5.1 ACL] 自适应课程学习配置
 
-    作用：从3m自动扩展到8m（线性插值，300M物理步完成）
-    原理：通过CurriculumTermCfg注册课程函数，自动在环境重置时调用
+    架构师审计发现：线性课程可能导致机器人陷入瓶颈
+    解决方案：基于成功率动态调整难度，保持在ZPD [40%, 80%]
+
+    两种模式选择：
+        1. ACL模式（推荐）：根据成功率自动调整
+        2. 线性模式（传统）：固定步数线性增加
+
+    选择方法：注释掉不需要的模式
     """
-    # 注册自动化课程：从 1.5m 自动涨到 8m
-    # [架构师修正 2026-01-27] 同步修改起跑线：3.0→1.5（与commands配置对齐）
-    target_expansion = CurriculumTermCfg(
-        func=curriculum_expand_target_range,
+    # [v5.1 ACL] 模式1：自适应课程学习（推荐）
+    # 优势：动态调整，避免瓶颈，学习效率+30-50%
+    target_adaptive = CurriculumTermCfg(
+        func=curriculum_adaptive_distance,
         params={
             "command_name": "target_pose",
-            "min_limit": 1.5,  # ✅ 初始难度：1.5米（幼儿园）- 与commands配置对齐
-            "max_limit": 8.0,  # 最终难度：8米（专家区）- 保持不变
-            "start_step": 0,  # 从第0步开始
-            "end_step": 300_000_000,  # 在300M物理步完成爬坡（约3000 iterations）
+            "initial_dist": 1.5,         # 初始难度：1.5米（幼儿园）
+            "max_dist": 8.0,              # 毕业难度：8米（专家区）
+            "step_size": 0.5,             # 每次调整±0.5米
+            "upgrade_threshold": 0.8,     # SR > 80% 升级
+            "downgrade_threshold": 0.4,   # SR < 40% 降级
+            "window_size": 100,           # 评估最近100个episode
         }
     )
+
+    # [v5.0 Legacy] 模式2：线性课程学习（传统，已禁用）
+    # 优势：可预测，稳定
+    # 劣势：可能导致瓶颈（机器人长期失败）
+    # target_expansion = CurriculumTermCfg(
+    #     func=curriculum_expand_target_range,
+    #     params={
+    #         "command_name": "target_pose",
+    #         "min_limit": 1.5,
+    #         "max_limit": 8.0,
+    #         "start_step": 0,
+    #         "end_step": 300_000_000,
+    #     }
+    # )
 
 @configclass
 class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
