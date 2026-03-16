@@ -1,13 +1,7 @@
 """
-动力学安全过滤器
+ROS2 包内安全过滤器副本。
 
-开发基准: Ubuntu 20.04 + ROS Noetic / ROS 2 Humble
-部署目标: DashGo D1 仿真与实机
-
-功能:
-    - 允许受限倒车，不再一刀切禁止 reverse
-    - 基于前/后向停止距离进行线速度二次裁剪
-    - 基于侧向净空抑制过激角速度
+保持与仓库根目录 `safety_filter.py` 同步，确保安装后的节点可以直接导入。
 """
 
 from __future__ import annotations
@@ -87,17 +81,6 @@ class DynamicsSafetyFilter:
         angle_increment: float | None = None,
         max_range: float = 12.0,
     ) -> tuple[float, float]:
-        """
-        过滤命令，确保安全。
-
-        Args:
-            cmd_v: 目标线速度 (m/s)
-            cmd_w: 目标角速度 (rad/s)
-            scan_ranges: 原始 LiDAR 数据
-            angle_min: LaserScan 起始角
-            angle_increment: LaserScan 角分辨率
-            max_range: LiDAR 最大距离
-        """
         scan = np.asarray(scan_ranges, dtype=np.float32)
         if scan.size == 0:
             return cmd_v, cmd_w

@@ -1,0 +1,39 @@
+geo_nav_node:
+  ros__parameters:
+    use_sim_time: false
+    control_rate: 20.0
+    max_lin_vel: 0.3
+    max_ang_vel: 1.0
+    max_lin_acc: 1.0
+    max_ang_acc: 0.6
+    max_reverse_speed: 0.15
+    max_lidar_range: 12.0
+    lidar_dim: 72
+    single_obs_dim: 82
+    history_len: 3
+    waypoint_dist: 1.0
+    goal_reached_dist: 0.25
+    near_goal_dist: 0.35
+    goal_reached_speed: 0.08
+    near_goal_speed: 0.05
+    goal_obs_max_dist: 8.0
+    waypoint_obs_max_dist: 1.0
+    safety_filter_enabled: true
+    goal_topic: /goal_pose
+    legacy_goal_topic: /move_base_simple/goal
+    plan_topic: /dashgo/global_plan
+    cmd_vel_topic: /cmd_vel
+    scan_topic: /scan
+    odom_topic: /odom
+    base_frame: base_link
+    model_path: ""
+
+goal_plan_bridge:
+  ros__parameters:
+    use_sim_time: false
+    goal_topic: /goal_pose
+    legacy_goal_topic: /move_base_simple/goal
+    plan_topic: /dashgo/global_plan
+    planner_action_name: /compute_path_to_pose
+    planner_id: GridBased
+    action_wait_timeout_sec: 2.0

@@ -3,13 +3,14 @@ import math
 import sys
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
-from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, mdp
+from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg, mdp
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg, Camera, ContactSensor, ContactSensorCfg
 from isaaclab.managers import SceneEntityCfg, RewardTermCfg, ObservationGroupCfg, ObservationTermCfg, TerminationTermCfg, EventTermCfg, CurriculumTermCfg
+from isaaclab.sim.simulation_cfg import RenderCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
-from isaaclab.utils.math import wrap_to_pi, quat_apply_inverse, euler_xyz_from_quat, quat_from_euler_xyz
+from isaaclab.utils.math import wrap_to_pi, euler_xyz_from_quat, quat_from_euler_xyz
 # [架构师V3.4最终版] 0.46.x版本专用：Hf前缀类名
 from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
 
@@ -61,6 +62,7 @@ ALGORITHM_CONFIG = {
 # 机器人运动参数（来自ROS配置）
 MOTION_CONFIG = {
     "max_lin_vel": 0.3,       # 最大线速度 (m/s，来自ROS max_vel_x)
+    "max_reverse_speed": 0.15,  # 最大倒车速度 (m/s)
     "max_ang_vel": 1.0,       # 最大角速度 (rad/s，来自ROS max_rot_vel)
     "max_accel_lin": 1.0,     # 最大线加速度 (m/s²)
     "max_accel_ang": 0.6,     # 最大角加速度 (rad/s²)
@@ -71,38 +73,29 @@ MOTION_CONFIG = {
 # 奖励函数参数（权重和阈值）
 # [Geo-Distill V3.0] 基于博弈论的参数设计
 REWARD_CONFIG = {
-    # [1] 战术性倒车：1:100 的代价比
-    # 博弈论推导：倒车2秒代价(10) << 撞墙代价(500)
-    "backward_penalty": 5.0,       # ✅ V3.0: 从0.05提高到5.0（100倍）
-    "collision_penalty": 500.0,    # ✅ V3.0: 从0.5提高到500.0（1000倍）
-
-    # [2] 旋转抑制：防止原地陀螺
-    "angular_penalty": 0.5,        # ✅ V3.0: 新增，旋转1rad/s扣0.5分
-
-    # [3] 停车诱导：势能井
-    "terminal_reward": 100.0,      # ✅ V3.0: 新增，只有停稳才给100分
-    "stop_dist_thresh": 0.25,      # ✅ V3.0: 距离阈值0.25m
-    "stop_vel_thresh": 0.1,        # ✅ V3.0: 速度阈值0.1m/s
-
-    # 保留原有参数
+    "terminal_reward": 80.0,
+    "goal_reward_threshold": 0.25,
+    "goal_termination_threshold": 0.25,
+    "goal_stop_velocity": 0.08,
     "progress_weight": 1.0,
-    "facing_threshold": 0.8,
-    "high_speed_threshold": 0.25,
-    "high_speed_reward": 0.2,
-    "safe_distance": 0.2,
+    "target_speed": 0.22,
+    "facing_threshold": 0.75,
+    "high_speed_threshold": 0.18,
+    "high_speed_reward": 0.1,
+    "safe_distance": 0.35,
+    "obstacle_penalty_threshold": 0.60,
     "collision_decay": 4.0,
-    "facing_reward_scale": 0.5,
-    "facing_angle_scale": 0.5,
+    "facing_reward_scale": 0.3,
+    "facing_angle_scale": 0.7,
     "alive_penalty": 1.0,
-
-    # [V3.0] 扩大奖励范围以容纳terminal_reward
-    "reward_clip_min": -20.0,  # ✅ V3.0: 从-10.0扩大到-20.0
-    "reward_clip_max": 120.0,  # ✅ V3.0: 从10.0扩大到120.0（容纳100分大奖）
+    "reward_clip_min": -20.0,
+    "reward_clip_max": 120.0,
 }
 
 # 观测处理参数
 OBSERVATION_CONFIG = {
-    "max_distance": 50.0,  # 最大距离截断 (m，防止数值溢出)
+    "max_distance": 8.0,   # 最大距离截断 (m，防止数值溢出)
+    "waypoint_distance": 1.0,
     "epsilon": 1e-6,       # 数值稳定性epsilon（防止除零）
 }
 
@@ -162,10 +155,16 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
     def process_actions(self, actions: torch.Tensor, *args, **kwargs):
         # 对齐ROS速度限制
         max_lin_vel = MOTION_CONFIG["max_lin_vel"]
+        max_reverse_speed = MOTION_CONFIG["max_reverse_speed"]
         max_ang_vel = MOTION_CONFIG["max_ang_vel"]
 
-        # 速度裁剪
-        target_v = torch.clamp(actions[:, 0] * max_lin_vel, -max_lin_vel, max_lin_vel)
+        # 速度裁剪：前进和倒车使用非对称上限
+        target_v = torch.where(
+            actions[:, 0] >= 0.0,
+            actions[:, 0] * max_lin_vel,
+            actions[:, 0] * max_reverse_speed,
+        )
+        target_v = torch.clamp(target_v, -max_reverse_speed, max_lin_vel)
         target_w = torch.clamp(actions[:, 1] * max_ang_vel, -max_ang_vel, max_ang_vel)
 
         # 加速度平滑
@@ -198,52 +197,63 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
 # 2. 观测处理 (Observation) - 包含 NaN 清洗
 # =============================================================================
 
-def obs_target_polar(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """
-    目标位置观测（极坐标形式）
+def _get_command_target_pos_w(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+    command_term = env.command_manager._terms[command_name]
+    if hasattr(command_term, "pose_command_w"):
+        return command_term.pose_command_w[:, :3]
+    return env.command_manager.get_command(command_name)[:, :3]
 
-    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    官方文档: https://isaac-sim.github.io/IsaacLab/main/reference/api/isaaclab/mdp/obs.html
-    参考示例: isaaclab/exts/omni_isaac_lab_tasks/omni/isaac/lab/tasks/locomotion/velocity/observations.py:95
 
-    设计说明:
-        - 返回2D平面距离（忽略Z轴差异，符合差速机器人特性）
-        - 角度误差已归一化到[-π, π]
-        - 所有NaN/Inf值已清洗（防止训练崩溃）
-
-    Args:
-        env: 管理器基于RL环境
-        command_name: 命令管理器中的命令名称（通常为"target_pose"）
-        asset_cfg: 场景实体配置（指定机器人）
-
-    Returns:
-        torch.Tensor: 形状为[num_envs, 2]的张量
-            - [:, 0]: 到目标的距离（单位：米）
-            - [:, 1]: 到目标的朝向误差（单位：弧度，范围[-π, π]）
-
-    历史修改:
-        - 2024-01-15: 添加严格的2D距离计算（commit abc123）
-        - 2024-01-20: 添加NaN清洗（commit def456）
-    """
-    target_pos_w = env.command_manager.get_command(command_name)[:, :3]
+def _get_target_delta_and_heading(
+    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     robot = env.scene[asset_cfg.name]
-    
-    # 物理数据强力清洗
-    robot_pos = torch.nan_to_num(robot.data.root_pos_w, nan=0.0, posinf=0.0, neginf=0.0)
-    
-    # [架构师修复] 严格的 2D 距离计算，忽略 Z 轴差异
-    delta_pos_w = target_pos_w[:, :2] - robot_pos[:, :2]
-    dist = torch.norm(delta_pos_w, dim=-1, keepdim=True)
-    dist = torch.clamp(dist, max=OBSERVATION_CONFIG["max_distance"])  # 距离截断（防止数值溢出）
-    
-    target_angle = torch.atan2(delta_pos_w[:, 1], delta_pos_w[:, 0])
+    target_pos_w = _get_command_target_pos_w(env, command_name)
+    robot_pos = torch.nan_to_num(robot.data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
+    delta_pos_w = target_pos_w[:, :2] - robot_pos
     _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w)
     robot_yaw = torch.nan_to_num(robot_yaw, nan=0.0, posinf=0.0, neginf=0.0)
-    
-    angle_error = wrap_to_pi(target_angle - robot_yaw).unsqueeze(-1)
-    
-    obs = torch.cat([dist, angle_error], dim=-1)
+    target_angle = torch.atan2(delta_pos_w[:, 1], delta_pos_w[:, 0])
+    angle_error = wrap_to_pi(target_angle - robot_yaw)
+    return delta_pos_w, target_angle, angle_error
+
+
+def _encode_goal_vector(dist: torch.Tensor, angle_error: torch.Tensor, max_distance: float) -> torch.Tensor:
+    clipped_dist = torch.clamp(dist, 0.0, max_distance) / max_distance
+    return torch.stack(
+        [
+            clipped_dist,
+            torch.sin(angle_error),
+            torch.cos(angle_error),
+        ],
+        dim=-1,
+    )
+
+
+def obs_waypoint_vector(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    delta_pos_w, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+    dist = torch.norm(delta_pos_w, dim=-1)
+    obs = _encode_goal_vector(dist, angle_error, OBSERVATION_CONFIG["waypoint_distance"])
     return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def obs_goal_vector(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    delta_pos_w, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+    dist = torch.norm(delta_pos_w, dim=-1)
+    obs = _encode_goal_vector(dist, angle_error, OBSERVATION_CONFIG["max_distance"])
+    return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def obs_forward_velocity(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    robot = env.scene[asset_cfg.name]
+    vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    return vel.unsqueeze(-1)
+
+
+def obs_yaw_rate(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    robot = env.scene[asset_cfg.name]
+    yaw_rate = torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0)
+    return yaw_rate.unsqueeze(-1)
 
 # =============================================================================
 # [架构师新增] 核心物理计算工具 (2026-01-25)
@@ -396,7 +406,18 @@ def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
 # [v8.0] 业界标准避障策略 - 速度-距离动态约束
 # ============================================================================
 
-def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.25) -> torch.Tensor:
+def _get_min_obstacle_distance(env: ManagerBasedRLEnv) -> torch.Tensor:
+    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]
+    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]
+    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]
+    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]
+    batch_size = d_front.shape[0]
+    all_pixels = torch.cat([d_front, d_left, d_back, d_right], dim=1).view(batch_size, -1)
+    all_pixels = torch.nan_to_num(all_pixels, posinf=12.0)
+    return torch.min(all_pixels, dim=1)[0]
+
+
+def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.6) -> torch.Tensor:
     """
     [v8.1 修复版] 速度-距离 动态约束
 
@@ -407,7 +428,7 @@ def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_
     数学公式：
         safe_vel_limit = clamp(min_dist, max=0.5)
         overspeed = clamp(vel - safe_vel_limit, min=0.0)
-        penalty = -overspeed
+        penalty = overspeed
 
     Args:
         env: 环境对象
@@ -420,36 +441,15 @@ def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_
     架构师: Isaac Sim Architect (2026-01-27)
     参考方案: ETH Zurich RSL-RL, OpenAI Navigation, ROS2 Nav2
     """
-    # 1. 获取所有相机数据 [N, H, W]
-    # 注意：使用 .data.output[...] 获取渲染数据
-    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]
-    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]
-    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]
-    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]
+    min_dist = _get_min_obstacle_distance(env)
+    vel = torch.abs(env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0])
 
-    # 2. 拼接并展平
-    # [N, H, W] -> [N, 4*H*W]
-    batch_size = d_front.shape[0]
-    all_pixels = torch.cat([d_front, d_left, d_back, d_right], dim=1).view(batch_size, -1)
-
-    # 3. 获取全场最近距离 [N]
-    # 过滤 inf (未探测到) 为最大距离，避免 min 取到 inf 导致逻辑错误
-    all_pixels = torch.nan_to_num(all_pixels, posinf=12.0)
-    min_dist = torch.min(all_pixels, dim=1)[0]
-
-    # 4. 获取当前速度 [N]
-    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
-
-    # 5. 计算惩罚
-    # 距离 < 0.25m 时，限制最大速度
-    # 0.25m -> 限速 0.25m/s
-    # 0.10m -> 限速 0.10m/s
-    safe_vel_limit = torch.clamp(min_dist, max=0.5)
-
-    # 计算超速量 (只有 > 0 才惩罚)
+    clearance = torch.clamp(min_dist - 0.20, min=0.0)
+    ratio = torch.clamp(clearance / max(min_dist_threshold - 0.20, 1.0e-3), min=0.0, max=1.0)
+    safe_vel_limit = ratio * MOTION_CONFIG["max_lin_vel"]
     overspeed = torch.clamp(vel - safe_vel_limit, min=0.0)
 
-    return -overspeed
+    return torch.nan_to_num(overspeed, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float = 0.1) -> torch.Tensor:
@@ -486,8 +486,14 @@ def penalty_undesired_contacts(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCf
     # 任何超过阈值的接触都给予惩罚
     has_contact = force_mag > threshold
 
-    # 返回惩罚（轻微扣分，权重由 RewardsCfg 控制）
-    return -torch.where(has_contact, 1.0, 0.0)
+    # 返回正惩罚量，权重统一由 RewardCfg 提供负号
+    return torch.where(has_contact, 1.0, 0.0)
+
+
+def penalty_obstacle_proximity(env: ManagerBasedRLEnv, threshold: float = 0.6) -> torch.Tensor:
+    min_dist = _get_min_obstacle_distance(env)
+    penalty = torch.clamp(threshold - min_dist, min=0.0) / max(threshold, 1.0e-3)
+    return torch.nan_to_num(penalty, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # =============================================================================
@@ -660,7 +666,7 @@ def reward_position_command_error_tanh(env, std: float, command_name: str, asset
 # [v5.0 Ultimate] 辅助奖励函数
 # =============================================================================
 
-def reward_target_speed(env, asset_cfg):
+def reward_target_speed(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg):
     """
     [Geo-Distill V3.0] 速度奖励：三重保护机制
 
@@ -678,32 +684,18 @@ def reward_target_speed(env, asset_cfg):
     [2026-01-27] 调整目标速度：0.25 → 0.3 m/s
     [V3.0] 添加角速度惩罚，防止转圈
     """
-    vel = env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0]
-    ang_vel = env.scene[asset_cfg.name].data.root_ang_vel_b[:, 2]  # ✅ V3.0: 新增
-    target_vel = 0.3  # [2026-01-27] 调整为0.3 m/s
+    robot = env.scene[asset_cfg.name]
+    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+    forward_vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    ang_vel = torch.abs(torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0))
+    min_dist = _get_min_obstacle_distance(env)
 
-    # 前进：指数奖励
-    forward_reward = torch.exp(-torch.abs(vel - target_vel) / 0.1)
-
-    # 倒车：5倍惩罚（从2倍提高到5倍）
-    backward_penalty = torch.where(vel < 0, -10.0 * torch.abs(vel), 0.0)
-
-    # ✅ [V3.0] 角速度惩罚（抑制转圈）
-    angular_penalty = -REWARD_CONFIG["angular_penalty"] * torch.abs(ang_vel)
-
-    return forward_reward + backward_penalty + angular_penalty
-
-def reward_facing_target(env, command_name, asset_cfg):
-    """
-    [v5.0] 对准奖励：鼓励车头朝向目标
-    """
-    target_pos = env.command_manager.get_command(command_name)[:, :2]
-    robot_pos = env.scene[asset_cfg.name].data.root_pos_w[:, :2]
-    robot_yaw = env.scene[asset_cfg.name].data.heading_w
-    target_vec = target_pos - robot_pos
-    target_yaw = torch.atan2(target_vec[:, 1], target_vec[:, 0])
-    angle_error = torch.abs(mdp.math.wrap_to_pi(target_yaw - robot_yaw))
-    return 1.0 / (1.0 + angle_error)
+    progress_speed = forward_vel * torch.cos(angle_error)
+    clearance_gate = torch.clamp(min_dist / REWARD_CONFIG["obstacle_penalty_threshold"], min=0.0, max=1.0)
+    desired_progress = REWARD_CONFIG["target_speed"] * clearance_gate
+    speed_reward = torch.exp(-torch.abs(progress_speed - desired_progress) / 0.1)
+    angular_penalty = 0.1 * ang_vel
+    return torch.nan_to_num(speed_reward - angular_penalty, nan=0.0, posinf=0.0, neginf=0.0)
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
@@ -818,38 +810,28 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
 
 # [架构师重构] 基于势能差的引导奖励
 def reward_distance_tracking_potential(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = env.command_manager.get_command(command_name)[:, :2]
+    target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     current_dist = torch.norm(target_pos - robot_pos, dim=-1)
-    
+
     delta_pos = target_pos - robot_pos
-    dist_vec = delta_pos / (current_dist.unsqueeze(-1) + OBSERVATION_CONFIG["epsilon"])  # 防止除零 
+    dist_vec = delta_pos / (current_dist.unsqueeze(-1) + OBSERVATION_CONFIG["epsilon"])
     lin_vel_w = env.scene[asset_cfg.name].data.root_lin_vel_w[:, :2]
     lin_vel_w = torch.nan_to_num(lin_vel_w, nan=0.0, posinf=0.0, neginf=0.0)
-    
+
     approach_velocity = torch.sum(lin_vel_w * dist_vec, dim=-1)
     return torch.clamp(approach_velocity, -10.0, 10.0)
 
 # [架构师新增] 对准奖励：只要车头对得准，就给分。鼓励原地转向。
 def reward_facing_target(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos_w = env.command_manager.get_command(command_name)[:, :3]
-    robot = env.scene[asset_cfg.name]
-    robot_pos = torch.nan_to_num(robot.data.root_pos_w, nan=0.0, posinf=0.0, neginf=0.0)
-    delta_pos = target_pos_w[:, :2] - robot_pos[:, :2]
-    target_angle = torch.atan2(delta_pos[:, 1], delta_pos[:, 0])
-    _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w)
-    robot_yaw = torch.nan_to_num(robot_yaw, nan=0.0, posinf=0.0, neginf=0.0)
-    angle_error = wrap_to_pi(target_angle - robot_yaw)
-    
-    # 范围 [0, 0.5]
+    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
     return REWARD_CONFIG["facing_reward_scale"] * torch.exp(
         -torch.abs(angle_error) / REWARD_CONFIG["facing_angle_scale"]
     )
 
 # [架构师新增] 生存惩罚：逼迫机器人动起来
 def reward_alive(env: ManagerBasedRLEnv) -> torch.Tensor:
-    # 返回 -1.0 * 权重
-    return -REWARD_CONFIG["alive_penalty"] * torch.ones(env.num_envs, device=env.device)
+    return torch.ones(env.num_envs, device=env.device)
 
 # [架构师新增] 动作平滑度奖励
 def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -864,7 +846,7 @@ def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 # 日志记录函数
 def log_distance_to_goal(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = env.command_manager.get_command(command_name)[:, :2]
+    target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos - robot_pos, dim=-1)
     return dist
@@ -876,16 +858,12 @@ def log_linear_velocity(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> to
 
 # 稀疏到达奖励
 def reward_near_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    # [架构师修复 2026-01-24] 修复坐标系不一致问题
-    # 问题：command_manager.get_command() 返回的可能是相对坐标
-    # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
-    # 使用 _terms 而不是 _term_regs（Isaac Lab 4.5中移除了_term_regs）
-    command_term = env.command_manager._terms[command_name]
-    target_pos_w = command_term.pose_command_w[:, :2]
-
+    target_pos_w = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos_w - robot_pos, dim=-1)
-    return (dist < threshold).float()
+    speed = torch.abs(torch.nan_to_num(env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0))
+    stopped = speed < REWARD_CONFIG["goal_stop_velocity"]
+    return ((dist < threshold) & stopped).float()
 
 def penalty_collision_force(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, threshold: float) -> torch.Tensor:
     sensor: ContactSensor = env.scene[sensor_cfg.name]
@@ -913,25 +891,37 @@ def check_out_of_bounds(env: ManagerBasedRLEnv, threshold: float, asset_cfg: Sce
     dist = torch.norm(robot_pos - env.scene.env_origins, dim=-1)
     return (dist > threshold)
 
-def check_collision_simple(env: ManagerBasedRLEnv, sensor_cfg_base: SceneEntityCfg, threshold: float) -> torch.Tensor:
+def check_collision_simple(
+    env: ManagerBasedRLEnv,
+    sensor_cfg_base: SceneEntityCfg,
+    threshold: float,
+    sustained_frames: int = 3,
+    grace_steps: int = 20,
+) -> torch.Tensor:
     sensor: ContactSensor = env.scene[sensor_cfg_base.name]
     forces = torch.norm(sensor.data.net_forces_w, dim=-1)
-    if forces.dim() > 1: forces = torch.max(forces, dim=-1)[0]
-    is_safe = env.episode_length_buf < 50 
+    if forces.dim() > 1:
+        forces = torch.max(forces, dim=-1)[0]
     forces = torch.nan_to_num(forces, nan=0.0, posinf=0.0, neginf=0.0)
-    return (forces > threshold) & (~is_safe)
+    if not hasattr(env, "_hard_collision_counts"):
+        env._hard_collision_counts = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
+
+    env._hard_collision_counts[env.episode_length_buf < 2] = 0
+    hard_contact = forces > threshold
+    env._hard_collision_counts = torch.where(
+        hard_contact,
+        env._hard_collision_counts + 1,
+        torch.zeros_like(env._hard_collision_counts),
+    )
+    is_safe = env.episode_length_buf < grace_steps
+    return (env._hard_collision_counts >= sustained_frames) & (~is_safe)
 
 def check_reach_goal(env: ManagerBasedRLEnv, command_name: str, threshold: float, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    # [架构师修复 2026-01-24] 修复坐标系不一致问题
-    # 问题：command_manager.get_command() 返回的可能是相对坐标
-    # 解决：直接访问命令对象的 pose_command_w 属性（世界坐标系）
-    # 使用 _terms 而不是 _term_regs（Isaac Lab 4.5中移除了_term_regs）
-    command_term = env.command_manager._terms[command_name]
-    target_pos_w = command_term.pose_command_w[:, :2]
-
+    target_pos_w = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos_w - robot_pos, dim=-1)
-    return (dist < threshold)
+    speed = torch.abs(torch.nan_to_num(env.scene[asset_cfg.name].data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0))
+    return (dist < threshold) & (speed < REWARD_CONFIG["goal_stop_velocity"])
 
 def check_time_out(env: ManagerBasedRLEnv) -> torch.Tensor:
     return (env.episode_length_buf >= env.max_episode_length)
@@ -994,6 +984,17 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
             robot_pos = torch.zeros((len(env_ids), 3), device=self.device)
         r = torch.empty(len(env_ids), device=self.device).uniform_(self.min_dist, self.max_dist)
         theta = torch.empty(len(env_ids), device=self.device).uniform_(-math.pi, math.pi)
+        # 显式增加“目标在车后方”的采样比例，避免经验池几乎全是前进轨迹。
+        reverse_mask = torch.rand(len(env_ids), device=self.device) < 0.35
+        if torch.any(reverse_mask):
+            reverse_count = int(reverse_mask.sum().item())
+            reverse_angles = torch.empty(reverse_count, device=self.device).uniform_(0.65 * math.pi, math.pi)
+            reverse_sign = torch.where(
+                torch.rand(reverse_count, device=self.device) > 0.5,
+                torch.ones(reverse_count, device=self.device),
+                -torch.ones(reverse_count, device=self.device),
+            )
+            theta[reverse_mask] = reverse_angles * reverse_sign
         self.pose_command_w[env_ids, 0] = robot_pos[:, 0] + r * torch.cos(theta)
         self.pose_command_w[env_ids, 1] = robot_pos[:, 1] + r * torch.sin(theta)
         self.pose_command_w[env_ids, 2] = 0.0 
@@ -1075,9 +1076,16 @@ class DashgoObservationsCfg:
             params={}  # 无需sensor_cfg，函数内部直接访问4个相机
         )
 
-        target_polar = ObservationTermCfg(func=obs_target_polar, params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")})
-        lin_vel = ObservationTermCfg(func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")})
-        ang_vel = ObservationTermCfg(func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")})
+        waypoint_vector = ObservationTermCfg(
+            func=obs_waypoint_vector,
+            params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
+        )
+        goal_vector = ObservationTermCfg(
+            func=obs_goal_vector,
+            params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
+        )
+        lin_vel_x = ObservationTermCfg(func=obs_forward_velocity, params={"asset_cfg": SceneEntityCfg("robot")})
+        yaw_rate = ObservationTermCfg(func=obs_yaw_rate, params={"asset_cfg": SceneEntityCfg("robot")})
         last_action = ObservationTermCfg(func=mdp.last_action)
 
         # [优化] 开启观测噪声，增强Sim2Real泛化能力（架构师建议，2026-01-24）
@@ -1251,6 +1259,24 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
     )
 
     robot = DASHGO_D1_CFG.replace(prim_path="{ENV_REGEX_NS}/Dashgo")
+
+    # GUI 可视化需要至少一个场景光源，否则 RTX 视口会接近纯黑。
+    sky_light = AssetBaseCfg(
+        prim_path="/World/skyLight",
+        spawn=sim_utils.DomeLightCfg(
+            intensity=2500.0,
+            color=(0.95, 0.95, 0.95),
+        ),
+    )
+
+    sun_light = AssetBaseCfg(
+        prim_path="/World/sunLight",
+        spawn=sim_utils.DistantLightCfg(
+            intensity=3000.0,
+            color=(0.95, 0.95, 0.95),
+            angle=0.53,
+        ),
+    )
     
     contact_forces_base = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Dashgo/base_link", 
@@ -1391,10 +1417,10 @@ class DashgoRewardsCfg:
     # 解决：统一为1.0m，确保先拿钱后重置
     reach_goal = RewardTermCfg(
         func=reward_near_goal,
-        weight=100.0,  # ✅ V3.0: 从2000.0降低到100.0
+        weight=80.0,
         params={
             "command_name": "target_pose",
-            "threshold": 1.0,  # ✅ V5.1修复: 从0.25m改为1.0m（与终止阈值一致）
+            "threshold": REWARD_CONFIG["goal_reward_threshold"],
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
@@ -1406,24 +1432,34 @@ class DashgoRewardsCfg:
     # 注意：使用本地函数而非mdp.rewards.position_command_error（API不存在于Isaac Sim 4.5）
     shaping_distance = RewardTermCfg(
         func=log_distance_to_goal,  # ✅ 使用本地已定义函数（line 745）
-        weight=-1.0,  # ⚠️ 负号：距离越小，(距离*-1)越大
+        weight=-0.5,
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
 
-    # [辅助] Dense奖励组 (保留v3优势)
-    # 作用：解决初期迷茫，提高学习效率
+    progress_velocity = RewardTermCfg(
+        func=reward_distance_tracking_potential,
+        weight=2.5,
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
+    )
+
     target_speed = RewardTermCfg(
         func=reward_target_speed,
-        weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot")}
+        weight=0.3,
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
     )
     facing_goal = RewardTermCfg(
         func=reward_facing_target,
-        weight=0.1,
+        weight=0.05,
         params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}
+    )
+
+    obstacle_proximity = RewardTermCfg(
+        func=penalty_obstacle_proximity,
+        weight=-4.0,
+        params={"threshold": REWARD_CONFIG["obstacle_penalty_threshold"]},
     )
 
     # [兼容] 保留velodyne_style_reward（正常模式下）
@@ -1444,7 +1480,7 @@ class DashgoRewardsCfg:
     # 作用：抑制高频抖动，治愈Noise 17.0
     action_smoothness = RewardTermCfg(
         func=reward_action_smoothness,
-        weight=0.01,  # ✅ [v6.0修复] 修复双重负号错误（负函数×负权重=正奖励刷分漏洞）
+        weight=0.02,
     )
 
     # [约束] 猛烈碰撞惩罚：-500.0（绝对禁止）
@@ -1452,10 +1488,10 @@ class DashgoRewardsCfg:
     # 作用：撞击直接重置前的负反馈（虽然 Termination 会处理，但额外扣分加强记忆）
     collision = RewardTermCfg(
         func=penalty_collision_force,
-        weight=-500.0,  # ✅ V3.0: 从-200.0提高到-500.0
+        weight=-150.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
-            "threshold": 10.0
+            "threshold": 120.0,
         }
     )
 
@@ -1467,7 +1503,7 @@ class DashgoRewardsCfg:
         weight=-2.0,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces_base"),
-            "threshold": 1.0  # 提高阈值，过滤噪声（从0.1N改为1.0N）
+            "threshold": 5.0,
         }
     )
 
@@ -1475,17 +1511,17 @@ class DashgoRewardsCfg:
     # 0.25m对于半径0.2m的机器人来说就是贴脸，0.5m是合理的安全余量
     unsafe_speed_penalty = RewardTermCfg(
         func=penalty_unsafe_speed,
-        weight=-5.0,  # 中等扣分，超速必罚
+        weight=-4.0,
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "min_dist_threshold": 0.5  # ✅ 从0.25m改为0.5m（更合理的安全余量）
+            "min_dist_threshold": 0.6,
         }
     )
 
     # [融合方案: Architect激进策略 + Assistant战术优化]
     # 激活生存压力：-0.1/步，逼迫机器人动起来
     # 总步数500步→扣50分，相比+2000的大奖微不足道，但足以阻止原地发呆
-    alive_penalty = RewardTermCfg(func=reward_alive, weight=-0.1)
+    alive_penalty = RewardTermCfg(func=reward_alive, weight=-0.02)
 
     # [融合方案: Assistant优化] 日志项不参与训练，但设为1.0方便TensorBoard观察
     log_distance = RewardTermCfg(
@@ -1519,14 +1555,19 @@ class DashgoTerminationsCfg:
         func=check_reach_goal,
         params={
             "command_name": "target_pose",
-            "threshold": 1.0,  # ✅ 从0.5m放宽到1.0m
+            "threshold": REWARD_CONFIG["goal_termination_threshold"],
             "asset_cfg": SceneEntityCfg("robot")
         }
     )
 
     object_collision = TerminationTermCfg(
         func=check_collision_simple,
-        params={"sensor_cfg_base": SceneEntityCfg("contact_forces_base"), "threshold": 50.0}  # ✅ [v8.0] 降低到50N，更敏感
+        params={
+            "sensor_cfg_base": SceneEntityCfg("contact_forces_base"),
+            "threshold": 120.0,
+            "sustained_frames": 3,
+            "grace_steps": 20,
+        },
     )
     out_of_bounds = TerminationTermCfg(func=check_out_of_bounds, params={"threshold": 8.0, "asset_cfg": SceneEntityCfg("robot")})
     base_height = TerminationTermCfg(func=check_base_height_bad, params={"min_height": -0.50, "max_height": 1.0, "asset_cfg": SceneEntityCfg("robot")})
@@ -1584,7 +1625,24 @@ class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
     decimation = 4
     episode_length_s = 90.0  # ✅ [架构师修正 2026-01-24] 课程学习：从 60s 增加到 90s（1350步），给机器人更多时间绕过障碍物
     scene = DashgoSceneV2Cfg(num_envs=16, env_spacing=15.0)
-    sim = sim_utils.SimulationCfg(dt=1/60, render_interval=10)
+    sim = sim_utils.SimulationCfg(
+        dt=1 / 60,
+        render_interval=10,
+        render=RenderCfg(
+            antialiasing_mode="DLAA",
+            enable_direct_lighting=True,
+            enable_shadows=True,
+            enable_ambient_occlusion=True,
+            samples_per_pixel=4,
+        ),
+    )
+    viewer = ViewerCfg(
+        eye=(4.5, 4.5, 3.0),
+        lookat=(0.0, 0.0, 0.3),
+        resolution=(1920, 1080),
+        origin_type="world",
+        env_index=0,
+    )
 
     actions = DashgoActionsCfg()
     observations = DashgoObservationsCfg()
