@@ -1,0 +1,217 @@
+# DashGo ROS2 迁移进度日志
+
+## 2026-03-16 01:37 CST
+
+- 任务启动。
+- 确认目标项目为 `/home/gwh/dashgo_rl_project`。
+- 确认本机 ROS 发行版为 Humble，`ros2` 与 `colcon` 可用。
+- 确认 ROS1 基线包位于 `catkin_ws/src/dashgo_rl`。
+- 确认旧控制架构是 “全局规划提供路径，RL 节点做局部控制”。
+- 确认用户要求执行期完整记录命令、报错、修复与验证。
+- 创建 `task_plan.md`、`findings.md`、`progress.md` 作为持久工作记忆。
+
+## 2026-03-16 01:45 CST
+
+- 创建 ROS2 工作区目录: `ros2_ws/src/dashgo_rl_ros2`
+- 复制基线资源到 ROS2 包:
+  - `maps/nav.pgm`
+  - `worlds/navigation_env.world`
+  - `urdf/dashgo_d1_sim.urdf.xacro`
+  - `models/policy_torchscript.pt`
+- 新增 ROS2 包骨架:
+  - `package.xml`
+  - `setup.py`
+  - `setup.cfg`
+  - `dashgo_rl_ros2/controller_core.py`
+  - `dashgo_rl_ros2/goal_plan_bridge.py`
+  - `dashgo_rl_ros2/geo_nav_node.py`
+  - `config/dashgo_rl.yaml`
+  - `config/nav2_planning.yaml`
+  - `launch/minimal_model.launch.py`
+  - `launch/real_model_nav.launch.py`
+  - `launch/gazebo_classic_validation.launch.py`
+- 修复 ROS2 地图 yaml，去掉错误的历史绝对路径，改为相对 `nav.pgm`。
+- 新发现:
+  - 默认 `python3` 为 conda 3.8，不可直接运行 ROS2 Python 节点
+  - ROS2 需要 `/usr/bin/python3.10`
+  - 当前解释器中尚未安装 `torch`
+
+## 2026-03-16 01:48 CST
+
+- 执行静态检查:
+  - `/usr/bin/python3.10 -m compileall dashgo_rl_ros2 launch tests`
+  - 结果: 通过
+- 执行单元测试:
+  - `PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_controller_core.py -q`
+  - 结果: `5 passed in 0.06s`
+- 执行构建:
+  - `COLCON_PYTHON_EXECUTABLE=/usr/bin/python3.10 colcon build --symlink-install --packages-select dashgo_rl_ros2`
+  - 结果: 构建成功
+- 首次 launch 尝试:
+  - 未 source 本地 `ros2_ws/install/setup.bash`
+  - 现象: `Package 'dashgo_rl_ros2' not found`
+  - 结论: 环境未切换到新工作区，不是包结构问题
+- 第二次 launch 尝试:
+  - 命令: `source /opt/ros/humble/setup.bash && source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash && ros2 launch dashgo_rl_ros2 minimal_model.launch.py launch_bridge:=true`
+  - 结果:
+    - `goal_plan_bridge` 启动成功
+    - `geo_nav_node` 启动失败
+  - 原始错误:
+    - `RuntimeError: 未检测到 torch。请使用 /usr/bin/python3.10 运行，并为该解释器安装 torch。`
+  - 根因判断:
+    - ROS2 运行解释器已切到 `/usr/bin/python3.10`
+    - 但该解释器尚未安装 `torch`
+  - 下一步:
+    - 为 `/usr/bin/python3.10` 补装 `torch`
+    - 继续做最小 launch 冒烟测试
+
+## 2026-03-16 01:55 CST
+
+- 安装 ROS2 运行期推理依赖:
+  - `/usr/bin/python3.10 -m pip install --user torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu`
+  - 结果: 成功安装 `torch-2.6.0+cpu`
+- 重新执行最小 launch:
+  - `source /opt/ros/humble/setup.bash && source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash && ros2 launch dashgo_rl_ros2 minimal_model.launch.py launch_bridge:=true`
+  - 结果:
+    - `goal_plan_bridge` 启动成功
+    - `geo_nav_node` 模型加载成功
+- 最小运行期测试中发现代码级错误:
+  - 触发条件: 发布 `/goal_pose` 后进入 `control_loop`
+  - 原始错误:
+    - `AttributeError: 'PoseStamped' object has no attribute 'position'`
+  - 根因:
+    - ROS2 `tf2_geometry_msgs.do_transform_pose()` 需要 `Pose`
+    - 节点错误地把 `PoseStamped` 直接传进去
+  - 修复:
+    - 将 `do_transform_pose` 替换为 `do_transform_pose_stamped`
+    - 同时修复 launch 中断时 `rclpy.shutdown()` 重复调用问题
+- 修复后复建:
+  - `COLCON_PYTHON_EXECUTABLE=/usr/bin/python3.10 colcon build --symlink-install --packages-select dashgo_rl_ros2`
+  - 结果: 成功
+- 修复后复测:
+  - 启动最小 launch
+  - 通过临时探针节点发布:
+    - 静态 TF `map -> base_link`
+    - `scan`
+    - `odom`
+    - `goal_pose`
+  - 观察结果:
+    - 成功接收到 `/cmd_vel`
+    - 原始输出: `CMD_VEL linear=0.0500 angular=0.0300`
+  - 结论:
+    - ROS2 模型节点已能在无 Nav2 规划服务时，基于目标点、TF、雷达和里程计完成一次真实推理并输出速度命令
+
+## 2026-03-16 01:59 CST
+
+- 验证 Nav2 全局规划链是否已接上模型控制节点:
+  - 启动命令:
+    - `source /opt/ros/humble/setup.bash && source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash && ros2 launch dashgo_rl_ros2 real_model_nav.launch.py use_rviz:=false use_amcl:=false`
+  - 初始现象:
+    - `planner_server` 提示缺少 `base_link` 相关 TF，无法直接出路径
+  - 处理方式:
+    - 通过临时探针补发 `odom -> base_link` 静态 TF
+    - 同时补发 `scan`、`odom`、`goal_pose`
+  - 观察结果:
+    - 收到全局路径: `PLAN_POSES 78 frame=map`
+    - 收到控制输出: `CMD_VEL linear=0.0500 angular=0.0300`
+  - 结论:
+    - ROS2 链路已经验证通过 “RViz 目标点 -> Nav2 planner_server -> goal_plan_bridge -> /dashgo/global_plan -> RL 模型节点 -> /cmd_vel”
+    - 当前控制输出来自模型节点，不是 Nav2 本地控制器
+- 安装 Gazebo Classic ROS2 依赖:
+  - 命令:
+    - `sudo apt-get install -y ros-humble-gazebo-ros-pkgs`
+  - 结果:
+    - 安装成功，新增 `gazebo`、`gzserver`、`gazebo_ros`、`gazebo_plugins`
+- Gazebo Classic 兼容性检查:
+  - 本机存在:
+    - `/usr/bin/gazebo`
+    - `/usr/bin/gzserver`
+    - `libgazebo_ros_diff_drive.so`
+    - `libgazebo_ros_ray_sensor.so`
+  - 本机不存在:
+    - `libgazebo_ros_laser.so`
+  - 结论:
+    - 当前复制过来的 ROS1 URDF 中雷达插件必须改为 ROS2 Humble 可用的 `libgazebo_ros_ray_sensor.so`
+    - 差速插件也需要从 ROS1 驼峰字段改为 ROS2 Demo 中使用的下划线字段与 `<ros>` remap 结构
+
+## 2026-03-16 02:06 CST
+
+- 修复 Gazebo Classic 的 ROS2 插件兼容层:
+  - 将 `urdf/dashgo_d1_sim.urdf.xacro` 中差速插件改为 ROS2 Humble 字段:
+    - `left_joint`
+    - `right_joint`
+    - `wheel_separation`
+    - `wheel_diameter`
+    - `command_topic`
+    - `odometry_topic`
+    - `publish_odom_tf`
+  - 将雷达插件从 `libgazebo_ros_laser.so` 改为 `libgazebo_ros_ray_sensor.so`
+  - 新增:
+    - `<output_type>sensor_msgs/LaserScan</output_type>`
+    - `<frame_name>laser_link</frame_name>`
+    - `<remapping>~/out:=scan</remapping>`
+  - 移除 Gazebo launch 中不适合仿真场景的 `joint_state_publisher`
+- Gazebo 第一次启动失败:
+  - 命令:
+    - `source /opt/ros/humble/setup.bash && source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash && ros2 launch dashgo_rl_ros2 gazebo_classic_validation.launch.py use_rviz:=false gui:=false use_amcl:=false`
+  - 原始错误:
+    - `Caught exception in launch ... No such file or directory: 'xacro'`
+  - 根因:
+    - 运行环境未安装 `xacro` 可执行文件
+  - 修复:
+    - `sudo apt-get install -y ros-humble-xacro`
+- Gazebo 第二次启动失败:
+  - 现象:
+    - `spawn_entity.py` 进程退出
+  - 原始错误:
+    - `ModuleNotFoundError: No module named 'numpy'`
+  - 根因:
+    - `/opt/ros/humble/lib/gazebo_ros/spawn_entity.py` 使用 `#!/usr/bin/env python3`
+    - 当前工作站默认 `python3` 指向 `/usr/local/miniconda/bin/python3`
+    - 该解释器没有 ROS2 运行期依赖，导致 Gazebo ROS Python 脚本被 conda 环境污染
+  - 修复:
+    - 将 `gazebo_classic_validation.launch.py` 中的 spawn 逻辑改为:
+      - `/usr/bin/python3.10 /opt/ros/humble/lib/gazebo_ros/spawn_entity.py ...`
+    - 同时确认 `/usr/bin/python3.10` 下 `numpy` 可导入
+- 清理兼容性噪声:
+  - 将 `real_model_nav.launch.py` 中的 `static_transform_publisher` 改为新参数形式，去掉旧式参数警告
+  - 删除 `odometry_source` 字段，去掉 Gazebo Classic 差速插件的参数解析警告
+- Gazebo Classic 最终启动成功:
+  - 机器人成功 spawn:
+    - `SpawnEntity: Successfully spawned entity [dashgo]`
+  - 差速插件成功接管:
+    - `Subscribed to [/cmd_vel]`
+    - `Advertise odometry on [/odom]`
+    - `Publishing odom transforms between [odom] and [base_link]`
+  - 关键话题在线:
+    - `/scan`
+    - `/odom`
+    - `/tf`
+    - `/cmd_vel`
+    - `/dashgo/global_plan`
+- 话题级验证:
+  - `ros2 topic echo --once /odom` 成功收到 `frame_id=odom child_frame_id=base_link`
+  - `ros2 topic echo --once /scan` 成功收到 `frame_id=laser_link`
+  - `ros2 topic info -v /cmd_vel` 结果:
+    - 发布者仅有 `geo_nav_node`
+    - 订阅者为 Gazebo 差速驱动 `differential_drive_controller`
+  - 结论:
+    - Nav2 没有接管局部控制，`cmd_vel` 的唯一发布者仍是模型节点
+- Gazebo 端到端目标跟踪验证:
+  - 发布目标:
+    - `GOAL_SENT x=2.0 y=0.0`
+  - 路径结果:
+    - `PLAN_POSES 78 frame=map`
+  - 控制输出:
+    - `CMD_VEL linear=0.0500 angular=0.0300`
+  - 位姿变化:
+    - 第一次验证: `ODOM_DELTA distance=1.7045 dx=1.6342 dy=0.4841`
+    - 第二次验证: `ODOM_DELTA distance=1.8549 dx=1.7459 dy=0.6265`
+  - 结论:
+    - Gazebo Classic 下已经验证通过 “/goal_pose -> planner_server -> /dashgo/global_plan -> geo_nav_node -> /cmd_vel -> Gazebo 机器人运动”
+- 最终静态与单元验证复跑:
+  - `/usr/bin/python3.10 -m compileall dashgo_rl_ros2 launch tests`
+  - `PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_controller_core.py -q`
+  - 结果:
+    - `compileall` 通过
+    - `5 passed in 0.05s`
