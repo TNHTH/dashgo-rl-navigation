@@ -308,18 +308,24 @@ def main():
             curriculum_ratio = 0.75
             auto_end_step = int(total_physics_steps * curriculum_ratio)
 
-            # [动态注入] 强行修改环境配置对象（覆盖dashgo_env_v2.py中的默认值）
-            if hasattr(env_cfg, "curriculum") and hasattr(env_cfg.curriculum, "target_expansion"):
-                # 确保params字典存在（健壮性处理）
+            # [动态注入] 兼容两种课程模式
+            if hasattr(env_cfg, "curriculum") and hasattr(env_cfg.curriculum, "target_adaptive"):
+                print(f"\n{'='*80}")
+                print("[INFO] >>> 当前使用自适应课程学习 (ACL) <<<")
+                print(f"       ├── 当前环境数量: {current_num_envs}")
+                print(f"       ├── 训练总轮数: {max_iters}")
+                print(f"       ├── 每轮步数: {steps_per_env}")
+                print(f"       ├── 总物理步数: {total_physics_steps:,}")
+                print("       └── ACL 模式按成功率动态调节，不再使用 end_step 注入")
+                print(f"{'='*80}\n")
+            elif hasattr(env_cfg, "curriculum") and hasattr(env_cfg.curriculum, "target_expansion"):
                 if not hasattr(env_cfg.curriculum.target_expansion, "params"):
                     env_cfg.curriculum.target_expansion.params = {}
 
-                # 覆盖end_step参数
-                env_cfg.curriculum.target_expansion.params['end_step'] = auto_end_step
+                env_cfg.curriculum.target_expansion.params["end_step"] = auto_end_step
 
-                # [日志验证] 打印确认信息
                 print(f"\n{'='*80}")
-                print(f"[INFO] >>> 自动课程配置注入成功 (Auto-Curriculum) <<<")
+                print(f"[INFO] >>> 线性课程配置注入成功 (Auto-Curriculum) <<<")
                 print(f"       ├── 当前环境数量: {current_num_envs}")
                 print(f"       ├── 训练总轮数: {max_iters}")
                 print(f"       ├── 每轮步数: {steps_per_env}")
@@ -328,7 +334,7 @@ def main():
                 print(f"       └── 目标范围: 3m → 8m (完整课程学习)")
                 print(f"{'='*80}\n")
             else:
-                print("[WARNING] 未找到curriculum.target_expansion配置，跳过自动注入。")
+                print("[WARNING] 未找到可识别的 curriculum 配置，跳过自动注入。")
 
         except Exception as e:
             print(f"[ERROR] 自动课程配置注入失败: {e}")

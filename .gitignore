@@ -110,3 +110,8 @@ catkin_ws/build/
 catkin_ws/devel/
 catkin_ws/src/*/build/
 catkin_ws/src/*/devel/
+
+# ROS2 工作区编译产物
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
