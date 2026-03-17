@@ -47,6 +47,25 @@ def encode_goal_vector(distance: float, angle: float, max_distance: float) -> np
     )
 
 
+def compute_velocity_scaled_lookahead(
+    linear_velocity: float,
+    forward_min: float = 0.6,
+    forward_gain: float = 3.0,
+    forward_max: float = 1.2,
+    reverse_min: float = 0.45,
+    reverse_gain: float = 2.0,
+    reverse_max: float = 0.8,
+) -> float:
+    """根据当前线速度计算训练/部署一致的前瞻距离。"""
+    speed = abs(float(linear_velocity))
+    if float(linear_velocity) < 0.0:
+        reverse_lookahead = max(reverse_min, speed * reverse_gain)
+        return float(np.clip(reverse_lookahead, reverse_min, reverse_max))
+
+    forward_lookahead = max(forward_min, speed * forward_gain)
+    return float(np.clip(forward_lookahead, forward_min, forward_max))
+
+
 def process_lidar_ranges(
     ranges: Sequence[float],
     lidar_dim: int = 72,

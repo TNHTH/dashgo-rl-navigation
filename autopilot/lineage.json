@@ -1,0 +1,992 @@
+{
+  "records": [
+    {
+      "checkpoint_iteration": 0,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013156_smoke_train_camfix/checkpoints/model_0.pt",
+      "created_at": "2026-03-16T17:32:02+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": null,
+      "record_id": "20260317_013156_smoke_train_camfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013156_smoke_train_camfix",
+      "run_name": "smoke_train_camfix",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 19,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013517_wave1_short/checkpoints/model_19.pt",
+      "created_at": "2026-03-16T17:35:41+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": null,
+      "record_id": "20260317_013517_wave1_short",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013517_wave1_short",
+      "run_name": "wave1_short",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 98,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013631_wave2_resume/checkpoints/model_98.pt",
+      "created_at": "2026-03-16T17:37:53+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013517_wave1_short/checkpoints/model_19.pt",
+      "record_id": "20260317_013631_wave2_resume",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013631_wave2_resume",
+      "run_name": "wave2_resume",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 24,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_014017_wave3_cold_currfix/checkpoints/model_24.pt",
+      "created_at": "2026-03-16T17:40:47+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": null,
+      "record_id": "20260317_014017_wave3_cold_currfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_014017_wave3_cold_currfix",
+      "run_name": "wave3_cold_currfix",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 43,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_014109_wave3_resume_currfix/checkpoints/model_43.pt",
+      "created_at": "2026-03-16T17:41:39+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013517_wave1_short/checkpoints/model_19.pt",
+      "record_id": "20260317_014109_wave3_resume_currfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_014109_wave3_resume_currfix",
+      "run_name": "wave3_resume_currfix",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 39,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_015834_wave4_cold_sensor_aclfix/checkpoints/model_39.pt",
+      "created_at": "2026-03-16T17:59:17+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": null,
+      "record_id": "20260317_015834_wave4_cold_sensor_aclfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_015834_wave4_cold_sensor_aclfix",
+      "run_name": "wave4_cold_sensor_aclfix",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 54,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021002_wave5_acltrace_resume/checkpoints/model_54.pt",
+      "created_at": "2026-03-16T18:10:23+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_015834_wave4_cold_sensor_aclfix/checkpoints/model_39.pt",
+      "record_id": "20260317_021002_wave5_acltrace_resume",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021002_wave5_acltrace_resume",
+      "run_name": "wave5_acltrace_resume",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 23,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021239_wave6_cold_aclresetfix/checkpoints/model_23.pt",
+      "created_at": "2026-03-16T18:13:08+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": null,
+      "record_id": "20260317_021239_wave6_cold_aclresetfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021239_wave6_cold_aclresetfix",
+      "run_name": "wave6_cold_aclresetfix",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 39,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021453_wave7_resume_step025/checkpoints/model_39.pt",
+      "created_at": "2026-03-16T18:15:22+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021239_wave6_cold_aclresetfix/checkpoints/model_16.pt",
+      "record_id": "20260317_021453_wave7_resume_step025",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021453_wave7_resume_step025",
+      "run_name": "wave7_resume_step025",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 118,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021749_wave8_resume_step025_long/checkpoints/model_118.pt",
+      "created_at": "2026-03-16T18:19:12+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021453_wave7_resume_step025/checkpoints/model_39.pt",
+      "record_id": "20260317_021749_wave8_resume_step025_long",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021749_wave8_resume_step025_long",
+      "run_name": "wave8_resume_step025_long",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 139,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022025_wave9_resume_step025_down060/checkpoints/model_139.pt",
+      "created_at": "2026-03-16T18:21:49+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_021749_wave8_resume_step025_long/checkpoints/model_60.pt",
+      "record_id": "20260317_022025_wave9_resume_step025_down060",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022025_wave9_resume_step025_down060",
+      "run_name": "wave9_resume_step025_down060",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 198,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022303_wave10_resume_down060_long/checkpoints/model_198.pt",
+      "created_at": "2026-03-16T18:24:07+00:00",
+      "generation": "gen1",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022025_wave9_resume_step025_down060/checkpoints/model_139.pt",
+      "record_id": "20260317_022303_wave10_resume_down060_long",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022303_wave10_resume_down060_long",
+      "run_name": "wave10_resume_down060_long",
+      "seed": 42,
+      "stage": "gen1",
+      "tags": [
+        "gen1",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 198,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092127_smoke_gen2_dynamic/checkpoints/model_198.pt",
+      "created_at": "2026-03-17T01:21:33+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022303_wave10_resume_down060_long/checkpoints/model_198.pt",
+      "record_id": "20260317_092127_smoke_gen2_dynamic",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092127_smoke_gen2_dynamic",
+      "run_name": "smoke_gen2_dynamic",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 217,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092736_wave12_gen2_bootstrap_env8_short/checkpoints/model_217.pt",
+      "created_at": "2026-03-17T01:28:01+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022303_wave10_resume_down060_long/checkpoints/model_198.pt",
+      "record_id": "20260317_092736_wave12_gen2_bootstrap_env8_short",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092736_wave12_gen2_bootstrap_env8_short",
+      "run_name": "wave12_gen2_bootstrap_env8_short",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 296,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092852_wave13_gen2_env8_long/checkpoints/model_296.pt",
+      "created_at": "2026-03-17T01:30:18+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092736_wave12_gen2_bootstrap_env8_short/checkpoints/model_217.pt",
+      "record_id": "20260317_092852_wave13_gen2_env8_long",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092852_wave13_gen2_env8_long",
+      "run_name": "wave13_gen2_env8_long",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 375,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093210_wave14_gen2_env8_continue/checkpoints/model_375.pt",
+      "created_at": "2026-03-17T01:33:36+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092852_wave13_gen2_env8_long/checkpoints/model_296.pt",
+      "record_id": "20260317_093210_wave14_gen2_env8_continue",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093210_wave14_gen2_env8_continue",
+      "run_name": "wave14_gen2_env8_continue",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 399,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093919_wave15_gen2_model320_down065/checkpoints/model_399.pt",
+      "created_at": "2026-03-17T01:40:42+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093210_wave14_gen2_env8_continue/checkpoints/model_320.pt",
+      "record_id": "20260317_093919_wave15_gen2_model320_down065",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093919_wave15_gen2_model320_down065",
+      "run_name": "wave15_gen2_model320_down065",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 399,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_094230_wave16_gen2_model320_baseline060/checkpoints/model_399.pt",
+      "created_at": "2026-03-17T01:43:54+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093210_wave14_gen2_env8_continue/checkpoints/model_320.pt",
+      "record_id": "20260317_094230_wave16_gen2_model320_baseline060",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_094230_wave16_gen2_model320_baseline060",
+      "run_name": "wave16_gen2_model320_baseline060",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 429,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_094829_wave17_gen2_model350_sidecar/checkpoints/model_429.pt",
+      "created_at": "2026-03-17T01:49:57+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_093210_wave14_gen2_env8_continue/checkpoints/model_350.pt",
+      "record_id": "20260317_094829_wave17_gen2_model350_sidecar",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_094829_wave17_gen2_model350_sidecar",
+      "run_name": "wave17_gen2_model350_sidecar",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 449,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095240_wave18_gen2_model370_step0125/checkpoints/model_449.pt",
+      "created_at": "2026-03-17T01:54:07+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_094829_wave17_gen2_model350_sidecar/checkpoints/model_370.pt",
+      "record_id": "20260317_095240_wave18_gen2_model370_step0125",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095240_wave18_gen2_model370_step0125",
+      "run_name": "wave18_gen2_model370_step0125",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 489,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095624_wave19_gen2_model410_step00625/checkpoints/model_489.pt",
+      "created_at": "2026-03-17T01:57:52+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095240_wave18_gen2_model370_step0125/checkpoints/model_410.pt",
+      "record_id": "20260317_095624_wave19_gen2_model410_step00625",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095624_wave19_gen2_model410_step00625",
+      "run_name": "wave19_gen2_model410_step00625",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 489,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_100521_wave20_gen2_model410_lr015e4_step0125/checkpoints/model_489.pt",
+      "created_at": "2026-03-17T02:06:47+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_095240_wave18_gen2_model370_step0125/checkpoints/model_410.pt",
+      "record_id": "20260317_100521_wave20_gen2_model410_lr015e4_step0125",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_100521_wave20_gen2_model410_lr015e4_step0125",
+      "run_name": "wave20_gen2_model410_lr015e4_step0125",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 529,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101037_wave21_gen2_model450_up075_lr015e4/checkpoints/model_529.pt",
+      "created_at": "2026-03-17T02:12:03+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_100521_wave20_gen2_model410_lr015e4_step0125/checkpoints/model_450.pt",
+      "record_id": "20260317_101037_wave21_gen2_model450_up075_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101037_wave21_gen2_model450_up075_lr015e4",
+      "run_name": "wave21_gen2_model450_up075_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 529,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101300_wave22_gen2_model450_entropy0005_lr015e4/checkpoints/model_529.pt",
+      "created_at": "2026-03-17T02:14:27+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_100521_wave20_gen2_model410_lr015e4_step0125/checkpoints/model_450.pt",
+      "record_id": "20260317_101300_wave22_gen2_model450_entropy0005_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101300_wave22_gen2_model450_entropy0005_lr015e4",
+      "run_name": "wave22_gen2_model450_entropy0005_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 599,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101619_wave23_gen2_model520_steps96_entropy0005_lr015e4/checkpoints/model_599.pt",
+      "created_at": "2026-03-17T02:21:36+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101300_wave22_gen2_model450_entropy0005_lr015e4/checkpoints/model_520.pt",
+      "record_id": "20260317_101619_wave23_gen2_model520_steps96_entropy0005_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_101619_wave23_gen2_model520_steps96_entropy0005_lr015e4",
+      "run_name": "wave23_gen2_model520_steps96_entropy0005_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 529,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_529.pt",
+      "created_at": "2026-03-17T02:34:50+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_100521_wave20_gen2_model410_lr015e4_step0125/checkpoints/model_450.pt",
+      "record_id": "20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4",
+      "run_name": "wave24_gen2_model450_epochs3_entropy0005_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 579,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103804_wave25_gen2_model500_epochs3_minib2_entropy0005_lr015e4/checkpoints/model_579.pt",
+      "created_at": "2026-03-17T02:39:27+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_500.pt",
+      "record_id": "20260317_103804_wave25_gen2_model500_epochs3_minib2_entropy0005_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103804_wave25_gen2_model500_epochs3_minib2_entropy0005_lr015e4",
+      "run_name": "wave25_gen2_model500_epochs3_minib2_entropy0005_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 579,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_104256_wave26_gen2_model500_epochs3_lr010e4_entropy0005/checkpoints/model_579.pt",
+      "created_at": "2026-03-17T02:44:19+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_500.pt",
+      "record_id": "20260317_104256_wave26_gen2_model500_epochs3_lr010e4_entropy0005",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_104256_wave26_gen2_model500_epochs3_lr010e4_entropy0005",
+      "run_name": "wave26_gen2_model500_epochs3_lr010e4_entropy0005",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 579,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_104716_wave27_gen2_model500_epochs3_kl0005_entropy0005_lr015e4/checkpoints/model_579.pt",
+      "created_at": "2026-03-17T02:48:38+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_500.pt",
+      "record_id": "20260317_104716_wave27_gen2_model500_epochs3_kl0005_entropy0005_lr015e4",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_104716_wave27_gen2_model500_epochs3_kl0005_entropy0005_lr015e4",
+      "run_name": "wave27_gen2_model500_epochs3_kl0005_entropy0005_lr015e4",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 500,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125328_wave28_debug_boot/checkpoints/model_500.pt",
+      "created_at": "2026-03-17T04:53:36+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_500.pt",
+      "record_id": "20260317_125328_wave28_debug_boot",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125328_wave28_debug_boot",
+      "run_name": "wave28_debug_boot",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 619,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_619.pt",
+      "created_at": "2026-03-17T04:56:59+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_103328_wave24_gen2_model450_epochs3_entropy0005_lr015e4/checkpoints/model_500.pt",
+      "record_id": "20260317_125448_wave28_gen2_model500_waypointreward_stallfix",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix",
+      "run_name": "wave28_gen2_model500_waypointreward_stallfix",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 600,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_130828_wave29_debug_waypoint_detour_boot/checkpoints/model_600.pt",
+      "created_at": "2026-03-17T05:08:35+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt",
+      "record_id": "20260317_130828_wave29_debug_waypoint_detour_boot",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_130828_wave29_debug_waypoint_detour_boot",
+      "run_name": "wave29_debug_waypoint_detour_boot",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 719,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_130856_wave29_gen2_model600_waypoint_detour/checkpoints/model_719.pt",
+      "created_at": "2026-03-17T05:11:28+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt",
+      "record_id": "20260317_130856_wave29_gen2_model600_waypoint_detour",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_130856_wave29_gen2_model600_waypoint_detour",
+      "run_name": "wave29_gen2_model600_waypoint_detour",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 600,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131325_wave30_debug_waypoint_shaping_boot/checkpoints/model_600.pt",
+      "created_at": "2026-03-17T05:13:32+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt",
+      "record_id": "20260317_131325_wave30_debug_waypoint_shaping_boot",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131325_wave30_debug_waypoint_shaping_boot",
+      "run_name": "wave30_debug_waypoint_shaping_boot",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 719,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_719.pt",
+      "created_at": "2026-03-17T05:15:58+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt",
+      "record_id": "20260317_131351_wave30_gen2_model600_waypoint_shaping",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping",
+      "run_name": "wave30_gen2_model600_waypoint_shaping",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 640,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131726_wave31_debug_stall_tune_boot/checkpoints/model_640.pt",
+      "created_at": "2026-03-17T05:17:33+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_131726_wave31_debug_stall_tune_boot",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131726_wave31_debug_stall_tune_boot",
+      "run_name": "wave31_debug_stall_tune_boot",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 640,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_141752_wave32_smoke_obstacle_path/checkpoints/model_640.pt",
+      "created_at": "2026-03-17T06:17:58+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_141752_wave32_smoke_obstacle_path",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_141752_wave32_smoke_obstacle_path",
+      "run_name": "wave32_smoke_obstacle_path",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 759,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_141833_wave32_gen2_model640_obstaclepath/checkpoints/model_759.pt",
+      "created_at": "2026-03-17T06:20:42+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_141833_wave32_gen2_model640_obstaclepath",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_141833_wave32_gen2_model640_obstaclepath",
+      "run_name": "wave32_gen2_model640_obstaclepath",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 759,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_142502_wave33_gen2_model640_shortlookahead/checkpoints/model_759.pt",
+      "created_at": "2026-03-17T06:27:11+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_142502_wave33_gen2_model640_shortlookahead",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_142502_wave33_gen2_model640_shortlookahead",
+      "run_name": "wave33_gen2_model640_shortlookahead",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 759,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144047_wave35_gen2_model640_waypoint_facingboost/checkpoints/model_759.pt",
+      "created_at": "2026-03-17T06:42:55+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_144047_wave35_gen2_model640_waypoint_facingboost",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144047_wave35_gen2_model640_waypoint_facingboost",
+      "run_name": "wave35_gen2_model640_waypoint_facingboost",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 669,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144538_wave36_gen2_model640_baseline_capture/checkpoints/model_669.pt",
+      "created_at": "2026-03-17T06:46:14+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_144538_wave36_gen2_model640_baseline_capture",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144538_wave36_gen2_model640_baseline_capture",
+      "run_name": "wave36_gen2_model640_baseline_capture",
+      "seed": 42,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 669,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144810_wave37_gen2_model640_seed43_capture/checkpoints/model_669.pt",
+      "created_at": "2026-03-17T06:48:46+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt",
+      "record_id": "20260317_144810_wave37_gen2_model640_seed43_capture",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_144810_wave37_gen2_model640_seed43_capture",
+      "run_name": "wave37_gen2_model640_seed43_capture",
+      "seed": 43,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 679,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145303_wave38_gen2_model600_seed43_waypointshaping_rebuild/checkpoints/model_679.pt",
+      "created_at": "2026-03-17T06:54:31+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt",
+      "record_id": "20260317_145303_wave38_gen2_model600_seed43_waypointshaping_rebuild",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145303_wave38_gen2_model600_seed43_waypointshaping_rebuild",
+      "run_name": "wave38_gen2_model600_seed43_waypointshaping_rebuild",
+      "seed": 43,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 694,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145717_wave39_gen2_model655_extend375/checkpoints/model_694.pt",
+      "created_at": "2026-03-17T06:58:04+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145303_wave38_gen2_model600_seed43_waypointshaping_rebuild/checkpoints/model_655.pt",
+      "record_id": "20260317_145717_wave39_gen2_model655_extend375",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145717_wave39_gen2_model655_extend375",
+      "run_name": "wave39_gen2_model655_extend375",
+      "seed": 43,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 694,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145909_wave40_gen2_model655_stablehistory_extend375/checkpoints/model_694.pt",
+      "created_at": "2026-03-17T06:59:55+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/anchors/wave38_model655_stablehistory/model_655_stablehistory.pt",
+      "record_id": "20260317_145909_wave40_gen2_model655_stablehistory_extend375",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145909_wave40_gen2_model655_stablehistory_extend375",
+      "run_name": "wave40_gen2_model655_stablehistory_extend375",
+      "seed": 43,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 753,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_150112_wave41_gen2_model694_stablehistory_extend375_long/checkpoints/model_753.pt",
+      "created_at": "2026-03-17T07:02:18+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145909_wave40_gen2_model655_stablehistory_extend375/checkpoints/model_694.pt",
+      "record_id": "20260317_150112_wave41_gen2_model694_stablehistory_extend375_long",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_150112_wave41_gen2_model694_stablehistory_extend375_long",
+      "run_name": "wave41_gen2_model694_stablehistory_extend375_long",
+      "seed": 43,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    },
+    {
+      "checkpoint_iteration": 794,
+      "checkpoint_path": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_152104_wave42_gen2_model745_stablehistory_seed44/checkpoints/model_794.pt",
+      "created_at": "2026-03-17T07:22:00+00:00",
+      "generation": "gen2",
+      "metrics_file": null,
+      "notes": [
+        "训练脚本自动登记。"
+      ],
+      "parent_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/anchors/wave41_model745_stablehistory_seed44/model_745_stablehistory.pt",
+      "record_id": "20260317_152104_wave42_gen2_model745_stablehistory_seed44",
+      "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_152104_wave42_gen2_model745_stablehistory_seed44",
+      "run_name": "wave42_gen2_model745_stablehistory_seed44",
+      "seed": 44,
+      "stage": "gen2",
+      "tags": [
+        "gen2",
+        "autopilot"
+      ],
+      "warm_start_source": null
+    }
+  ],
+  "schema_version": 1
+}

@@ -19,6 +19,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from .controller_core import (
     ObservationBuffer,
+    compute_velocity_scaled_lookahead,
     encode_goal_vector,
     process_lidar_ranges,
     select_waypoint_index,
@@ -55,6 +56,12 @@ class GeoNavNode(Node):
                 ("single_obs_dim", 82),
                 ("history_len", 3),
                 ("waypoint_dist", 1.0),
+                ("forward_lookahead_min", 0.6),
+                ("forward_lookahead_gain", 3.0),
+                ("forward_lookahead_max", 1.2),
+                ("reverse_lookahead_min", 0.45),
+                ("reverse_lookahead_gain", 2.0),
+                ("reverse_lookahead_max", 0.8),
                 ("goal_reached_dist", 0.25),
                 ("near_goal_dist", 0.35),
                 ("goal_reached_speed", 0.08),
@@ -86,6 +93,12 @@ class GeoNavNode(Node):
         self.history_len = int(self.get_parameter("history_len").value)
         self.total_input_dim = self.single_obs_dim * self.history_len
         self.waypoint_dist = float(self.get_parameter("waypoint_dist").value)
+        self.forward_lookahead_min = float(self.get_parameter("forward_lookahead_min").value)
+        self.forward_lookahead_gain = float(self.get_parameter("forward_lookahead_gain").value)
+        self.forward_lookahead_max = float(self.get_parameter("forward_lookahead_max").value)
+        self.reverse_lookahead_min = float(self.get_parameter("reverse_lookahead_min").value)
+        self.reverse_lookahead_gain = float(self.get_parameter("reverse_lookahead_gain").value)
+        self.reverse_lookahead_max = float(self.get_parameter("reverse_lookahead_max").value)
         self.goal_reached_dist = float(self.get_parameter("goal_reached_dist").value)
         self.near_goal_dist = float(self.get_parameter("near_goal_dist").value)
         self.goal_reached_speed = float(self.get_parameter("goal_reached_speed").value)
@@ -253,8 +266,10 @@ class GeoNavNode(Node):
                 float(np.hypot(pose_in_base.pose.position.x, pose_in_base.pose.position.y))
             )
 
+        lookahead_distance = self.compute_waypoint_lookahead()
         self.current_waypoint_index = select_waypoint_index(
-            transformed_distances, waypoint_dist=self.waypoint_dist
+            transformed_distances,
+            waypoint_dist=lookahead_distance,
         )
         return normalized_poses[self.current_waypoint_index]
 
@@ -270,6 +285,18 @@ class GeoNavNode(Node):
             return num_points // 2
         raw_index = int(round((0.0 - scan.angle_min) / scan.angle_increment))
         return raw_index % num_points
+
+    def compute_waypoint_lookahead(self) -> float:
+        lookahead_distance = compute_velocity_scaled_lookahead(
+            self.current_vel[0],
+            forward_min=self.forward_lookahead_min,
+            forward_gain=self.forward_lookahead_gain,
+            forward_max=self.forward_lookahead_max,
+            reverse_min=self.reverse_lookahead_min,
+            reverse_gain=self.reverse_lookahead_gain,
+            reverse_max=self.reverse_lookahead_max,
+        )
+        return float(max(lookahead_distance, 0.0))
 
     def update_target_vectors(self) -> bool:
         if self.goal_pose is None:

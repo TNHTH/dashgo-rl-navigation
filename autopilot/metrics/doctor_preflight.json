@@ -1,0 +1,76 @@
+{
+  "checks": [
+    {
+      "details": {
+        "path": "/home/gwh/dashgo_rl_project"
+      },
+      "message": "项目根目录存在",
+      "name": "project_root",
+      "status": "ok"
+    },
+    {
+      "details": {
+        "path": "/home/gwh/dashgo_rl_project/autopilot"
+      },
+      "message": "autopilot 目录已存在",
+      "name": "autopilot_root",
+      "status": "ok"
+    },
+    {
+      "details": {
+        "path": "/home/gwh/dashgo_rl_project/autopilot/runs"
+      },
+      "message": "runs 目录已存在",
+      "name": "runs_root",
+      "status": "ok"
+    },
+    {
+      "details": {
+        "path": "/home/gwh/dashgo_rl_project/autopilot/metrics"
+      },
+      "message": "metrics 目录已存在",
+      "name": "metrics_root",
+      "status": "ok"
+    },
+    {
+      "details": {
+        "path": "/home/gwh/dashgo_rl_project/autopilot/lineage.json"
+      },
+      "message": "lineage.json 已存在",
+      "name": "lineage_file",
+      "status": "ok"
+    },
+    {
+      "details": {},
+      "message": "当前 Python 环境未安装 tensorboard",
+      "name": "tensorboard_module",
+      "status": "warning"
+    },
+    {
+      "details": {
+        "count": 7,
+        "log_root": "/home/gwh/dashgo_rl_project/logs"
+      },
+      "message": "检测到 TensorBoard 事件文件",
+      "name": "tensorboard_events",
+      "status": "ok"
+    },
+    {
+      "details": {
+        "expected_actor_obs": 246,
+        "expected_lidar_history_dims": 216
+      },
+      "message": "观测合同检查骨架已就位，需后续接线到训练环境",
+      "name": "observation_contract",
+      "status": "warning"
+    }
+  ],
+  "created_at": "2026-03-16T17:30:50+00:00",
+  "metadata": {
+    "autopilot_root": "/home/gwh/dashgo_rl_project/autopilot",
+    "log_root": "/home/gwh/dashgo_rl_project/logs",
+    "mode": "all",
+    "project_root": "/home/gwh/dashgo_rl_project"
+  },
+  "status": "warning"
+}
