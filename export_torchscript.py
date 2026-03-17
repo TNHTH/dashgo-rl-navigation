@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import glob
 import os
+from pathlib import Path
 
 import torch
 from isaaclab.app import AppLauncher
@@ -36,6 +37,7 @@ from rsl_rl.modules import EmpiricalNormalization
 
 from dashgo_env_v2 import DashgoNavEnvV2Cfg
 from geo_nav_policy import GeoNavPolicy
+from autopilot.runtime import default_autopilot_root
 
 
 class ExportedGeoNavPolicy(torch.nn.Module):
@@ -51,16 +53,39 @@ class ExportedGeoNavPolicy(torch.nn.Module):
 
 
 def find_candidate_checkpoints() -> list[str]:
+    def extract_iter(path: str) -> int:
+        name = os.path.basename(path)
+        if not name.startswith("model_") or not name.endswith(".pt"):
+            return -1
+        try:
+            return int(name.split("_")[1].split(".")[0])
+        except Exception:
+            return -1
+
+    def sorted_models(pattern: str) -> list[str]:
+        models = glob.glob(pattern, recursive=True)
+        models.sort(key=lambda path: (extract_iter(path), os.path.getmtime(path)), reverse=True)
+        return models
+
     candidates: list[str] = []
+    autopilot_root = default_autopilot_root(Path.cwd())
+    if autopilot_root.exists():
+        candidates.extend(sorted_models(str(autopilot_root / "runs" / "**" / "checkpoints" / "model_*.pt")))
 
     training_success = os.path.join("training_success", "models", "model_final.pt")
     if os.path.exists(training_success):
         candidates.append(training_success)
 
-    log_models = glob.glob(os.path.join("logs", "model_*.pt"))
-    log_models.sort(key=lambda path: int(os.path.basename(path).split("_")[1].split(".")[0]), reverse=True)
-    candidates.extend(log_models)
-    return candidates
+    candidates.extend(sorted_models(os.path.join("logs", "**", "model_*.pt")))
+
+    unique_candidates: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        unique_candidates.append(candidate)
+    return unique_candidates
 
 
 def split_normalizer_from_state_dict(state_dict: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:

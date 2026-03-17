@@ -75,22 +75,44 @@ class GeoNavPolicy(nn.Module):
         super().__init__()
 
         # --- 1. 维度自动推断 + Key 记忆 ---
-        # 提取 Tensor 用于获取维度，并记住使用的 key
+        # 兼容两种构造方式：
+        # 1) 导出/评测脚本直接传入 TensorDict 或 Tensor
+        # 2) RSL-RL OnPolicyRunner 传入 (num_obs, num_privileged_obs, num_actions)
+        self.policy_key = None
         if hasattr(obs, "get"):
-            # 优先尝试获取 'policy' 键，如果没有则回退到 raw obs
+            # 优先尝试获取 'policy' 键，如果没有则回退到第一个键
             self.policy_key = "policy" if "policy" in obs.keys() else list(obs.keys())[0]
             print(f"[GeoNavPolicy v3.1] 检测到 TensorDict，使用键: '{self.policy_key}'")
             policy_tensor = obs[self.policy_key]
-        else:
-            self.policy_key = None
+            self.num_actor_obs = policy_tensor.shape[1]
+            self.num_critic_obs = self.num_actor_obs
+        elif hasattr(obs, "shape"):
             policy_tensor = obs
+            self.num_actor_obs = policy_tensor.shape[1]
+            self.num_critic_obs = self.num_actor_obs
+        elif isinstance(obs, (int, float)):
+            policy_tensor = None
+            self.num_actor_obs = int(obs)
+            if isinstance(obs_groups, (int, float)):
+                self.num_critic_obs = int(obs_groups)
+            else:
+                self.num_critic_obs = self.num_actor_obs
+            print(
+                f"[GeoNavPolicy v3.3] 检测到 RSL-RL 维度构造: "
+                f"actor_obs={self.num_actor_obs}, critic_obs={self.num_critic_obs}"
+            )
+        else:
+            raise TypeError(f"GeoNavPolicy 不支持的 obs 类型: {type(obs)!r}")
 
-        self.num_actor_obs = policy_tensor.shape[1]
-        self.num_critic_obs = self.num_actor_obs  # 你的配置中 critic==policy
         self.num_actions = num_actions
 
         # --- 2. 几何参数计算 ---
         self.num_lidar = 216  # 72线 * 3帧
+        if self.num_actor_obs <= self.num_lidar:
+            raise ValueError(
+                f"GeoNavPolicy 期望 actor 观测维度大于 {self.num_lidar}，"
+                f"当前得到 {self.num_actor_obs}"
+            )
         self.num_state = self.num_actor_obs - self.num_lidar
 
         print(f"[GeoNavPolicy v3.2] 最终架构确认:")

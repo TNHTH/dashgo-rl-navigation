@@ -2,6 +2,7 @@ import numpy as np
 
 from dashgo_rl_ros2.controller_core import (
     ObservationBuffer,
+    compute_velocity_scaled_lookahead,
     encode_goal_vector,
     process_lidar_ranges,
     select_waypoint_index,
@@ -66,6 +67,19 @@ def test_encode_goal_vector_uses_sin_cos_and_normalized_distance():
     )
 
 
+def test_compute_velocity_scaled_lookahead_uses_forward_rule():
+    assert np.isclose(compute_velocity_scaled_lookahead(0.0), 0.6)
+    assert np.isclose(compute_velocity_scaled_lookahead(0.2), 0.6)
+    assert np.isclose(compute_velocity_scaled_lookahead(0.3), 0.9)
+    assert np.isclose(compute_velocity_scaled_lookahead(0.8), 1.2)
+
+
+def test_compute_velocity_scaled_lookahead_uses_reverse_rule():
+    assert np.isclose(compute_velocity_scaled_lookahead(-0.05), 0.45)
+    assert np.isclose(compute_velocity_scaled_lookahead(-0.3), 0.6)
+    assert np.isclose(compute_velocity_scaled_lookahead(-0.6), 0.8)
+
+
 def test_select_waypoint_index_returns_first_distance_over_threshold():
     distances = [0.2, 0.7, 1.1, 1.8]
     assert select_waypoint_index(distances, waypoint_dist=1.0) == 2
@@ -74,3 +88,19 @@ def test_select_waypoint_index_returns_first_distance_over_threshold():
 def test_select_waypoint_index_falls_back_to_last_pose():
     distances = [0.2, 0.3, 0.9]
     assert select_waypoint_index(distances, waypoint_dist=1.0) == 2
+
+
+def test_select_waypoint_index_uses_forward_speed_scaled_lookahead():
+    distances = [0.25, 0.58, 0.62, 0.95]
+    lookahead = compute_velocity_scaled_lookahead(0.1)
+
+    assert np.isclose(lookahead, 0.6)
+    assert select_waypoint_index(distances, waypoint_dist=lookahead) == 2
+
+
+def test_select_waypoint_index_uses_reverse_speed_scaled_lookahead():
+    distances = [0.2, 0.42, 0.47, 0.75]
+    lookahead = compute_velocity_scaled_lookahead(-0.1)
+
+    assert np.isclose(lookahead, 0.45)
+    assert select_waypoint_index(distances, waypoint_dist=lookahead) == 2

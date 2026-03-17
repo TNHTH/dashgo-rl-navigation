@@ -1,6 +1,8 @@
 import torch
 import math
 import sys
+import os
+import json
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg, ViewerCfg, mdp
@@ -97,7 +99,242 @@ OBSERVATION_CONFIG = {
     "max_distance": 8.0,   # 最大距离截断 (m，防止数值溢出)
     "waypoint_distance": 1.0,
     "epsilon": 1e-6,       # 数值稳定性epsilon（防止除零）
+    "lookahead_min_forward": 0.6,
+    "lookahead_max_forward": 1.2,
+    "lookahead_gain_forward": 3.0,
+    "lookahead_min_reverse": 0.45,
+    "lookahead_max_reverse": 0.8,
+    "lookahead_gain_reverse": 2.0,
+    "path_resolution": 0.2,
+    "max_path_points": 48,
 }
+
+AUTOPILOT_PROFILE = os.environ.get("DASHGO_AUTOPILOT_PROFILE", "").strip().lower()
+USE_AUTOPILOT_FLAT_SCENE = AUTOPILOT_PROFILE in {"gen1", "gen2", "autopilot"}
+USE_AUTOPILOT_GEN1_EASY_RESET = AUTOPILOT_PROFILE in {"gen1", "autopilot"}
+USE_AUTOPILOT_GEN2_DYNAMIC = AUTOPILOT_PROFILE == "gen2"
+CURRICULUM_TRACE_PATH = os.environ.get("DASHGO_CURRICULUM_TRACE_PATH", "").strip()
+
+INITIAL_TARGET_MAX_DIST = 3.0 if USE_AUTOPILOT_GEN2_DYNAMIC else 1.0
+INITIAL_CURRICULUM_DIST = 3.0 if USE_AUTOPILOT_GEN2_DYNAMIC else 1.0
+DYNAMIC_OBSTACLE_ASSET_NAMES = ("obs_inner_1", "obs_inner_3", "obs_inner_5")
+DYNAMIC_OBSTACLE_PROFILE_NAMES = ("crossing", "head_on", "stop_go")
+DYNAMIC_OBSTACLE_INTERVAL_S = 0.10
+
+
+def append_curriculum_trace(payload: dict) -> None:
+    """按需写入课程学习追踪，默认关闭。"""
+    if not CURRICULUM_TRACE_PATH:
+        return
+    try:
+        payload = dict(payload)
+        payload["profile"] = AUTOPILOT_PROFILE or "default"
+        with open(CURRICULUM_TRACE_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        # 追踪失败不影响训练主流程。
+        return
+
+
+def _resolve_event_env_ids(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None) -> torch.Tensor:
+    """统一把事件回调里的 env_ids 转成 LongTensor。"""
+    if env_ids is None or isinstance(env_ids, slice):
+        return torch.arange(env.num_envs, device=env.device, dtype=torch.long)
+    if isinstance(env_ids, torch.Tensor):
+        return env_ids.to(device=env.device, dtype=torch.long)
+    return torch.as_tensor(env_ids, device=env.device, dtype=torch.long)
+
+
+def _rotate_local_xy(local_xy: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
+    """将局部二维向量绕 Z 轴旋转到世界平面。"""
+    cos_yaw = torch.cos(yaw)
+    sin_yaw = torch.sin(yaw)
+    rot_x = local_xy[..., 0] * cos_yaw - local_xy[..., 1] * sin_yaw
+    rot_y = local_xy[..., 0] * sin_yaw + local_xy[..., 1] * cos_yaw
+    return torch.stack([rot_x, rot_y], dim=-1)
+
+
+def _ensure_dynamic_obstacle_state(env: ManagerBasedRLEnv, asset_names: tuple[str, ...]) -> dict:
+    """按需初始化 Gen2 动态障碍状态缓存。"""
+    state = getattr(env, "_dynamic_obstacle_state", None)
+    if state is not None:
+        if state.get("num_envs") == env.num_envs and tuple(state.get("asset_names", ())) == tuple(asset_names):
+            return state
+
+    num_slots = len(asset_names)
+    state = {
+        "num_envs": env.num_envs,
+        "asset_names": tuple(asset_names),
+        "active_slot": torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long),
+        "center_xy": torch.zeros((env.num_envs, num_slots, 2), device=env.device),
+        "axis_xy": torch.zeros((env.num_envs, num_slots, 2), device=env.device),
+        "amplitude": torch.zeros((env.num_envs, num_slots), device=env.device),
+        "cycle_rate": torch.zeros((env.num_envs, num_slots), device=env.device),
+        "phase": torch.zeros((env.num_envs, num_slots), device=env.device),
+        "yaw_w": torch.zeros((env.num_envs, num_slots), device=env.device),
+        "height": torch.full((env.num_envs, num_slots), 0.5, device=env.device),
+    }
+    env._dynamic_obstacle_state = state
+    return state
+
+
+def _compute_stop_go_motion(
+    amplitude: torch.Tensor, phase: torch.Tensor, cycle_rate: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """停走型障碍：四段式保持/前进/保持/后退。"""
+    cycle = torch.remainder(phase / (2.0 * math.pi), 1.0)
+    disp_norm = torch.empty_like(cycle)
+    speed = torch.zeros_like(cycle)
+
+    seg_hold_back = cycle < 0.25
+    disp_norm[seg_hold_back] = -1.0
+
+    seg_forward = (cycle >= 0.25) & (cycle < 0.50)
+    if torch.any(seg_forward):
+        alpha = (cycle[seg_forward] - 0.25) / 0.25
+        disp_norm[seg_forward] = -1.0 + 2.0 * alpha
+        speed[seg_forward] = amplitude[seg_forward] * (2.0 / 0.25) * cycle_rate[seg_forward]
+
+    seg_hold_front = (cycle >= 0.50) & (cycle < 0.75)
+    disp_norm[seg_hold_front] = 1.0
+
+    seg_backward = cycle >= 0.75
+    if torch.any(seg_backward):
+        alpha = (cycle[seg_backward] - 0.75) / 0.25
+        disp_norm[seg_backward] = 1.0 - 2.0 * alpha
+        speed[seg_backward] = -amplitude[seg_backward] * (2.0 / 0.25) * cycle_rate[seg_backward]
+
+    displacement = amplitude * disp_norm
+    return displacement, speed
+
+
+def _write_dynamic_obstacle_slot(env: ManagerBasedRLEnv, env_ids: torch.Tensor, slot_idx: int, state: dict) -> None:
+    """把指定槽位的脚本化障碍写回仿真。"""
+    if env_ids.numel() == 0:
+        return
+
+    asset_name = state["asset_names"][slot_idx]
+    asset = env.scene[asset_name]
+    amplitude = state["amplitude"][env_ids, slot_idx]
+    phase = state["phase"][env_ids, slot_idx]
+    cycle_rate = state["cycle_rate"][env_ids, slot_idx]
+
+    if DYNAMIC_OBSTACLE_PROFILE_NAMES[slot_idx] == "stop_go":
+        displacement, speed_along_axis = _compute_stop_go_motion(amplitude, phase, cycle_rate)
+    else:
+        phase_speed = 2.0 * math.pi * cycle_rate
+        displacement = amplitude * torch.sin(phase)
+        speed_along_axis = amplitude * phase_speed * torch.cos(phase)
+
+    axis_xy = state["axis_xy"][env_ids, slot_idx]
+    center_xy = state["center_xy"][env_ids, slot_idx]
+    yaw_w = state["yaw_w"][env_ids, slot_idx]
+    origins_xy = env.scene.env_origins[env_ids, :2]
+
+    root_pose = asset.data.default_root_state[env_ids, :7].clone()
+    root_pose[:, 0:2] = origins_xy + center_xy + axis_xy * displacement.unsqueeze(-1)
+    root_pose[:, 2] = state["height"][env_ids, slot_idx]
+
+    zeros = torch.zeros_like(yaw_w)
+    root_pose[:, 3:7] = quat_from_euler_xyz(zeros, zeros, yaw_w)
+
+    root_velocity = torch.zeros((len(env_ids), 6), device=env.device)
+    root_velocity[:, 0:2] = axis_xy * speed_along_axis.unsqueeze(-1)
+
+    asset.write_root_pose_to_sim(root_pose, env_ids=env_ids)
+    asset.write_root_velocity_to_sim(root_velocity, env_ids=env_ids)
+
+
+def configure_dynamic_obstacles(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    asset_names: tuple[str, ...],
+) -> None:
+    """Gen2 reset 事件：为每个环境选一个动态障碍模板并写入初始状态。"""
+    if not USE_AUTOPILOT_GEN2_DYNAMIC:
+        return
+
+    env_ids = _resolve_event_env_ids(env, env_ids)
+    if env_ids.numel() == 0:
+        return
+
+    state = _ensure_dynamic_obstacle_state(env, asset_names)
+    state["active_slot"][env_ids] = -1
+    state["center_xy"][env_ids] = 0.0
+    state["axis_xy"][env_ids] = 0.0
+    state["amplitude"][env_ids] = 0.0
+    state["cycle_rate"][env_ids] = 0.0
+    state["phase"][env_ids] = 0.0
+    state["yaw_w"][env_ids] = 0.0
+
+    slot_ids = torch.randint(0, len(asset_names), (len(env_ids),), device=env.device)
+    layout_yaw = torch.empty(len(env_ids), device=env.device).uniform_(-math.pi, math.pi)
+    state["active_slot"][env_ids] = slot_ids
+
+    templates = (
+        {"center": (1.2, 0.0), "axis": (0.0, 1.0), "amp": (0.8, 1.2), "cycle": (0.02, 0.045)},
+        {"center": (1.7, 0.0), "axis": (1.0, 0.0), "amp": (0.7, 1.1), "cycle": (0.018, 0.035)},
+        {"center": (1.35, 0.0), "axis": (1.0, 0.0), "amp": (0.6, 0.9), "cycle": (0.012, 0.022)},
+    )
+
+    for slot_idx, template in enumerate(templates):
+        slot_mask = slot_ids == slot_idx
+        if not torch.any(slot_mask):
+            continue
+
+        slot_env_ids = env_ids[slot_mask]
+        yaw = layout_yaw[slot_mask]
+        count = len(slot_env_ids)
+
+        local_center = torch.tensor(template["center"], device=env.device).unsqueeze(0).repeat(count, 1)
+        local_axis = torch.tensor(template["axis"], device=env.device).unsqueeze(0).repeat(count, 1)
+        center_xy = _rotate_local_xy(local_center, yaw)
+        axis_xy = _rotate_local_xy(local_axis, yaw)
+        axis_xy = axis_xy / torch.clamp(torch.norm(axis_xy, dim=-1, keepdim=True), min=1.0e-6)
+
+        amplitude = torch.empty(count, device=env.device).uniform_(*template["amp"])
+        cycle_rate = torch.empty(count, device=env.device).uniform_(*template["cycle"])
+        phase = torch.empty(count, device=env.device).uniform_(0.0, 2.0 * math.pi)
+
+        state["center_xy"][slot_env_ids, slot_idx] = center_xy
+        state["axis_xy"][slot_env_ids, slot_idx] = axis_xy
+        state["amplitude"][slot_env_ids, slot_idx] = amplitude
+        state["cycle_rate"][slot_env_ids, slot_idx] = cycle_rate
+        state["phase"][slot_env_ids, slot_idx] = phase
+        state["yaw_w"][slot_env_ids, slot_idx] = yaw
+
+        _write_dynamic_obstacle_slot(env, slot_env_ids, slot_idx, state)
+
+
+def animate_dynamic_obstacles(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor | None,
+    asset_names: tuple[str, ...],
+    motion_dt: float,
+) -> None:
+    """Gen2 interval 事件：推进当前激活的脚本化动态障碍。"""
+    if not USE_AUTOPILOT_GEN2_DYNAMIC:
+        return
+
+    env_ids = _resolve_event_env_ids(env, env_ids)
+    if env_ids.numel() == 0:
+        return
+
+    state = _ensure_dynamic_obstacle_state(env, asset_names)
+    active_slots = state["active_slot"][env_ids]
+
+    for slot_idx in range(len(asset_names)):
+        slot_mask = active_slots == slot_idx
+        if not torch.any(slot_mask):
+            continue
+
+        slot_env_ids = env_ids[slot_mask]
+        state["phase"][slot_env_ids, slot_idx] = torch.remainder(
+            state["phase"][slot_env_ids, slot_idx]
+            + (2.0 * math.pi * state["cycle_rate"][slot_env_ids, slot_idx] * motion_dt),
+            2.0 * math.pi,
+        )
+        _write_dynamic_obstacle_slot(env, slot_env_ids, slot_idx, state)
 
 # =============================================================================
 # 辅助函数：检测是否 headless 模式
@@ -197,18 +434,53 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
 # 2. 观测处理 (Observation) - 包含 NaN 清洗
 # =============================================================================
 
+def compute_velocity_scaled_lookahead(speed: torch.Tensor) -> torch.Tensor:
+    """训练期与部署期统一的速度缩放前瞻距离。"""
+    abs_speed = torch.abs(speed)
+    forward_mask = speed >= 0.0
+    forward_lookahead = torch.clamp(
+        torch.maximum(
+            torch.full_like(abs_speed, OBSERVATION_CONFIG["lookahead_min_forward"]),
+            abs_speed * OBSERVATION_CONFIG["lookahead_gain_forward"],
+        ),
+        min=OBSERVATION_CONFIG["lookahead_min_forward"],
+        max=OBSERVATION_CONFIG["lookahead_max_forward"],
+    )
+    reverse_lookahead = torch.clamp(
+        torch.maximum(
+            torch.full_like(abs_speed, OBSERVATION_CONFIG["lookahead_min_reverse"]),
+            abs_speed * OBSERVATION_CONFIG["lookahead_gain_reverse"],
+        ),
+        min=OBSERVATION_CONFIG["lookahead_min_reverse"],
+        max=OBSERVATION_CONFIG["lookahead_max_reverse"],
+    )
+    return torch.where(forward_mask, forward_lookahead, reverse_lookahead)
+
+
 def _get_command_target_pos_w(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     command_term = env.command_manager._terms[command_name]
+    if hasattr(command_term, "goal_pose_w"):
+        return command_term.goal_pose_w[:, :3]
     if hasattr(command_term, "pose_command_w"):
         return command_term.pose_command_w[:, :3]
     return env.command_manager.get_command(command_name)[:, :3]
 
 
+def _get_command_waypoint_pos_w(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    command_term = env.command_manager._terms[command_name]
+    if hasattr(command_term, "get_waypoint_pose_w"):
+        return command_term.get_waypoint_pose_w(asset_cfg.name)
+    return _get_command_target_pos_w(env, command_name)
+
+
 def _get_target_delta_and_heading(
-    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg
+    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg, target_kind: str = "goal"
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     robot = env.scene[asset_cfg.name]
-    target_pos_w = _get_command_target_pos_w(env, command_name)
+    if target_kind == "waypoint":
+        target_pos_w = _get_command_waypoint_pos_w(env, command_name, asset_cfg)
+    else:
+        target_pos_w = _get_command_target_pos_w(env, command_name)
     robot_pos = torch.nan_to_num(robot.data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     delta_pos_w = target_pos_w[:, :2] - robot_pos
     _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w)
@@ -231,7 +503,7 @@ def _encode_goal_vector(dist: torch.Tensor, angle_error: torch.Tensor, max_dista
 
 
 def obs_waypoint_vector(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    delta_pos_w, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+    delta_pos_w, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg, target_kind="waypoint")
     dist = torch.norm(delta_pos_w, dim=-1)
     obs = _encode_goal_vector(dist, angle_error, OBSERVATION_CONFIG["waypoint_distance"])
     return torch.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -496,6 +768,59 @@ def penalty_obstacle_proximity(env: ManagerBasedRLEnv, threshold: float = 0.6) -
     return torch.nan_to_num(penalty, nan=0.0, posinf=0.0, neginf=0.0)
 
 
+def penalty_progress_stall(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "waypoint",
+    activation_distance: float = 0.6,
+    min_progress: float = 0.005,
+    max_forward_speed: float = 0.05,
+    warmup_steps: int = 15,
+    trigger_steps: int = 8,
+) -> torch.Tensor:
+    """惩罚持续低进展的蹭行/发呆行为。"""
+    if target_kind == "waypoint":
+        target_pos = _get_command_waypoint_pos_w(env, command_name, asset_cfg)[:, :2]
+    else:
+        target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
+
+    robot = env.scene[asset_cfg.name]
+    robot_pos = torch.nan_to_num(robot.data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
+    dist = torch.norm(target_pos - robot_pos, dim=-1)
+    forward_speed = torch.abs(
+        torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    )
+
+    if not hasattr(env, "_prev_target_distance"):
+        env._prev_target_distance = dist.clone()
+    if not hasattr(env, "_stall_counts"):
+        env._stall_counts = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
+
+    env._stall_counts[env.episode_length_buf < 2] = 0
+    prev_dist = env._prev_target_distance
+    progress = prev_dist - dist
+    env._prev_target_distance = dist.detach().clone()
+
+    stalled = (
+        (env.episode_length_buf > warmup_steps)
+        & (dist > activation_distance)
+        & (progress < min_progress)
+        & (forward_speed < max_forward_speed)
+    )
+    env._stall_counts = torch.where(
+        stalled,
+        env._stall_counts + 1,
+        torch.zeros_like(env._stall_counts),
+    )
+    penalty = torch.clamp(
+        (env._stall_counts.float() - float(trigger_steps)) / float(max(trigger_steps, 1)),
+        min=0.0,
+        max=1.0,
+    )
+    return penalty
+
+
 # =============================================================================
 # [v5.1 ACL] 自适应课程学习核心函数
 # =============================================================================
@@ -515,59 +840,96 @@ def curriculum_adaptive_distance(env, env_ids, command_name,
     if not hasattr(env, "curriculum_stats"):
         env.curriculum_stats = {
             "current_dist": initial_dist,
-            "window_size": window_size
+            "window_size": window_size,
+            "success_history": [],
         }
+        append_curriculum_trace({
+            "event": "init",
+            "current_dist": float(initial_dist),
+            "window_size": int(window_size),
+        })
         # 初始返回标量
         return torch.tensor(env.curriculum_stats["current_dist"], device=env.device)
 
-    # 2. 安全检查: 等待 metrics 数据就绪
-    is_startup = not env.extras or "log" not in env.extras or "success" not in env.extras["log"]
+    # 2. 直接从终止管理器读取成功项，而不是依赖 extras 里并不存在的 "success" 键。
+    successes = None
+    try:
+        if hasattr(env, "termination_manager") and "reach_goal" in env.termination_manager.active_terms:
+            successes = env.termination_manager.get_term("reach_goal")[env_ids].float()
+    except Exception as e:
+        if not hasattr(env, "curriculum_success_error_logged"):
+            print(f"[Warning] Failed to query reach_goal for curriculum: {e}")
+            env.curriculum_success_error_logged = True
 
-    if not is_startup:
-        # 获取成功状态
-        successes = env.extras["log"]["success"][env_ids].float()
+    if successes is not None and len(successes) > 0:
+        valid_mask = None
+        if hasattr(env, "episode_length_buf"):
+            try:
+                episode_lengths = env.episode_length_buf[env_ids]
+                valid_mask = episode_lengths > 0
+            except Exception:
+                valid_mask = None
 
-        if len(successes) > 0:
-            batch_success_rate = torch.mean(successes)
+        if valid_mask is not None:
+            successes = successes[valid_mask]
+            if successes.numel() == 0:
+                append_curriculum_trace({
+                    "event": "skip_pre_episode_reset",
+                    "env_count": int(len(valid_mask)),
+                })
+                current_dist = env.curriculum_stats["current_dist"]
+                return torch.tensor(current_dist, device=env.device)
 
-            # 动态调整逻辑
-            stats = env.curriculum_stats
-            current_dist = stats["current_dist"]
+        stats = env.curriculum_stats
+        history = list(stats.get("success_history", []))
+        history.extend(successes.detach().cpu().tolist())
+        history = history[-int(window_size):]
+        stats["success_history"] = history
 
-            # 升级/降级逻辑
-            if batch_success_rate > upgrade_threshold:
+        if history:
+            success_rate = float(sum(history) / len(history))
+            previous_dist = float(stats["current_dist"])
+            current_dist = previous_dist
+
+            if success_rate > upgrade_threshold:
                 current_dist = min(current_dist + step_size, max_dist)
-            elif batch_success_rate < downgrade_threshold:
+            elif success_rate < downgrade_threshold:
                 current_dist = max(current_dist - step_size, initial_dist)
 
             stats["current_dist"] = current_dist
             env.curriculum_stats = stats
 
             # -------------------------------------------------------
-            # 🔥 核心增强: 实际修改命令生成器的范围 (Side Effect)
+            # 实际修改命令生成器范围，让课程真正生效。
             # -------------------------------------------------------
             try:
-                # 获取 target_pose 命令项 (根据日志中的名字)
-                cmd_term = env.command_manager.get_term("target_pose")
+                cmd_term = env.command_manager.get_term(command_name)
 
-                # 修改生成范围 (适配 RelativeRandomTargetCommand)
-                # 尝试修改极坐标半径 (r)
-                if hasattr(cmd_term.cfg.ranges, "r"):
-                    # 范围设为 [1.5, current_dist] 或者 [current_dist, current_dist]
-                    # 通常 curriculum 是扩大范围上限
-                    cmd_term.cfg.ranges.r = (term_cfg.params["initial_dist"], current_dist)
+                if hasattr(cmd_term, "max_dist"):
+                    cmd_term.max_dist = max(float(current_dist), float(getattr(cmd_term, "min_dist", 0.5)))
 
-                # 备用: 如果是笛卡尔坐标 (pos_x, pos_y)
-                elif hasattr(cmd_term.cfg.ranges, "pos_x"):
-                    half_dist = current_dist
-                    cmd_term.cfg.ranges.pos_x = (-half_dist, half_dist)
-                    cmd_term.cfg.ranges.pos_y = (-half_dist, half_dist)
+                if hasattr(cmd_term, "cfg") and hasattr(cmd_term.cfg, "ranges"):
+                    if hasattr(cmd_term.cfg.ranges, "r"):
+                        cmd_term.cfg.ranges.r = (initial_dist, current_dist)
+                    elif hasattr(cmd_term.cfg.ranges, "pos_x"):
+                        half_dist = current_dist
+                        cmd_term.cfg.ranges.pos_x = (-half_dist, half_dist)
+                        cmd_term.cfg.ranges.pos_y = (-half_dist, half_dist)
 
             except Exception as e:
-                # 仅在第一次失败时打印，防止刷屏
                 if not hasattr(env, "cmd_update_error_logged"):
                     print(f"[Warning] Failed to update command range: {e}")
                     env.cmd_update_error_logged = True
+
+            append_curriculum_trace({
+                "event": "compute",
+                "env_count": len(successes),
+                "success_sum": float(successes.sum().item()),
+                "success_rate": success_rate,
+                "history_len": len(history),
+                "previous_dist": previous_dist,
+                "current_dist": current_dist,
+            })
 
     # 3. 返回当前难度 (标量!)
     # 修复了之前返回 vector 导致的 RuntimeError
@@ -666,7 +1028,12 @@ def reward_position_command_error_tanh(env, std: float, command_name: str, asset
 # [v5.0 Ultimate] 辅助奖励函数
 # =============================================================================
 
-def reward_target_speed(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg):
+def reward_target_speed(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "waypoint",
+):
     """
     [Geo-Distill V3.0] 速度奖励：三重保护机制
 
@@ -685,17 +1052,31 @@ def reward_target_speed(env: ManagerBasedRLEnv, command_name: str, asset_cfg: Sc
     [V3.0] 添加角速度惩罚，防止转圈
     """
     robot = env.scene[asset_cfg.name]
-    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg, target_kind=target_kind)
     forward_vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
     ang_vel = torch.abs(torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0))
     min_dist = _get_min_obstacle_distance(env)
 
     progress_speed = forward_vel * torch.cos(angle_error)
-    clearance_gate = torch.clamp(min_dist / REWARD_CONFIG["obstacle_penalty_threshold"], min=0.0, max=1.0)
-    desired_progress = REWARD_CONFIG["target_speed"] * clearance_gate
-    speed_reward = torch.exp(-torch.abs(progress_speed - desired_progress) / 0.1)
+    alignment = torch.clamp(torch.cos(angle_error), min=0.0, max=1.0)
+    clearance_gate = torch.clamp(
+        (min_dist - REWARD_CONFIG["safe_distance"])
+        / max(REWARD_CONFIG["obstacle_penalty_threshold"] - REWARD_CONFIG["safe_distance"], 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    desired_progress = REWARD_CONFIG["target_speed"] * alignment
+    speed_reward = torch.exp(-torch.abs(progress_speed - desired_progress) / 0.08)
+    speed_reward = speed_reward * (clearance_gate > 0.35).float() * alignment
+    creep_penalty = torch.where(
+        (clearance_gate <= 0.35) & (forward_vel > 0.02),
+        0.25 + 0.75 * torch.clamp(
+            forward_vel / max(MOTION_CONFIG["max_lin_vel"], 1.0e-3), min=0.0, max=1.0
+        ),
+        torch.zeros_like(forward_vel),
+    )
     angular_penalty = 0.1 * ang_vel
-    return torch.nan_to_num(speed_reward - angular_penalty, nan=0.0, posinf=0.0, neginf=0.0)
+    return torch.nan_to_num(speed_reward - angular_penalty - creep_penalty, nan=0.0, posinf=0.0, neginf=0.0)
 
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
@@ -809,8 +1190,16 @@ def reward_navigation_sota(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, se
     )
 
 # [架构师重构] 基于势能差的引导奖励
-def reward_distance_tracking_potential(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
+def reward_distance_tracking_potential(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "goal",
+) -> torch.Tensor:
+    if target_kind == "waypoint":
+        target_pos = _get_command_waypoint_pos_w(env, command_name, asset_cfg)[:, :2]
+    else:
+        target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     current_dist = torch.norm(target_pos - robot_pos, dim=-1)
 
@@ -823,8 +1212,13 @@ def reward_distance_tracking_potential(env: ManagerBasedRLEnv, command_name: str
     return torch.clamp(approach_velocity, -10.0, 10.0)
 
 # [架构师新增] 对准奖励：只要车头对得准，就给分。鼓励原地转向。
-def reward_facing_target(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg)
+def reward_facing_target(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "goal",
+) -> torch.Tensor:
+    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg, target_kind=target_kind)
     return REWARD_CONFIG["facing_reward_scale"] * torch.exp(
         -torch.abs(angle_error) / REWARD_CONFIG["facing_angle_scale"]
     )
@@ -845,8 +1239,16 @@ def reward_action_smoothness(env: ManagerBasedRLEnv) -> torch.Tensor:
 # 正确版本在line 409，只奖励前进速度
 
 # 日志记录函数
-def log_distance_to_goal(env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
+def log_distance_to_goal(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "goal",
+) -> torch.Tensor:
+    if target_kind == "waypoint":
+        target_pos = _get_command_waypoint_pos_w(env, command_name, asset_cfg)[:, :2]
+    else:
+        target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
     robot_pos = torch.nan_to_num(env.scene[asset_cfg.name].data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
     dist = torch.norm(target_pos - robot_pos, dim=-1)
     return dist
@@ -969,11 +1371,71 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
         # 修改历史：1.0-2.0 → 0.5-1.5 → 0.1-0.5（送分题测试）→ 0.5-1.5（恢复正常）
         # 验证：送分题测试确认 reach_goal 系统正常（已达到100%）
         # 现状：坐标系不一致问题已修复，可以恢复正常训练
-        self.min_dist = 0.5  # ✅ 恢复到课程学习起始距离
-        self.max_dist = 1.5  # ✅ 恢复到课程学习目标距离 
+        self.min_dist = 0.5  # 保持近距离采样下限，避免目标贴到车体内部
+        self.max_dist = INITIAL_TARGET_MAX_DIST  # Gen1 从 1.0m 起跑；Gen2 动态阶段直接从中距离续训
+        self.max_path_points = OBSERVATION_CONFIG["max_path_points"]
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
+        self.goal_pose_w = torch.zeros(self.num_envs, 7, device=self.device)
+        self.waypoint_pose_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_w[:, 3] = 1.0 
+        self.goal_pose_w[:, 3] = 1.0
+        self.waypoint_pose_w[:, 3] = 1.0
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
+        self.reference_path_w = torch.zeros(self.num_envs, self.max_path_points, 3, device=self.device)
+        self.reference_path_len = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
+        self.reference_path_cursor = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+    def _build_linear_reference_path(self, start_xy: torch.Tensor, goal_xy: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        batch_size = start_xy.shape[0]
+        delta = goal_xy - start_xy
+        dist = torch.norm(delta, dim=-1)
+        steps = torch.clamp(
+            torch.ceil(dist / OBSERVATION_CONFIG["path_resolution"]).long() + 1,
+            min=2,
+            max=self.max_path_points,
+        )
+        t = torch.linspace(0.0, 1.0, self.max_path_points, device=self.device).unsqueeze(0)
+        goal_progress = (steps - 1).clamp(min=1).unsqueeze(-1).float()
+        scaled_t = torch.clamp(t * goal_progress, max=goal_progress) / goal_progress
+        interp_xy = start_xy.unsqueeze(1) + delta.unsqueeze(1) * scaled_t.unsqueeze(-1)
+        path = torch.zeros(batch_size, self.max_path_points, 3, device=self.device)
+        path[:, :, :2] = interp_xy
+        headings = torch.atan2(delta[:, 1], delta[:, 0]).unsqueeze(-1).expand(-1, self.max_path_points)
+        path[:, :, 2] = headings
+        return path, steps
+
+    def get_waypoint_pose_w(self, asset_name: str = "robot") -> torch.Tensor:
+        robot = self._env.scene[asset_name]
+        robot_pos = torch.nan_to_num(robot.data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
+        speed = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+        lookahead = compute_velocity_scaled_lookahead(speed)
+
+        path_xy = self.reference_path_w[:, :, :2]
+        distances = torch.norm(path_xy - robot_pos.unsqueeze(1), dim=-1)
+        mask = (
+            torch.arange(self.max_path_points, device=self.device).unsqueeze(0)
+            < self.reference_path_len.unsqueeze(1)
+        )
+        masked_distances = torch.where(mask, distances, torch.full_like(distances, 1.0e6))
+        nearest_idx = torch.argmin(masked_distances, dim=1)
+        self.reference_path_cursor = torch.maximum(self.reference_path_cursor, nearest_idx)
+
+        cursor_dist = torch.gather(masked_distances, 1, self.reference_path_cursor.unsqueeze(1)).squeeze(1)
+        target_mask = mask & (distances >= lookahead.unsqueeze(1))
+        target_mask &= (
+            torch.arange(self.max_path_points, device=self.device).unsqueeze(0)
+            >= self.reference_path_cursor.unsqueeze(1)
+        )
+        fallback_idx = (self.reference_path_len - 1).clamp(min=0)
+        has_target = torch.any(target_mask, dim=1)
+        candidate_idx = torch.argmax(target_mask.to(torch.int64), dim=1)
+        selected_idx = torch.where(has_target, candidate_idx, fallback_idx)
+        self.reference_path_cursor = torch.maximum(self.reference_path_cursor, selected_idx)
+
+        selected = self.reference_path_w[torch.arange(self.num_envs, device=self.device), self.reference_path_cursor]
+        self.waypoint_pose_w[:, :3] = selected
+        self.waypoint_pose_w[:, 3] = 1.0
+        self.waypoint_pose_w[:, 4:] = 0.0
+        return self.waypoint_pose_w
     
     def _resample_command(self, env_ids: torch.Tensor):
         robot = self._env.scene[self.cfg.asset_name]
@@ -995,18 +1457,32 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
                 -torch.ones(reverse_count, device=self.device),
             )
             theta[reverse_mask] = reverse_angles * reverse_sign
-        self.pose_command_w[env_ids, 0] = robot_pos[:, 0] + r * torch.cos(theta)
-        self.pose_command_w[env_ids, 1] = robot_pos[:, 1] + r * torch.sin(theta)
-        self.pose_command_w[env_ids, 2] = 0.0 
-        self.pose_command_w[env_ids, 3] = 1.0 
-        self.pose_command_w[env_ids, 4:] = 0.0
+        goal_xy = torch.stack(
+            [
+                robot_pos[:, 0] + r * torch.cos(theta),
+                robot_pos[:, 1] + r * torch.sin(theta),
+            ],
+            dim=-1,
+        )
+        self.goal_pose_w[env_ids, 0] = goal_xy[:, 0]
+        self.goal_pose_w[env_ids, 1] = goal_xy[:, 1]
+        self.goal_pose_w[env_ids, 2] = 0.0
+        self.goal_pose_w[env_ids, 3] = 1.0
+        self.goal_pose_w[env_ids, 4:] = 0.0
+        self.pose_command_w[env_ids] = self.goal_pose_w[env_ids]
         self.heading_command_w[env_ids] = 0.0
+
+        path, steps = self._build_linear_reference_path(robot_pos[:, :2], goal_xy)
+        self.reference_path_w[env_ids] = path
+        self.reference_path_len[env_ids] = steps
+        self.reference_path_cursor[env_ids] = 0
+        self.waypoint_pose_w[env_ids] = self.goal_pose_w[env_ids]
 
     def _update_metrics(self):
         robot = self._env.scene[self.cfg.asset_name]
         root_pos_w = torch.nan_to_num(robot.data.root_pos_w, nan=0.0, posinf=0.0, neginf=0.0)
         
-        target_pos_w = self.pose_command_w[:, :3]
+        target_pos_w = self.goal_pose_w[:, :3]
         pos_error = torch.norm(target_pos_w[:, :2] - root_pos_w[:, :2], dim=-1)
         _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w)
         robot_yaw = torch.nan_to_num(robot_yaw, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1135,6 +1611,85 @@ def randomize_obstacles_by_pattern(env: ManagerBasedRLEnv, env_ids: torch.Tensor
         )
 
 
+def build_terrain_cfg() -> TerrainImporterCfg:
+    if USE_AUTOPILOT_FLAT_SCENE:
+        return TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=TerrainGeneratorCfg(
+                seed=42,
+                size=(20.0, 20.0),
+                border_width=2.5,
+                num_rows=1,
+                num_cols=1,
+                sub_terrains={
+                    "flat": HfRandomUniformTerrainCfg(
+                        proportion=1.0,
+                        horizontal_scale=0.1,
+                        vertical_scale=0.005,
+                        noise_range=(0.0, 0.0),
+                        noise_step=0.01,
+                    ),
+                },
+                curriculum=False,
+            ),
+            max_init_terrain_level=0,
+            collision_group=-1,
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="average",
+                restitution_combine_mode="average",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+        )
+
+    return TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=TerrainGeneratorCfg(
+            seed=42,
+            size=(20.0, 20.0),
+            border_width=2.5,
+            num_rows=5,
+            num_cols=5,
+            sub_terrains={
+                "flat": HfRandomUniformTerrainCfg(
+                    proportion=0.2,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.005,
+                    noise_range=(0.0, 0.0),
+                    noise_step=0.01,
+                ),
+                "random_obstacles": HfRandomUniformTerrainCfg(
+                    proportion=0.4,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.005,
+                    noise_range=(0.05, 0.2),
+                    noise_step=0.01,
+                ),
+                "maze": HfDiscreteObstaclesTerrainCfg(
+                    proportion=0.4,
+                    horizontal_scale=0.1,
+                    vertical_scale=0.1,
+                    border_width=1.0,
+                    obstacle_height_range=(0.5, 1.0),
+                    obstacle_width_range=(0.5, 2.0),
+                    num_obstacles=40,
+                ),
+            },
+            curriculum=True,
+        ),
+        max_init_terrain_level=5,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="average",
+            restitution_combine_mode="average",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+    )
+
+
 # ============================================================================
 # 配置类定义
 # ============================================================================
@@ -1146,15 +1701,15 @@ class DashgoEventsCfg:
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "min_radius": 0.5,
-            "max_radius": 0.8, 
+            "min_radius": 0.2 if USE_AUTOPILOT_GEN1_EASY_RESET else 0.5,
+            "max_radius": 0.5 if USE_AUTOPILOT_GEN1_EASY_RESET else 0.8,
         }
     )
     
     push_robot = EventTermCfg(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(10.0, 15.0),
+        interval_range_s=(1.0e9, 1.0e9) if USE_AUTOPILOT_FLAT_SCENE else (10.0, 15.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "velocity_range": {
@@ -1197,66 +1752,42 @@ class DashgoEventsCfg:
         params={
             "pattern": "obs_.*",  # 正则表达式：匹配所有名字带 obs_ 的物体
             "pose_range": {
-                "x": (-0.5, 0.5),  # 随机偏移 +/- 0.5米
-                "y": (-0.5, 0.5),
+                "x": (-0.2, 0.2) if USE_AUTOPILOT_GEN1_EASY_RESET else (-0.5, 0.5),
+                "y": (-0.2, 0.2) if USE_AUTOPILOT_GEN1_EASY_RESET else (-0.5, 0.5),
                 "yaw": (-math.pi, math.pi),  # 随机旋转 +/- 180度
             },
         }
     )
 
+    configure_dynamic_obstacles = (
+        EventTermCfg(
+            func=configure_dynamic_obstacles,
+            mode="reset",
+            params={
+                "asset_names": DYNAMIC_OBSTACLE_ASSET_NAMES,
+            },
+        )
+        if USE_AUTOPILOT_GEN2_DYNAMIC
+        else None
+    )
+
+    drive_dynamic_obstacles = (
+        EventTermCfg(
+            func=animate_dynamic_obstacles,
+            mode="interval",
+            interval_range_s=(DYNAMIC_OBSTACLE_INTERVAL_S, DYNAMIC_OBSTACLE_INTERVAL_S),
+            params={
+                "asset_names": DYNAMIC_OBSTACLE_ASSET_NAMES,
+                "motion_dt": DYNAMIC_OBSTACLE_INTERVAL_S,
+            },
+        )
+        if USE_AUTOPILOT_GEN2_DYNAMIC
+        else None
+    )
+
 @configclass
 class DashgoSceneV2Cfg(InteractiveSceneCfg):
-    # [架构师V3.7最终修正] 必须用TerrainImporterCfg包装Generator
-    terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="generator",
-        terrain_generator=TerrainGeneratorCfg(
-            seed=42,
-            size=(20.0, 20.0),
-            border_width=2.5,
-            num_rows=5,
-            num_cols=5,
-            sub_terrains={
-                # [架构师V3.6最终版] 基于源码的真实参数列表
-                # [架构师V3.6最终版] 基于源码的真实参数列表
-                # 1. 空旷地带 (20%) - 纯平地（noise_range为0）
-                "flat": HfRandomUniformTerrainCfg(
-                    proportion=0.2,
-                    horizontal_scale=0.1,
-                    vertical_scale=0.005,
-                    noise_range=(0.0, 0.0),
-                    noise_step=0.01,  # [架构师V3.8] 必须非零！防止 ZeroDivisionError
-                ),
-                # 2. 随机障碍柱 (40%) - 小起伏
-                "random_obstacles": HfRandomUniformTerrainCfg(
-                    proportion=0.4,
-                    horizontal_scale=0.1,
-                    vertical_scale=0.005,
-                    noise_range=(0.05, 0.2),
-                    noise_step=0.01,
-                ),
-                # 3. 迷宫/走廊 (40%) - 离散障碍物
-                "maze": HfDiscreteObstaclesTerrainCfg(
-                    proportion=0.4,
-                    horizontal_scale=0.1,
-                    vertical_scale=0.1,
-                    border_width=1.0,
-                    obstacle_height_range=(0.5, 1.0),
-                    obstacle_width_range=(0.5, 2.0),
-                    num_obstacles=40,
-                ),
-            },
-            curriculum=True,
-        ),
-        max_init_terrain_level=5,
-        collision_group=-1,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="average",
-            restitution_combine_mode="average",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-        ),
-    )
+    terrain = build_terrain_cfg()
 
     robot = DASHGO_D1_CFG.replace(prim_path="{ENV_REGEX_NS}/Dashgo")
 
@@ -1315,8 +1846,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             clipping_range=(0.1, 12.0),  # 对齐EAI F4最大距离
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.13),  # 安装高度13cm
+            pos=(0.0, 0.0, 0.22),  # 提高到接近顶置雷达高度，避免看见自身轮组/底盘
             rot=(1.0, 0.0, 0.0, 0.0),  # ✅ Identity quaternion (0°)
+            convention="world",
         ),
     )
 
@@ -1335,8 +1867,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             clipping_range=(0.1, 12.0),
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.13),
+            pos=(0.0, 0.0, 0.22),
             rot=(0.707, 0.0, 0.0, 0.707),  # ✅ Z+90° (sin45=0.707, cos45=0.707)
+            convention="world",
         ),
     )
 
@@ -1355,8 +1888,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             clipping_range=(0.1, 12.0),
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.13),
+            pos=(0.0, 0.0, 0.22),
             rot=(0.0, 0.0, 1.0, 0.0),  # ✅ Z+180° (0,0,1,0)
+            convention="world",
         ),
     )
 
@@ -1375,8 +1909,9 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
             clipping_range=(0.1, 12.0),
         ),
         offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.13),
+            pos=(0.0, 0.0, 0.22),
             rot=(-0.707, 0.0, 0.0, 0.707),  # ✅ Z-90° (sin-45=-0.707, cos-45=0.707)
+            convention="world",
         ),
     )
     
@@ -1435,31 +1970,42 @@ class DashgoRewardsCfg:
         weight=-0.5,
         params={
             "command_name": "target_pose",
-            "asset_cfg": SceneEntityCfg("robot")
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_kind": "waypoint",
         }
     )
 
     progress_velocity = RewardTermCfg(
         func=reward_distance_tracking_potential,
         weight=2.5,
-        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot"), "target_kind": "waypoint"},
     )
 
     target_speed = RewardTermCfg(
         func=reward_target_speed,
         weight=0.3,
-        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")},
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot"), "target_kind": "waypoint"},
     )
     facing_goal = RewardTermCfg(
         func=reward_facing_target,
         weight=0.05,
-        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot")}
+        params={"command_name": "target_pose", "asset_cfg": SceneEntityCfg("robot"), "target_kind": "waypoint"}
     )
 
     obstacle_proximity = RewardTermCfg(
         func=penalty_obstacle_proximity,
         weight=-4.0,
         params={"threshold": REWARD_CONFIG["obstacle_penalty_threshold"]},
+    )
+
+    progress_stall = RewardTermCfg(
+        func=penalty_progress_stall,
+        weight=-2.0,
+        params={
+            "command_name": "target_pose",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_kind": "waypoint",
+        },
     )
 
     # [兼容] 保留velodyne_style_reward（正常模式下）
@@ -1526,7 +2072,7 @@ class DashgoRewardsCfg:
     # [融合方案: Assistant优化] 日志项不参与训练，但设为1.0方便TensorBoard观察
     log_distance = RewardTermCfg(
         func=log_distance_to_goal,
-        weight=1.0,
+        weight=0.0,
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot")
@@ -1597,11 +2143,11 @@ class DashgoCurriculumCfg:
         func=curriculum_adaptive_distance,
         params={
             "command_name": "target_pose",
-            "initial_dist": 1.5,         # 初始难度：1.5米（幼儿园）
+            "initial_dist": INITIAL_CURRICULUM_DIST,  # Gen2 动态阶段不再从 1.0m 重新学会走路
             "max_dist": 8.0,              # 毕业难度：8米（专家区）
-            "step_size": 0.5,             # 每次调整±0.5米
-            "upgrade_threshold": 0.8,     # SR > 80% 升级
-            "downgrade_threshold": 0.4,   # SR < 40% 降级
+            "step_size": 0.125 if USE_AUTOPILOT_GEN2_DYNAMIC else 0.25,  # wave19 证明 0.0625 未继续推迟断崖，回到当前最佳 Gen2 基线
+            "upgrade_threshold": 0.8,     # wave21 证明放宽到 0.75 仍无法推动升级，回到已验证更稳的基线阈值
+            "downgrade_threshold": 0.6,   # 当前最佳证据仍是 60%，更高阈值会让 Gen2 从 model_320.pt 直接塌成 timeout
             "window_size": 100,           # 评估最近100个episode
         }
     )
