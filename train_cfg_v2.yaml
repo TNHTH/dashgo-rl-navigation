@@ -10,7 +10,7 @@ device: 'cuda:0'
 runner:
   policy_class_name: "ActorCritic"
   algorithm_class_name: "PPO"
-  num_steps_per_env: 24       # 配合 4096 环境的大批量梯度更新
+  num_steps_per_env: 24       # ✅ [Gen2 回滚 2026-03-17] 96 步 rollout 会把课程从 4.25m 打回 3.0m，先回到已验证基线
   max_iterations: 9000        # ✅ 8000轮：给足时间让策略充分收敛（用户要求）
   empirical_normalization: True # ✅ 必开：自动归一化观测数据
   save_interval: 100          # ✅ 每100轮保存，安全第一
@@ -49,16 +49,16 @@ algorithm:
   # [架构师修正 2026-01-27] 修复感知后，适当提高熵系数加快探索
   # 修改历史：0.02 → 0.01 → 0.005 → 0.01（回退到标准值）
   # 原理：感知已修复，需要更多探索避免局部最优
-  entropy_coef: 0.01  # ✅ [架构师最终版 2026-01-27] 标准值（从 0.005 提高到 0.01）
+  entropy_coef: 0.005  # ✅ [Gen2 高难度微调 2026-03-17] 降低随机抽搐，优先保住 4.25m 以上的已学策略
 
   # 学习参数
-  num_learning_epochs: 5
-  num_mini_batches: 4         # ⚠️ 显存如果不够(如<8GB)，可以调大这个数 (例如 8)
-  learning_rate: 3.0e-4      # ✅ [架构师最终版 2026-01-27] 标准值（从 1.5e-4 提高到 3e-4）
+  num_learning_epochs: 3      # ✅ [Gen2 单变量 2026-03-17] 降低同一小 batch 的重复优化次数，验证是否能减少高难度内部遗忘
+  num_mini_batches: 4         # ✅ [Gen2 回滚 2026-03-17] 2 个 mini-batch 会更早碰撞坍缩，回到 wave24 的已验证基线
+  learning_rate: 1.5e-4      # ✅ [Gen2 回滚 2026-03-17] 1.0e-4 会更早碰撞坍缩，回到 wave24 的已验证基线
   schedule: "adaptive"        # ✅ [保险丝] 自适应调整学习率
   gamma: 0.99                 # 折扣因子 (关注长远利益)
   lam: 0.95
-  desired_kl: 0.01            # 目标 KL 散度，超过这个值就降低学习率
+  desired_kl: 0.005           # ✅ [Gen2 单变量 2026-03-17] 更早触发自适应降速，验证能否压住 wave24 后段漂移
   max_grad_norm: 1.0          # 梯度裁剪，防止梯度爆炸
 
 # 4. 辅助设置

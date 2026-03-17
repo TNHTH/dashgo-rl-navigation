@@ -1,0 +1,31 @@
+{
+  "autopilot_root": "/home/gwh/dashgo_rl_project/autopilot",
+  "project_root": "/home/gwh/dashgo_rl_project",
+  "status": "ok",
+  "summary": {
+    "generation": "gen1",
+    "latest_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013631_wave2_resume/checkpoints/model_20.pt",
+    "latest_scalars": {
+      "Curriculum/target_adaptive": 1.5,
+      "Episode_Reward/log_distance": 0.30472320318222046,
+      "Episode_Reward/log_velocity": 0.0,
+      "Episode_Termination/object_collision": 0.0,
+      "Episode_Termination/reach_goal": 0.0,
+      "Episode_Termination/time_out": 1.0,
+      "Train/mean_episode_length": 252.3333282470703,
+      "Train/mean_reward": -34.06715393066406
+    },
+    "latest_three_checkpoints": [
+      "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013631_wave2_resume/checkpoints/model_20.pt"
+    ],
+    "max_iterations": 80,
+    "num_envs": 8,
+    "resume_checkpoint": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013517_wave1_short/checkpoints/model_19.pt",
+    "run_dir": "/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_013631_wave2_resume",
+    "run_name": "wave2_resume",
+    "save_interval": 20,
+    "seconds_since_update": 12.67,
+    "status": "running",
+    "tensorboard_available": true
+  }
+}
