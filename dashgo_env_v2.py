@@ -27,6 +27,16 @@ TERRAIN_GEN_AVAILABLE = True
 from dashgo_assets import DASHGO_D1_CFG
 from dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 
+def _get_env_float(name: str, default: float) -> float:
+    """读取环境变量浮点配置，解析失败时回退默认值。"""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
 # =============================================================================
 # 训练超参数常量定义（来自 train_cfg_v2.yaml 和 ROS 配置）
 # =============================================================================
@@ -92,6 +102,11 @@ REWARD_CONFIG = {
     "alive_penalty": 1.0,
     "reward_clip_min": -20.0,
     "reward_clip_max": 120.0,
+    "reverse_escape_term_weight": _get_env_float("DASHGO_REVERSE_ESCAPE_WEIGHT", 0.25),
+    "reverse_escape_front_blocked": _get_env_float("DASHGO_REVERSE_ESCAPE_FRONT_BLOCKED", 0.55),
+    "reverse_escape_rear_clear": _get_env_float("DASHGO_REVERSE_ESCAPE_REAR_CLEAR", 0.80),
+    "reverse_escape_progress_threshold": _get_env_float("DASHGO_REVERSE_ESCAPE_PROGRESS_THRESHOLD", 0.02),
+    "reverse_escape_ang_penalty": _get_env_float("DASHGO_REVERSE_ESCAPE_ANG_PENALTY", 0.10),
 }
 
 # 观测处理参数
@@ -120,6 +135,17 @@ INITIAL_CURRICULUM_DIST = 3.0 if USE_AUTOPILOT_GEN2_DYNAMIC else 1.0
 DYNAMIC_OBSTACLE_ASSET_NAMES = ("obs_inner_1", "obs_inner_3", "obs_inner_5")
 DYNAMIC_OBSTACLE_PROFILE_NAMES = ("crossing", "head_on", "stop_go")
 DYNAMIC_OBSTACLE_INTERVAL_S = 0.10
+RECOVERY_SCENARIO_CONFIG = {
+    "enabled": USE_AUTOPILOT_GEN2_DYNAMIC,
+    "probability": _get_env_float("DASHGO_RECOVERY_SCENARIO_PROBABILITY", 0.0),
+    "goal_distance_min": 0.8,
+    "goal_distance_max": 1.4,
+    "goal_theta_min": 0.80 * math.pi,
+    "goal_theta_max": math.pi,
+    "front_blocker_x": 0.62,
+    "front_blocker_y": 0.32,
+    "front_cap_x": 1.12,
+}
 
 
 def append_curriculum_trace(payload: dict) -> None:
@@ -176,6 +202,46 @@ def _ensure_dynamic_obstacle_state(env: ManagerBasedRLEnv, asset_names: tuple[st
     }
     env._dynamic_obstacle_state = state
     return state
+
+
+def _ensure_recovery_scenario_state(env: ManagerBasedRLEnv) -> dict:
+    """按需初始化“前堵后退”课程状态缓存。"""
+    state = getattr(env, "_recovery_scenario_state", None)
+    if state is not None and state.get("num_envs") == env.num_envs:
+        return state
+
+    state = {
+        "num_envs": env.num_envs,
+        "active": torch.zeros(env.num_envs, device=env.device, dtype=torch.bool),
+        "goal_distance": torch.zeros(env.num_envs, device=env.device),
+        "goal_theta": torch.zeros(env.num_envs, device=env.device),
+    }
+    env._recovery_scenario_state = state
+    return state
+
+
+def _write_kinematic_obstacle_pose(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    asset_name: str,
+    root_xy_w: torch.Tensor,
+    yaw_w: torch.Tensor,
+    height: float = 0.5,
+) -> None:
+    """把静态/运动学障碍写到给定世界位姿。"""
+    if env_ids.numel() == 0:
+        return
+
+    asset = env.scene[asset_name]
+    root_pose = asset.data.default_root_state[env_ids, :7].clone()
+    root_pose[:, 0:2] = root_xy_w
+    root_pose[:, 2] = height
+    zeros = torch.zeros_like(yaw_w)
+    root_pose[:, 3:7] = quat_from_euler_xyz(zeros, zeros, yaw_w)
+
+    root_velocity = torch.zeros((len(env_ids), 6), device=env.device)
+    asset.write_root_pose_to_sim(root_pose, env_ids=env_ids)
+    asset.write_root_velocity_to_sim(root_velocity, env_ids=env_ids)
 
 
 def _compute_stop_go_motion(
@@ -335,6 +401,80 @@ def animate_dynamic_obstacles(
             2.0 * math.pi,
         )
         _write_dynamic_obstacle_slot(env, slot_env_ids, slot_idx, state)
+
+
+def configure_recovery_escape_scenarios(env: ManagerBasedRLEnv, env_ids: torch.Tensor) -> None:
+    """为一部分环境注入“前堵后退”的定向脱困课程。"""
+    if not RECOVERY_SCENARIO_CONFIG["enabled"]:
+        return
+
+    env_ids = _resolve_event_env_ids(env, env_ids)
+    if env_ids.numel() == 0:
+        return
+
+    scenario_state = _ensure_recovery_scenario_state(env)
+    scenario_state["active"][env_ids] = False
+    scenario_state["goal_distance"][env_ids] = 0.0
+    scenario_state["goal_theta"][env_ids] = 0.0
+
+    scenario_mask = torch.rand(len(env_ids), device=env.device) < RECOVERY_SCENARIO_CONFIG["probability"]
+    if not torch.any(scenario_mask):
+        return
+
+    scenario_env_ids = env_ids[scenario_mask]
+    robot = env.scene["robot"]
+    robot_pos = torch.nan_to_num(robot.data.root_pos_w[scenario_env_ids, :2], nan=0.0, posinf=0.0, neginf=0.0)
+    _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w[scenario_env_ids])
+    robot_yaw = torch.nan_to_num(robot_yaw, nan=0.0, posinf=0.0, neginf=0.0)
+
+    scenario_state["active"][scenario_env_ids] = True
+    goal_distance = torch.empty(len(scenario_env_ids), device=env.device).uniform_(
+        RECOVERY_SCENARIO_CONFIG["goal_distance_min"],
+        RECOVERY_SCENARIO_CONFIG["goal_distance_max"],
+    )
+    goal_theta = torch.empty(len(scenario_env_ids), device=env.device).uniform_(
+        RECOVERY_SCENARIO_CONFIG["goal_theta_min"],
+        RECOVERY_SCENARIO_CONFIG["goal_theta_max"],
+    )
+    goal_sign = torch.where(
+        torch.rand(len(scenario_env_ids), device=env.device) > 0.5,
+        torch.ones(len(scenario_env_ids), device=env.device),
+        -torch.ones(len(scenario_env_ids), device=env.device),
+    )
+    scenario_state["goal_distance"][scenario_env_ids] = goal_distance
+    scenario_state["goal_theta"][scenario_env_ids] = goal_theta * goal_sign
+
+    local_left = torch.tensor(
+        [RECOVERY_SCENARIO_CONFIG["front_blocker_x"], RECOVERY_SCENARIO_CONFIG["front_blocker_y"]],
+        device=env.device,
+    ).unsqueeze(0).repeat(len(scenario_env_ids), 1)
+    local_right = torch.tensor(
+        [RECOVERY_SCENARIO_CONFIG["front_blocker_x"], -RECOVERY_SCENARIO_CONFIG["front_blocker_y"]],
+        device=env.device,
+    ).unsqueeze(0).repeat(len(scenario_env_ids), 1)
+    local_cap = torch.tensor(
+        [RECOVERY_SCENARIO_CONFIG["front_cap_x"], 0.0],
+        device=env.device,
+    ).unsqueeze(0).repeat(len(scenario_env_ids), 1)
+    left_xy = robot_pos + _rotate_local_xy(local_left, robot_yaw)
+    right_xy = robot_pos + _rotate_local_xy(local_right, robot_yaw)
+    cap_xy = robot_pos + _rotate_local_xy(local_cap, robot_yaw)
+
+    # 将运动学动态障碍停到远处，避免与脱困课程互相干扰。
+    dynamic_state = _ensure_dynamic_obstacle_state(env, DYNAMIC_OBSTACLE_ASSET_NAMES)
+    dynamic_state["active_slot"][scenario_env_ids] = -1
+    parked_positions = {
+        "obs_inner_1": (2.2, 2.2),
+        "obs_inner_3": (-2.2, 2.2),
+        "obs_inner_5": (-2.2, -2.2),
+    }
+    for asset_name, offset in parked_positions.items():
+        park_xy = env.scene.env_origins[scenario_env_ids, :2] + torch.tensor(offset, device=env.device)
+        _write_kinematic_obstacle_pose(env, scenario_env_ids, asset_name, park_xy, torch.zeros_like(robot_yaw))
+
+    _write_kinematic_obstacle_pose(env, scenario_env_ids, "obs_inner_2", left_xy, robot_yaw)
+    _write_kinematic_obstacle_pose(env, scenario_env_ids, "obs_inner_8", right_xy, robot_yaw)
+    _write_kinematic_obstacle_pose(env, scenario_env_ids, "obs_outer_1", cap_xy, robot_yaw)
 
 # =============================================================================
 # 辅助函数：检测是否 headless 模式
@@ -687,6 +827,13 @@ def _get_min_obstacle_distance(env: ManagerBasedRLEnv) -> torch.Tensor:
     all_pixels = torch.cat([d_front, d_left, d_back, d_right], dim=1).view(batch_size, -1)
     all_pixels = torch.nan_to_num(all_pixels, posinf=12.0)
     return torch.min(all_pixels, dim=1)[0]
+
+
+def _get_camera_min_distance(env: ManagerBasedRLEnv, camera_name: str) -> torch.Tensor:
+    """提取单个方向深度相机的最近障碍距离。"""
+    depth = env.scene[camera_name].data.output["distance_to_image_plane"]
+    flat_depth = torch.nan_to_num(depth, posinf=12.0, neginf=0.0).view(depth.shape[0], -1)
+    return torch.min(flat_depth, dim=1)[0]
 
 
 def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.6) -> torch.Tensor:
@@ -1078,6 +1225,54 @@ def reward_target_speed(
     angular_penalty = 0.1 * ang_vel
     return torch.nan_to_num(speed_reward - angular_penalty - creep_penalty, nan=0.0, posinf=0.0, neginf=0.0)
 
+
+def reward_contextual_reverse_escape(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "waypoint",
+    front_blocked_threshold: float = 0.55,
+    rear_clear_threshold: float = 0.80,
+    progress_threshold: float = 0.02,
+) -> torch.Tensor:
+    """仅在前堵后通且推进停滞时，奖励受控倒车脱困。"""
+    robot = env.scene[asset_cfg.name]
+    _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg, target_kind=target_kind)
+    forward_vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    ang_vel = torch.abs(torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0))
+
+    front_min = _get_camera_min_distance(env, "camera_front")
+    rear_min = _get_camera_min_distance(env, "camera_back")
+    progress_speed = forward_vel * torch.cos(angle_error)
+
+    front_blocked_gate = torch.clamp(
+        (front_blocked_threshold - front_min) / max(front_blocked_threshold - 0.20, 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    rear_clear_gate = torch.clamp(
+        (rear_min - rear_clear_threshold) / max(1.50 - rear_clear_threshold, 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    stalled_gate = (
+        (progress_speed < progress_threshold)
+        & (front_min < front_blocked_threshold)
+        & (rear_min > rear_clear_threshold)
+    ).float()
+    reverse_gate = torch.clamp(
+        (-forward_vel) / max(MOTION_CONFIG["max_reverse_speed"], 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    angular_penalty = REWARD_CONFIG["reverse_escape_ang_penalty"] * torch.clamp(
+        ang_vel / max(MOTION_CONFIG["max_ang_vel"], 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    reward = front_blocked_gate * rear_clear_gate * stalled_gate * reverse_gate - angular_penalty * stalled_gate
+    return torch.nan_to_num(reward, nan=0.0, posinf=0.0, neginf=0.0)
+
 # =============================================================================
 # 3. 奖励函数 (包含 Goal Fixing 和 NaN 清洗)
 # =============================================================================
@@ -1457,6 +1652,11 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
                 -torch.ones(reverse_count, device=self.device),
             )
             theta[reverse_mask] = reverse_angles * reverse_sign
+        scenario_state = _ensure_recovery_scenario_state(self._env)
+        recovery_mask = scenario_state["active"][env_ids]
+        if torch.any(recovery_mask):
+            r[recovery_mask] = scenario_state["goal_distance"][env_ids][recovery_mask]
+            theta[recovery_mask] = scenario_state["goal_theta"][env_ids][recovery_mask]
         goal_xy = torch.stack(
             [
                 robot_pos[:, 0] + r * torch.cos(theta),
@@ -1771,6 +1971,16 @@ class DashgoEventsCfg:
         else None
     )
 
+    configure_recovery_escape_scenarios = (
+        EventTermCfg(
+            func=configure_recovery_escape_scenarios,
+            mode="reset",
+            params={},
+        )
+        if USE_AUTOPILOT_GEN2_DYNAMIC
+        else None
+    )
+
     drive_dynamic_obstacles = (
         EventTermCfg(
             func=animate_dynamic_obstacles,
@@ -2005,6 +2215,19 @@ class DashgoRewardsCfg:
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot"),
             "target_kind": "waypoint",
+        },
+    )
+
+    reverse_escape = RewardTermCfg(
+        func=reward_contextual_reverse_escape,
+        weight=REWARD_CONFIG["reverse_escape_term_weight"],
+        params={
+            "command_name": "target_pose",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_kind": "waypoint",
+            "front_blocked_threshold": REWARD_CONFIG["reverse_escape_front_blocked"],
+            "rear_clear_threshold": REWARD_CONFIG["reverse_escape_rear_clear"],
+            "progress_threshold": REWARD_CONFIG["reverse_escape_progress_threshold"],
         },
     )
 

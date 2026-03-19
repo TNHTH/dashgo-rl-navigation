@@ -18,10 +18,12 @@ from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .controller_core import (
+    apply_heading_guard,
     ObservationBuffer,
     compute_velocity_scaled_lookahead,
     encode_goal_vector,
     process_lidar_ranges,
+    select_progressive_waypoint_index,
     select_waypoint_index,
 )
 from .safety_filter import DynamicsSafetyFilter
@@ -68,6 +70,19 @@ class GeoNavNode(Node):
                 ("near_goal_speed", 0.05),
                 ("goal_obs_max_dist", 8.0),
                 ("waypoint_obs_max_dist", 1.0),
+                ("heading_guard_enabled", True),
+                ("heading_guard_slowdown_angle_deg", 25.0),
+                ("heading_guard_turn_in_place_angle_deg", 65.0),
+                ("recovery_enabled", True),
+                ("recovery_front_blocked_dist", 0.30),
+                ("recovery_rear_safe_dist", 0.28),
+                ("recovery_stuck_speed", 0.03),
+                ("recovery_goal_min_dist", 0.40),
+                ("recovery_reverse_speed", 0.08),
+                ("recovery_turn_speed", 0.80),
+                ("recovery_duration_sec", 0.90),
+                ("recovery_cooldown_sec", 1.20),
+                ("recovery_side_sector_deg", 70.0),
                 ("safety_filter_enabled", True),
                 ("goal_topic", "/goal_pose"),
                 ("legacy_goal_topic", "/move_base_simple/goal"),
@@ -105,6 +120,25 @@ class GeoNavNode(Node):
         self.near_goal_speed = float(self.get_parameter("near_goal_speed").value)
         self.goal_obs_max_dist = float(self.get_parameter("goal_obs_max_dist").value)
         self.waypoint_obs_max_dist = float(self.get_parameter("waypoint_obs_max_dist").value)
+        self.heading_guard_enabled = bool(self.get_parameter("heading_guard_enabled").value)
+        self.heading_guard_slowdown_angle = np.deg2rad(
+            float(self.get_parameter("heading_guard_slowdown_angle_deg").value)
+        )
+        self.heading_guard_turn_in_place_angle = np.deg2rad(
+            float(self.get_parameter("heading_guard_turn_in_place_angle_deg").value)
+        )
+        self.recovery_enabled = bool(self.get_parameter("recovery_enabled").value)
+        self.recovery_front_blocked_dist = float(self.get_parameter("recovery_front_blocked_dist").value)
+        self.recovery_rear_safe_dist = float(self.get_parameter("recovery_rear_safe_dist").value)
+        self.recovery_stuck_speed = float(self.get_parameter("recovery_stuck_speed").value)
+        self.recovery_goal_min_dist = float(self.get_parameter("recovery_goal_min_dist").value)
+        self.recovery_reverse_speed = float(self.get_parameter("recovery_reverse_speed").value)
+        self.recovery_turn_speed = float(self.get_parameter("recovery_turn_speed").value)
+        self.recovery_duration_sec = float(self.get_parameter("recovery_duration_sec").value)
+        self.recovery_cooldown_sec = float(self.get_parameter("recovery_cooldown_sec").value)
+        self.recovery_side_sector = np.deg2rad(
+            float(self.get_parameter("recovery_side_sector_deg").value) / 2.0
+        )
         self.safety_filter_enabled = bool(self.get_parameter("safety_filter_enabled").value)
         self.goal_topic = str(self.get_parameter("goal_topic").value)
         self.legacy_goal_topic = str(self.get_parameter("legacy_goal_topic").value)
@@ -119,12 +153,17 @@ class GeoNavNode(Node):
         self.current_vel = np.zeros(6, dtype=np.float32)
         self.goal_vector = np.zeros(3, dtype=np.float32)
         self.waypoint_vector = np.zeros(3, dtype=np.float32)
+        self.goal_heading = 0.0
+        self.waypoint_heading = 0.0
         self.goal_distance = np.inf
         self.waypoint_distance = np.inf
         self.latest_scan: Optional[LaserScan] = None
         self.goal_pose: Optional[PoseStamped] = None
         self.latest_plan: Optional[Path] = None
         self.current_waypoint_index = -1
+        self.recovery_active_until = 0.0
+        self.recovery_cooldown_until = 0.0
+        self.recovery_turn_dir = 1.0
         self._throttle_state = {}
         self.safety_filter = (
             DynamicsSafetyFilter(robot_radius=0.20, max_accel=self.max_acc_lin, max_ang_accel=self.max_acc_ang)
@@ -181,8 +220,16 @@ class GeoNavNode(Node):
             return
 
         self._throttle_state[key] = now_sec
-        logger = getattr(self.get_logger(), level)
-        logger(message)
+        logger = self.get_logger()
+        normalized_level = level.lower()
+        if normalized_level in {"warn", "warning"}:
+            logger.warning(message)
+        elif normalized_level == "error":
+            logger.error(message)
+        elif normalized_level == "debug":
+            logger.debug(message)
+        else:
+            logger.info(message)
 
     def scan_cb(self, msg: LaserScan) -> None:
         self.latest_scan = msg
@@ -226,6 +273,10 @@ class GeoNavNode(Node):
         self.waypoint_vector[:] = 0.0
         self.goal_distance = np.inf
         self.waypoint_distance = np.inf
+        self.goal_heading = 0.0
+        self.waypoint_heading = 0.0
+        self.recovery_active_until = 0.0
+        self.recovery_cooldown_until = 0.0
         self.obs_buffer.reset()
 
     def transform_pose_to_base(self, pose: PoseStamped) -> Optional[PoseStamped]:
@@ -247,8 +298,8 @@ class GeoNavNode(Node):
             return None
 
         plan_frame = self.latest_plan.header.frame_id or "map"
-        transformed_distances = []
         normalized_poses = []
+        path_points_in_base = []
 
         for pose in self.latest_plan.poses:
             candidate = PoseStamped()
@@ -262,14 +313,17 @@ class GeoNavNode(Node):
             if pose_in_base is None:
                 return None
 
-            transformed_distances.append(
-                float(np.hypot(pose_in_base.pose.position.x, pose_in_base.pose.position.y))
+            path_points_in_base.append(
+                [
+                    float(pose_in_base.pose.position.x),
+                    float(pose_in_base.pose.position.y),
+                ]
             )
 
         lookahead_distance = self.compute_waypoint_lookahead()
-        self.current_waypoint_index = select_waypoint_index(
-            transformed_distances,
-            waypoint_dist=lookahead_distance,
+        self.current_waypoint_index = select_progressive_waypoint_index(
+            np.asarray(path_points_in_base, dtype=np.float32),
+            lookahead_dist=lookahead_distance,
         )
         return normalized_poses[self.current_waypoint_index]
 
@@ -298,6 +352,91 @@ class GeoNavNode(Node):
         )
         return float(max(lookahead_distance, 0.0))
 
+    def now_sec(self) -> float:
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def update_last_action_from_cmd(self, cmd_v: float, cmd_w: float) -> None:
+        if cmd_v >= 0.0:
+            norm_v = cmd_v / max(self.max_v, 1.0e-6)
+        else:
+            norm_v = cmd_v / max(self.max_reverse_speed, 1.0e-6)
+        norm_w = cmd_w / max(self.max_w, 1.0e-6)
+        self.last_action = np.array(
+            [
+                float(np.clip(norm_v, -1.0, 1.0)),
+                float(np.clip(norm_w, -1.0, 1.0)),
+            ],
+            dtype=np.float32,
+        )
+
+    def compute_recovery_clearances(self) -> tuple[float, float, float, float]:
+        if self.latest_scan is None:
+            inf = float(self.max_lidar_range)
+            return inf, inf, inf, inf
+
+        scan = np.asarray(self.latest_scan.ranges, dtype=np.float32)
+        scan = np.nan_to_num(scan, nan=self.max_lidar_range, posinf=self.max_lidar_range, neginf=0.0)
+        scan = np.clip(scan, 0.0, self.max_lidar_range)
+        if scan.size == 0:
+            inf = float(self.max_lidar_range)
+            return inf, inf, inf, inf
+
+        angles = float(self.latest_scan.angle_min) + np.arange(scan.size, dtype=np.float32) * float(
+            self.latest_scan.angle_increment
+        )
+
+        def min_clearance(center_angle: float, half_width: float) -> float:
+            wrapped = np.abs((angles - center_angle + np.pi) % (2.0 * np.pi) - np.pi)
+            mask = wrapped <= half_width
+            if not np.any(mask):
+                return float(self.max_lidar_range)
+            sector = scan[mask]
+            valid = sector[(sector > 0.05) & (sector < self.max_lidar_range)]
+            if valid.size == 0:
+                return float(self.max_lidar_range)
+            return float(np.min(valid))
+
+        front = min_clearance(0.0, self.recovery_side_sector)
+        rear = min_clearance(np.pi, self.recovery_side_sector)
+        left = min_clearance(np.pi / 2.0, self.recovery_side_sector)
+        right = min_clearance(-np.pi / 2.0, self.recovery_side_sector)
+        return front, rear, left, right
+
+    def maybe_compute_recovery_command(self) -> Optional[tuple[float, float]]:
+        if not self.recovery_enabled or self.goal_pose is None:
+            return None
+
+        now_sec = self.now_sec()
+        front_clearance, rear_clearance, left_clearance, right_clearance = self.compute_recovery_clearances()
+
+        if now_sec < self.recovery_active_until:
+            reverse_cmd = -self.recovery_reverse_speed if rear_clearance >= self.recovery_rear_safe_dist else 0.0
+            return reverse_cmd, self.recovery_turn_dir * self.recovery_turn_speed
+
+        if now_sec < self.recovery_cooldown_until:
+            return None
+
+        front_blocked = front_clearance < self.recovery_front_blocked_dist
+        stuck = abs(float(self.current_vel[0])) < self.recovery_stuck_speed
+        far_enough = self.goal_distance > self.recovery_goal_min_dist
+        if not (front_blocked and stuck and far_enough):
+            return None
+
+        self.recovery_turn_dir = 1.0 if left_clearance >= right_clearance else -1.0
+        self.recovery_active_until = now_sec + self.recovery_duration_sec
+        self.recovery_cooldown_until = self.recovery_active_until + self.recovery_cooldown_sec
+        self.throttle_log(
+            "recovery_trigger",
+            "warn",
+            "触发倒车脱困: "
+            f"front={front_clearance:.2f}, rear={rear_clearance:.2f}, "
+            f"left={left_clearance:.2f}, right={right_clearance:.2f}, "
+            f"turn_dir={'left' if self.recovery_turn_dir > 0 else 'right'}",
+            0.5,
+        )
+        reverse_cmd = -self.recovery_reverse_speed if rear_clearance >= self.recovery_rear_safe_dist else 0.0
+        return reverse_cmd, self.recovery_turn_dir * self.recovery_turn_speed
+
     def update_target_vectors(self) -> bool:
         if self.goal_pose is None:
             return False
@@ -309,6 +448,7 @@ class GeoNavNode(Node):
         goal_dy = goal_in_base.pose.position.y
         self.goal_distance = float(np.hypot(goal_dx, goal_dy))
         goal_angle = float(np.arctan2(goal_dy, goal_dx))
+        self.goal_heading = goal_angle
         self.goal_vector = encode_goal_vector(self.goal_distance, goal_angle, self.goal_obs_max_dist)
 
         target_pose = self.resolve_target_pose()
@@ -322,6 +462,7 @@ class GeoNavNode(Node):
         dy = target_in_base.pose.position.y
         self.waypoint_distance = float(np.hypot(dx, dy))
         waypoint_angle = float(np.arctan2(dy, dx))
+        self.waypoint_heading = waypoint_angle
         self.waypoint_vector = encode_goal_vector(
             self.waypoint_distance,
             waypoint_angle,
@@ -380,6 +521,30 @@ class GeoNavNode(Node):
         ).astype(np.float32)
 
         self.obs_buffer.update(current_obs_vec)
+
+        recovery_cmd = self.maybe_compute_recovery_command()
+        if recovery_cmd is not None:
+            cmd_v, cmd_w = recovery_cmd
+            if self.safety_filter is not None:
+                try:
+                    cmd_v, cmd_w = self.safety_filter.filter(
+                        cmd_v,
+                        cmd_w,
+                        np.asarray(self.latest_scan.ranges, dtype=np.float32),
+                        angle_min=float(self.latest_scan.angle_min),
+                        angle_increment=float(self.latest_scan.angle_increment),
+                        max_range=self.max_lidar_range,
+                    )
+                except Exception as exc:
+                    self.throttle_log("safety_filter", "warn", f"安全过滤失败，回退到未过滤命令: {exc}", 2.0)
+
+            twist = Twist()
+            twist.linear.x = cmd_v
+            twist.angular.z = cmd_w
+            self.cmd_pub.publish(twist)
+            self.update_last_action_from_cmd(cmd_v, cmd_w)
+            return
+
         stacked_obs = self.obs_buffer.stacked()
         input_tensor = torch.from_numpy(stacked_obs).unsqueeze(0).to(self.device)
 
@@ -414,6 +579,28 @@ class GeoNavNode(Node):
         cmd_w = float(np.clip(cmd_w, last_cmd_w - acc_ang_per_tick, last_cmd_w + acc_ang_per_tick))
         cmd_v = float(np.clip(cmd_v, -self.max_reverse_speed, self.max_v))
         cmd_w = float(np.clip(cmd_w, -self.max_w, self.max_w))
+
+        if self.heading_guard_enabled:
+            guarded_cmd_v, guarded_cmd_w = apply_heading_guard(
+                cmd_v,
+                cmd_w,
+                self.waypoint_heading,
+                max_angular_cmd=self.max_w,
+                slowdown_angle=self.heading_guard_slowdown_angle,
+                turn_in_place_angle=self.heading_guard_turn_in_place_angle,
+            )
+            if abs(guarded_cmd_v - cmd_v) > 1.0e-5 or abs(guarded_cmd_w - cmd_w) > 1.0e-5:
+                self.throttle_log(
+                    "heading_guard",
+                    "info",
+                    "夹角保护生效: "
+                    f"heading={np.rad2deg(self.waypoint_heading):.1f}deg, "
+                    f"v={cmd_v:.3f}->{guarded_cmd_v:.3f}, "
+                    f"w={cmd_w:.3f}->{guarded_cmd_w:.3f}",
+                    1.0,
+                )
+            cmd_v = guarded_cmd_v
+            cmd_w = guarded_cmd_w
 
         if self.goal_distance < self.goal_reached_dist:
             cmd_v = 0.0

@@ -1,5 +1,104 @@
 # DashGo Isaac 自主值守训练进度日志
 
+## 2026-03-19 17:10 CST
+
+- `research_job(auto_round_exhausted)` 结论已落地:
+  - 当前不是传感器故障，也不是训练代码回归。
+  - 直接触发原因是 `continuous_gen2_supervisor.py` 的 auto follow-up 选族逻辑只看训练末尾标量排序，没有把 `doctor + quick eval` 的否决结果纳入候选过滤。
+  - 证据:
+    - state/job 输入显示 auto-round-3 选择了 `wave94_gen2_model704_frontblock085_seed44`
+    - 该 run 的训练标量表面为 `reach_goal=1.0 / collision=0.0 / time_out=0.0 / position_error≈0.246`
+    - 但 `autopilot/metrics/eval_quick_model_823.json` 对应同一 checkpoint 的真实 `quick eval` 为:
+      - `success_rate=0.0`
+      - `orbit_score=1.0`
+      - `progress_stall_rate≈0.667`
+      - `sensor_health_score=1.0`
+    - 事件流已明确写出 `suspect_policy_regression`，说明 gate 已否决该候选，但后续 auto-round 仍围绕 `frontblock` 继续细化
+- 已实施修复:
+  - 修改 `autopilot/continuous_gen2_supervisor.py`
+  - 新增:
+    - `parse_trial_family_value()`
+    - `collect_gate_failed_runs()`
+    - `collect_auto_round_history()`
+  - 新逻辑:
+    - auto follow-up 生成前，先排除已被 `doctor/eval gate` 否决的 run
+    - 从完整事件流恢复已经自动细化过的 family 与已试参数，避免 supervisor 重启后忘记历史
+    - 不再围绕已自动细化失败的 family 继续局部搜索
+- 静态验证:
+  - `python3 -m py_compile autopilot/continuous_gen2_supervisor.py` 通过
+  - 直接调用 `build_auto_followup_round(4)`，当前结果已不再回到 `frontblock`
+    - 新候选变为 `progress` family
+    - `excluded_gate_failed_runs` 包含 `wave94_gen2_model704_frontblock085_seed44`
+    - `excluded_autotuned_families` 包含 `frontblock` 与 `rearclear`
+
+## 2026-03-19 16:53 CST
+
+- 用户要求恢复训练并明确按对应 skill 执行：
+  - 当前使用 `auto-train` 负责续训与单变量波次接续
+  - 当前使用 `background-supervisor` 负责真实运行态、safe pause 与后台值守治理
+- 恢复阶段先核对真实运行态：
+  - `continuous_supervisor_state.json` 仍停在 `pause_after_current_run`
+  - `wave100` 与 `wave101` 已完成，系统里没有任何活动训练或 supervisor 进程
+  - 说明当前状态是“安全暂停后未恢复”，不是“仍在后台继续训练”
+- 恢复动作：
+  - 将 `completed_run_name` 校正到 `wave101_gen2_model704_angpen015_seed44`
+  - 解除 `desired_state=pause_after_current_run`
+  - 重启 `autopilot/run_continuous_supervisor.sh`
+- 新阻点定位：
+  - supervisor 已尝试续跑 `wave102_gen2_model704_angpen020_seed44`
+  - 但 `wave102` 只有 launch 日志，没有 run 目录与训练进程
+  - 根因是 `/home/gwh/IsaacLab/isaaclab.sh` 顶部的 `set -e + tabs 4` 在后台 `dumb terminal` 环境下直接退出
+- 修复动作：
+  - 修改 `autopilot/continuous_gen2_supervisor.py`
+  - 将后台训练入口从 `isaaclab.sh -p train_v2.py ...` 改为直接调用 `/home/gwh/IsaacLab/_isaac_sim/python.sh train_v2.py ...`
+  - 保持训练合同、checkpoint 与单变量 trial 不变，只修后台启动兼容性
+- 验证结果：
+  - `python3 -m py_compile autopilot/continuous_gen2_supervisor.py` 通过
+  - 新的 `wave102` 目录已创建：
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_165258_wave102_gen2_model704_angpen020_seed44`
+  - 当前活动进程链已恢复：
+    - `python3 autopilot/continuous_gen2_supervisor.py`
+    - `/home/gwh/IsaacLab/_isaac_sim/python.sh train_v2.py --headless --gen gen2 --run_name wave102_gen2_model704_angpen020_seed44 ...`
+    - `/home/gwh/IsaacLab/_isaac_sim/kit/python/bin/python3 train_v2.py --headless --gen gen2 ...`
+  - `continuous_supervisor_state.json` 当前显示：
+    - `supervisor_status=running`
+    - `active_run_name=wave102_gen2_model704_angpen020_seed44`
+    - `current_trial.tag=angpen020`
+
+## 2026-03-19 16:17 CST
+
+- 初始化新 Obsidian 任务日志:
+  - `/home/gwh/文档/Obsidian Vault/03_项目记录/dashgo 后台模型路由与安全暂停实现_2026-03-19_16-17.md`
+- 落地后台模型路由:
+  - 新增 `autopilot/codex_router.py`
+  - 扩展 `autopilot/types.py` 中的 `CodexRouteDecision / CodexJobSpec.route`
+  - 扩展 `autopilot/codex_escalator.py`：
+    - 统一先做 route resolve
+    - 通过 `--profile + -m + model_reasoning_effort` 显式指定后台模型
+    - 在 runtime `events.jsonl` 里写入 `route.selected`
+  - 补充 `~/.codex/config.toml`：
+    - `profiles.monitor`
+    - `profiles.diagnose`
+    - `profiles.authoring`
+  - 移除 `gpt-5.3-codex -> gpt-5.4` 的本地迁移提示
+- 落地安全暂停:
+  - 扩展 `autopilot/continuous_gen2_supervisor.py`
+  - 支持读取 `desired_state=pause_after_current_run`
+  - 监控中的活动波次显示为 `draining_for_pause`
+  - 当前波次结束后应直接收口为 `paused_drained`
+- 验证:
+  - `python3 -m py_compile autopilot/types.py autopilot/codex_router.py autopilot/codex_escalator.py autopilot/continuous_gen2_supervisor.py tests/test_codex_router.py tests/test_continuous_supervisor.py`
+  - `PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_codex_router.py tests/test_continuous_supervisor.py -q`
+  - 结果: `6 passed`
+- 运行态切换:
+  - 先将 `continuous_supervisor_state.json` 写成：
+    - `desired_state=pause_after_current_run`
+    - `pause_scope=all`
+  - 停掉旧 supervisor `PID=116381`
+  - 重新启动新 supervisor `PID=127140`
+  - 新 supervisor 已 attach 到 `wave101_gen2_model704_angpen015_seed44`
+  - 当前状态为 `draining_for_pause`
+
 ## 2026-03-17 01:16 CST
 
 - 初始化 Obsidian 任务日志:
@@ -812,3 +911,465 @@
   - 按用户要求，不再继续训练
   - `STATE.md` 已改为 `paused_retro_after_wave42`
   - 后续若恢复训练，必须先跑新的 resume discovery，再决定是否续训
+
+## 2026-03-19 02:30 CST
+
+- 完成本轮 Gazebo / ROS2 验证问题复盘并沉淀记录:
+  - Obsidian 复盘笔记:
+    - `/home/gwh/文档/Obsidian Vault/03_项目记录/DashGo_Gazebo_ROS2验证问题复盘_2026-03-19_02-30.md`
+  - `autopilot/findings.md` 已补充部署验证新结论:
+    - `geo_nav_node` 日志级别切换导致节点退出
+    - 大夹角动作失真导致圆周运动
+    - 局部航点过去会追身后的旧路径点
+    - RViz 默认视角会误导“地图跟车转”
+    - 部署全局路径语义与训练已否定的 obstacle-aware path 不一致
+    - 倒车能力不能再默认由策略自然给出
+
+- 部署链已完成的修正:
+  - `geo_nav_node`:
+    - 修复 `throttle_log()` 崩溃
+    - 增加夹角保护
+    - 将局部航点选择改为“最近前向点 + lookahead”
+    - 增加 `front-blocked` 倒车脱困恢复
+  - Nav2 / RViz:
+    - `planner_server` 切换为 `SmacPlanner2D`
+    - `global_costmap` 退回 `static_layer + inflation_layer`
+    - RViz 默认视角改为 `TopDownOrtho`，`Fixed Frame=map`
+  - 安装空间资源已手动同步，避免源码与 `install/` 配置不一致
+
+- 当前训练 supervisor 复位意图:
+  - 用户要求“先复盘，再继续长时间自动优化与训练”
+  - 下一步将重新运行 resume discovery，确认当前活动进程、最佳锚点和可继续的 profile
+  - 训练仍沿用单变量协议，不把本轮部署链改动直接混入训练合同
+
+## 2026-03-19 02:36 CST
+
+- 启动 `wave43_gen2_model655_stablehistory_reverse50`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_023620_wave43_gen2_model655_stablehistory_reverse50`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave38_model655_stablehistory/model_655_stablehistory.pt`
+  - 单变量改动: 将训练侧 reverse goal sampling 概率从 `0.35` 提高到 `0.50`
+  - 目标: 补强倒车与大夹角恢复经验，验证是否能改善部署中“不主动倒车/绕大圈”的行为缺口
+
+- 完成 `wave43_gen2_model655_stablehistory_reverse50`:
+  - latest checkpoint: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_023620_wave43_gen2_model655_stablehistory_reverse50/checkpoints/model_734.pt`
+  - 关键结果:
+    - 课程保持 `target_adaptive=3.75`
+    - 末段退化为 `reach_goal=0.0 / collision=0.0 / time_out=8.0`
+    - `position_error≈1.448 / orientation_error≈1.748 / mean_reward≈-255.38`
+  - 决策:
+    - 判定为负向合同改动
+    - 不把 `reverse50` 带入主线
+    - 代码已回滚到 `0.35`
+
+## 2026-03-19 02:40 CST
+
+- 启动 `wave44_gen2_model655_stablehistory_seed44_capture`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_024028_wave44_gen2_model655_stablehistory_seed44_capture`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave38_model655_stablehistory/model_655_stablehistory.pt`
+  - 单变量改动: 不改训练合同，只将 `seed=43 -> 44`
+  - 目标: 在稳定恢复链上寻找新的纯成功窗口，而不是继续混入新的奖励/路径语义改动
+
+- 完成 `wave44_gen2_model655_stablehistory_seed44_capture`:
+  - latest checkpoint: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_024028_wave44_gen2_model655_stablehistory_seed44_capture/checkpoints/model_704.pt`
+  - 关键结果:
+    - latest 保持 `target_adaptive=3.75 / reach_goal=1.0 / collision=0.0 / time_out=0.0`
+    - `position_error≈0.165 / orientation_error≈0.922`
+    - 说明在 `wave38` stablehistory anchor 上，仅换 seed 就重新打出了强于 `wave38/model_655.pt` 的纯成功窗口
+  - 决策:
+    - 将 `wave44/model_704.pt` 升格为新的主 best 候选
+    - 基于其 sidecar 构造新的 clean-sidecar anchor，继续拉长同一成功链
+
+## 2026-03-19 02:43 CST
+
+- 已创建派生锚点:
+  - 目录: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44`
+  - 模型: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - sidecar: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.curriculum.json`
+  - 修正内容:
+    - 保持 `current_dist=3.75`
+    - 将 `success_history` 调整为均值 `0.7` 且尾部全成功
+    - 目的: 避免恢复即被混杂失败样本拖降级
+
+- 启动 `wave45_gen2_model704_stablehistory_extend375`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_024319_wave45_gen2_model704_stablehistory_extend375`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 单变量改动: 不改合同与 seed，只延长新的 seed44 恢复链
+
+- 完成 `wave45_gen2_model704_stablehistory_extend375`:
+  - latest checkpoint: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_024319_wave45_gen2_model704_stablehistory_extend375/checkpoints/model_743.pt`
+  - 关键结果:
+    - latest 保持 `target_adaptive=3.75 / reach_goal=1.0 / collision=0.0 / time_out=0.0`
+    - `position_error≈0.243 / orientation_error≈1.590 / mean_reward≈-141.76`
+    - 说明 `wave44/model_704` 的 clean-sidecar 恢复链可以继续延长，不再重演 `wave39` 的恢复即降级
+  - 决策:
+    - 当前 best 倾向保留 `wave44/model_704.pt`（误差更低）
+    - 当前 latest 成功延长点更新为 `wave45/model_743.pt`
+    - 当前没有活动训练进程；后续若继续，优先从 `wave45/model_743.pt` 继续构造 stablehistory anchor
+
+## 2026-03-19 11:12 CST
+
+- 完成 `wave46_gen2_model743_stablehistory_extend375_long`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_111015_wave46_gen2_model743_stablehistory_extend375_long`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave45_model743_stablehistory_seed44/model_743_stablehistory.pt`
+  - 单变量改动: 不改合同，只继续拉长 `wave45` 恢复链
+  - 关键结果:
+    - 课程保持 `3.75m`
+    - latest 退化为 `reach_goal=0.0 / collision=0.0 / time_out=7.0`
+    - `position_error≈1.180 / orientation_error≈1.518 / mean_reward≈-146.36`
+  - 决策:
+    - 判定为负向延长
+    - 不再继续盲延长 `wave45` 恢复链
+    - 改为先做外部参考研究，再进入新合同波次
+
+## 2026-03-19 11:18 CST
+
+- 新增协议文件:
+  - `/home/gwh/dashgo_rl_project/autopilot/reference_research_protocol.md`
+- 新增流程约束:
+  - 改动前先做外部参考研究
+  - 训练目标默认同时覆盖 `避障 + 脱困`
+  - 每波仍只允许一个 focused change
+
+## 2026-03-19 11:20 CST
+
+- 启动 `wave47_gen2_model704_escapecurriculum_seed44`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_112037_wave47_gen2_model704_escapecurriculum_seed44`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 单变量改动:
+    - 新增 “front-blocked / rear-clear / goal-behind” escape curriculum
+    - 注入比例 `0.25`
+  - 前段结果:
+    - 环境创建成功，合同兼容
+    - 首批完整 episode 后迅速转向 `time_out` 主导
+  - 收口判断:
+    - latest 近似为 `reach_goal=0.0 / collision=0.0 / time_out=1.0`
+    - `position_error≈0.752 / orientation_error≈1.729 / mean_reward≈-255.03`
+  - 决策:
+    - 提前停止，避免浪费算力
+    - 保留方向，缩小课程强度
+
+## 2026-03-19 11:23 CST
+
+- 启动 `wave48_gen2_model704_escapecurriculum10_seed44`:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_112311_wave48_gen2_model704_escapecurriculum10_seed44`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 相对 `wave47` 的唯一变量:
+    - escape curriculum 注入比例 `0.25 -> 0.10`
+  - 早期窗口:
+    - 一度恢复到 `reach_goal=1.0 / collision=0.0 / time_out=0.0`
+    - `position_error≈0.204 / orientation_error≈0.069`
+  - 中段回落:
+    - 后续长 episode 出现后，重新转向 `time_out` 与 collision 奖励恶化
+    - 说明 `0.10` 比 `0.25` 更温和，但仍未稳定
+  - 当前状态:
+    - 训练进程仍在运行，继续监控中
+
+## 2026-03-19 11:25 CST
+
+- 仓库清理第一轮已完成:
+  - 已归档 6 个孤立备份文件到 `/home/gwh/dashgo_rl_project/docs/99-archive/repo_cleanup_2026-03-19/legacy_backups/`
+  - 已移出主工作区缓存/临时目录到 `/home/gwh/dashgo_rl_project/docs/99-archive/repo_cleanup_2026-03-19/workspace_temp/`
+  - 暂未处理的大目录:
+    - `logs/`
+    - `logs_backup/`
+    - `ros2_ws/build|install|log`
+    - `catkin_ws/build|devel`
+    - `.claude-temp/`
+
+## 2026-03-19 12:19 CST
+
+- 完成“未持续值守”流程复盘的代码级修复:
+  - 根因已确认是流程层缺少自动接续，而不是 `train_v2.py` 生命周期写回失败。
+  - 已新增 `/home/gwh/dashgo_rl_project/autopilot/continuous_gen2_supervisor.py`，用于在有限波次结束后继续串行启动下一组 `gen2` 试验。
+  - supervisor 当前 trial queue 固定为:
+    - `reversecontext025`
+    - `reversecontext040`
+    - `reversecontext055`
+  - 若其中任一 trial 打出正向窗口，supervisor 会自动构造 stablehistory anchor 并继续延长一波。
+- 完成新的合同级最小改单变量:
+  - 修改 `/home/gwh/dashgo_rl_project/dashgo_env_v2.py`
+  - 将 `RECOVERY_SCENARIO_CONFIG["probability"]` 默认回退为 `0.0`
+  - 新增 `reward_contextual_reverse_escape()`，只在“前堵后通 + 推进停滞”时奖励受控倒车脱困
+  - 新增环境变量开关:
+    - `DASHGO_RECOVERY_SCENARIO_PROBABILITY`
+    - `DASHGO_REVERSE_ESCAPE_WEIGHT`
+    - `DASHGO_REVERSE_ESCAPE_FRONT_BLOCKED`
+    - `DASHGO_REVERSE_ESCAPE_REAR_CLEAR`
+    - `DASHGO_REVERSE_ESCAPE_PROGRESS_THRESHOLD`
+    - `DASHGO_REVERSE_ESCAPE_ANG_PENALTY`
+- 完成静态验证:
+  - `python3 -m py_compile dashgo_env_v2.py autopilot/continuous_gen2_supervisor.py` 通过
+  - `python3 -c 'import autopilot.continuous_gen2_supervisor as mod; ...'` 成功加载 supervisor 模块
+- 完成合同烟测:
+  - run: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_121859_smoke_gen2_reversecontext_contract`
+  - 命令:
+    - `DASHGO_AUTOPILOT_PROFILE=gen2 DASHGO_RECOVERY_SCENARIO_PROBABILITY=0.0 DASHGO_REVERSE_ESCAPE_WEIGHT=0.25 ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --gen gen2 --run_name smoke_gen2_reversecontext_contract --num_envs 2 --seed 44 --max_iterations 1 --save_interval 1 --checkpoint /home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 结果:
+    - 环境成功创建并恢复 `wave44/model_704` stablehistory anchor
+    - `Reward Manager` 已注册 `reverse_escape`，权重 `0.25`
+    - run 正常完成，写出 `model_704.pt`
+    - `Curriculum/target_adaptive` 保持 `3.75`
+- 下一步:
+  - 用 `nohup` 后台启动 `autopilot/continuous_gen2_supervisor.py`
+  - 让 supervisor 自动串行推进 `wave51+`
+  - 运行态写到 `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json`
+
+## 2026-03-19 12:26 CST
+
+- `wave51_gen2_model704_reversecontext025_seed44` 已完成:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_122206_wave51_gen2_model704_reversecontext025_seed44`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 单变量: `DASHGO_REVERSE_ESCAPE_WEIGHT=0.25`
+  - 关键结果:
+    - `Curriculum/target_adaptive=3.75`
+    - `reach_goal=0.0 / collision=0.0 / time_out=1.0`
+    - `position_error≈0.922 / orientation_error≈0.466 / mean_reward≈-192.75`
+  - 决策:
+    - 未通过正向 gate，不升格为 best
+    - 由连续 supervisor 自动切到下一档 `reversecontext040`
+- `wave52_gen2_model704_reversecontext040_seed44` 已启动并处于运行中:
+  - 路径: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_122610_wave52_gen2_model704_reversecontext040_seed44`
+  - 起点 checkpoint: `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - 单变量: `DASHGO_REVERSE_ESCAPE_WEIGHT=0.40`
+  - 当前运行态来源:
+    - `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json`
+    - `supervisor_status=running`
+    - `active_run_name=wave52_gen2_model704_reversecontext040_seed44`
+  - 早期监控:
+    - 当前 latest checkpoint 已到 `model_790.pt`
+    - `Curriculum/target_adaptive=3.75`
+    - `reach_goal=0.0 / collision=1.0 / time_out=0.0`
+    - `position_error≈1.877 / orientation_error≈0.073 / mean_reward≈-145.19`
+- 连续值守修复补充:
+  - 初版 supervisor 曾被旧 `wave47` 的脏 `run_meta.status=running` 误导
+  - 现已修正为“从真实活动进程里的 `--run_name` 反推当前 run”，并在无活动训练时从最新完成波次继续队列
+  - 当前 supervisor 常驻进程已确认存在，不再依赖 `final` 回复维持值守
+
+## 2026-03-19 12:35 CST
+
+- 第二次“自动结束”事故复盘完成:
+  - 当前确认这次不是训练崩溃，而是两层结束条件都写得不够硬：
+    - assistant 又错误使用了 `final`
+    - 旧版 supervisor 把 `queue_exhausted_without_positive` 当成了可退出条件
+- 最新事实核验:
+  - 当前没有活动训练进程
+  - `continuous_supervisor_state.json` 为 `queue_exhausted_without_positive`
+  - reverse-context 第一轮静态 queue 已全部跑完:
+    - `wave51_gen2_model704_reversecontext025_seed44`
+    - `wave52_gen2_model704_reversecontext040_seed44`
+    - `wave53_gen2_model704_reversecontext055_seed44`
+  - `wave53` latest 结果:
+    - `Curriculum/target_adaptive=3.75`
+    - `reach_goal=0.0 / collision=0.0 / time_out=1.0`
+    - `position_error≈1.456 / orientation_error≈2.897 / mean_reward≈-187.30`
+- 本轮流程修复:
+  - 新增 `/home/gwh/dashgo_rl_project/autopilot/continuous_watch_contract.md`
+  - 扩展 `/home/gwh/dashgo_rl_project/autopilot/continuous_gen2_supervisor.py`
+    - 引入多轮 `TRIAL_ROUNDS`
+    - 第一轮保留 reverse weight sweep
+    - 第二轮新增 front blocked threshold sweep:
+      - `frontblock065`
+      - `frontblock075`
+      - `frontblock085`
+    - 若所有 rounds 仍未命中正向结果，状态切到 `research_gate_required_keepalive` 并保持进程常驻，不再直接退出
+  - 修复历史脏状态:
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_112037_wave47_gen2_model704_escapecurriculum_seed44/run_meta.json`
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131758_wave31_gen2_model640_waypoint_shaping_stalltuned/run_meta.json`
+    - 两者都已从错误的 `running` 改为 `completed`
+- 下一步:
+  - 重启新版 supervisor
+  - 从 `wave53` 后自动进入第二轮 `frontblock065 / 075 / 085`
+
+## 2026-03-19 12:41 CST
+
+- 已修复第二轮恢复点选择 bug:
+  - 根因是 `find_latest_run()` 按 `run_meta.json` mtime 选 latest，而我手工修 `wave47` 脏状态后把旧 run_meta 顶成了“最新”
+  - 进一步根因是 state 文件在 queue 耗尽时丢失了 `completed_run_name`，重启后只能误读 stale `active_run_name`
+- 修正动作:
+  - `continuous_gen2_supervisor.py`
+    - `log_state()` 现在合并已有 state，不再每次覆盖掉 `completed_run_name`
+    - 无活动训练进程时，恢复优先级改为：
+      - `completed_run_name`
+      - `find_latest_supervised_run_dir()`（按受管 trial 目录时间戳）
+      - 最后才退回通用 latest run
+  - 手工回拨 `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json` 到 `wave53`
+  - 将错误启动的:
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_123843_wave54_gen2_model704_reversecontext025_seed44`
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_123954_wave55_gen2_model704_reversecontext025_seed44`
+    标记为 `aborted_duplicate`
+- 当前运行态:
+  - supervisor 常驻进程存在：`python3 autopilot/continuous_gen2_supervisor.py`
+  - 当前活动训练:
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_124102_wave56_gen2_model704_frontblock065_seed44`
+    - `run_name=wave56_gen2_model704_frontblock065_seed44`
+    - 当前 trial: `front_blocked_threshold=0.65`, `reverse_escape_weight=0.25`
+  - 早期监控:
+    - `latest_checkpoint=model_740.pt`
+    - `Curriculum/target_adaptive=3.75`
+    - `reach_goal=0.0 / collision=1.0 / time_out=0.0`
+    - `position_error≈3.118 / orientation_error≈2.269 / mean_reward≈-94.24`
+- 持续值守当前结论:
+  - 本轮修复已经从“口头承诺继续”变成“supervisor 常驻 + wave56 活动训练”
+  - 之后若 `wave56` 判负，将自动切到 `frontblock075`
+
+## 2026-03-19 13:05 CST
+
+- 第三次“像自动暂停”事故已核验:
+  - 当前并不是训练进程挂死
+  - 而是 `wave58` 完成后 supervisor 停在 `research_gate_required_keepalive`
+  - 系统中只剩 `python3 autopilot/continuous_gen2_supervisor.py`
+  - 没有任何活动 `train_v2.py --headless --gen gen2` 训练子进程
+  - `continuous_gen2_supervisor.nohup.log` 为空，说明旧 supervisor 完全不输出 stdout
+- `wave56 ~ wave58` round-2 结果复核:
+  - `wave56 frontblock065`: `time_out=1.0 / collision=0.0 / position_error≈0.963`
+  - `wave57 frontblock075`: `time_out=6.0 / collision=0.0 / position_error≈1.086`
+  - `wave58 frontblock085`: `time_out=1.0 / collision=0.0 / position_error≈1.452`
+  - 结论:
+    - round-2 没有正向窗口
+    - `frontblock065` 是下一轮最合理的固定基线
+- 外部参考补充:
+  - OpenHands/OpenHands README 与 OpenHands 自动化 RFC（GitHub issue `#13275`）说明：异步自动运行系统必须同时具备持久队列、可见 run status 与 dashboard 级可观测性
+  - SWE-agent/SWE-agent 文档说明：默认输出不只是后台进程，还包括 `trajectory / config / log / inspector / quick-stats`
+  - 映射到 DashGo:
+    - 静默 keepalive 不可接受
+    - 必须增加 stdout 心跳和 append-only 事件流
+- 已重写 `autopilot/continuous_gen2_supervisor.py`:
+  - 新增 `continuous_supervisor_events.jsonl`
+  - 新增 stdout 心跳与 `last_heartbeat_at`
+  - state 新增 `active_train_process_count`、`last_heartbeat_scalars`、`next_trial`
+  - `POLL_SECONDS` 从 `60s` 收紧到 `30s`
+  - 试验轮从 `2` 轮扩到 `5` 轮
+    - round-3: `progress035 / 050 / 065`
+    - round-4: `rearclear070 / 075 / 085`
+    - round-5: `angpen015 / 020 / 030`
+- 静态校验:
+  - `python3 -m py_compile autopilot/continuous_gen2_supervisor.py` 通过
+  - `trial_position_from_run_name('wave58...') -> (1, 2)`，`next_position -> (2, 0)`，下一波确认是 `progress035`
+- 下一步:
+  - 停掉旧 supervisor
+  - 用带 PTY 的前台 background terminal 重启新版 supervisor
+  - 让其从 `wave58` 之后自动继续 `wave59 progress035`
+
+## 2026-03-19 13:12 CST
+
+- 已停掉旧 supervisor `PID 77982`，并用带 PTY 的后台终端重启新版：
+  - 活动 session 输出已可见：
+    - `booting: continuous supervisor 启动`
+    - `running: 已启动新训练波次`
+    - `running: 监控训练波次中`
+- 当前真实运行态:
+  - supervisor 进程: `python3 autopilot/continuous_gen2_supervisor.py`
+  - 训练进程:
+    - `bash /home/gwh/IsaacLab/isaaclab.sh -p train_v2.py --headless --gen gen2 --run_name wave59_gen2_model704_progress035_seed44 ...`
+  - 当前 run:
+    - `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_131142_wave59_gen2_model704_progress035_seed44`
+  - 当前 trial:
+    - `front_blocked_threshold=0.65`
+    - `progress_threshold=0.035`
+    - `reverse_escape_weight=0.25`
+- 当前可观测性输出:
+  - 状态文件: `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json`
+  - 事件流: `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_events.jsonl`
+  - state 已包含:
+    - `active_train_process_count=3`
+    - `last_heartbeat_at`
+    - `last_heartbeat_scalars`
+    - `current_trial=progress035`
+- 当前结论:
+  - 本轮已经从“静默 keepalive”修复为“可见心跳 + 真正续跑”
+  - 若 `wave59` 判负，next round 将自动进入 `progress050`
+
+## 2026-03-19 13:14 CST
+
+- `wave59` 早期监控已确认不是空跑:
+  - PTY 心跳在 `13:12:14` 与 `13:12:44` 曾短暂显示 `reach_goal=1.0 / collision=0.0 / time_out=0.0`
+  - `13:13:14` 回落到 `time_out=1.0 / reach_goal=0.0`
+  - 当前 monitor:
+    - `latest_checkpoint=model_805.pt`
+    - `Curriculum/target_adaptive=3.75`
+    - `reach_goal=0.0 / collision=0.0 / time_out=1.0`
+    - `position_error≈1.309 / orientation_error≈2.352 / mean_reward≈-177.68`
+- 当前判断:
+  - `progress035` 至少说明 round-3 变量已经进入真实学习循环
+  - 但是否优于 `frontblock065` 仍需等完整波次完成后再判
+
+## 2026-03-19 13:49 CST
+
+- 对“是否又自动暂停”重新核验:
+  - `wave59 ~ wave67` 实际都已自动跑完
+  - 旧版 supervisor 后来再次停在 `research_gate_required_keepalive`
+  - 这次不是没有心跳，而是高层优化能力仍停留在“固定试验队列跑完就等”
+- 本轮能力升级:
+  - `continuous_gen2_supervisor.py` 新增 `build_auto_followup_round()`
+  - 当静态 queue 耗尽时，会自动：
+    - 收集最近 supervised runs
+    - 按 `reach_goal / collision / time_out / position_error / orientation_error / mean_reward` 排序
+    - 选出当前最优参数家族
+    - 生成一轮局部搜索 `autotune` round
+  - 当前限制:
+    - 最多自动生成 `3` 轮 follow-up round
+    - 仍然只在当前合同允许的参数族内做局部搜索，不会无边界改合同
+- 热重启验证:
+  - 已停掉旧 keepalive supervisor，并用新版重启
+  - 新版启动后立即输出：
+    - `auto_round_planned`
+    - `running: 已启动新训练波次`
+  - 当前真实运行态:
+    - supervisor: `python3 autopilot/continuous_gen2_supervisor.py`
+    - 活动 run: `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260319_134854_wave68_gen2_model704_autotune01_rearclear077_seed44`
+    - state 显示:
+      - `auto_generated_rounds=1`
+      - `generated_family=rearclear`
+      - `generated_values=[0.77, 0.80, 0.82]`
+- 当前结论:
+  - 系统已经从“固定队列自动执行”升级到“队列耗尽后自动做一轮局部自优化再续跑”
+  - 但还没有到“无限自主研究 + 无限改合同”的级别
+
+## 2026-03-19 14:47 CST
+
+- 已实现“自动训练判官 + Codex 唤起”第一版：
+  - 新增 `autopilot/anomaly.py`
+  - 新增 `autopilot/codex_escalator.py`
+  - 新增 `autopilot/isaac_eval_worker.py`
+  - 扩展 `autopilot/types.py`、`doctor_training_env.py`、`eval_checkpoint.py`、`autopilot/continuous_gen2_supervisor.py`
+- 新能力：
+  - `doctor_training_env.py` 支持：
+    - `runtime-log` 日志判官
+    - `live probe` 活体传感器探针
+  - `eval_checkpoint.py` 不再是纯骨架：
+    - 已能通过 Isaac worker 执行真实 `quick/main` 评测
+    - 输出 `orbit_score / progress_stall_rate / path_efficiency / net_progress_ratio / near_obstacle_dwell / high_clip_ratio`
+  - `continuous_gen2_supervisor.py` 新 gate：
+    - 标量只做 prefilter
+    - 候选 checkpoint 进入 `doctor + quick eval`
+    - `extension_completed` 只有在 extension 本身通过 gate 后才允许写出
+    - 检测到日志/合同异常时会自动写 job spec 并尝试唤起 `codex exec`
+- 验证结果：
+  - `python3 -m py_compile` 通过：
+    - `autopilot/types.py`
+    - `autopilot/anomaly.py`
+    - `autopilot/codex_escalator.py`
+    - `doctor_training_env.py`
+    - `eval_checkpoint.py`
+    - `autopilot/continuous_gen2_supervisor.py`
+    - `autopilot/isaac_eval_worker.py`
+  - `PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_autopilot_anomaly.py tests/test_continuous_supervisor.py -q`
+    - `6 passed`
+  - 真实 Isaac smoke eval：
+    - checkpoint: `wave44/model_704_stablehistory.pt`
+    - suite: `quick`
+    - episodes: `2`
+    - 用时约 `59s`
+    - 结果: `failed`
+    - 关键指标：
+      - `orbit_score=1.0`
+      - `progress_stall_rate=1.0`
+      - `timeout_rate=1.0`
+      - `high_clip_ratio≈0.999`
+    - 说明：新的行为 gate 已能抓住“无意义绕圈/停滞”而不是只看训练标量窗口
+- 运行态：
+  - 旧 supervisor 已停止
+  - 新 supervisor 已重新拉起，并进入：
+    - `wave71_gen2_model704_reversecontext025_seed44`
+    - `supervisor_status=running`
+    - `active_train_process_count=3`

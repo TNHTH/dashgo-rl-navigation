@@ -9,13 +9,31 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import glob
 import os
+import sys
 from pathlib import Path
 
 import torch
 from isaaclab.app import AppLauncher
+
+
+def parse_export_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=os.environ.get("DASHGO_EXPORT_CHECKPOINT", ""),
+        help="显式指定要导出的 checkpoint；也可通过环境变量 DASHGO_EXPORT_CHECKPOINT 传入。",
+    )
+    args, remaining = parser.parse_known_args()
+    sys.argv = [sys.argv[0], *remaining]
+    return args
+
+
+EXPORT_ARGS = parse_export_args()
 
 
 # ==============================================================================
@@ -88,6 +106,47 @@ def find_candidate_checkpoints() -> list[str]:
     return unique_candidates
 
 
+def prepend_manual_checkpoint(candidates: list[str], manual_checkpoint: str) -> list[str]:
+    manual_checkpoint = manual_checkpoint.strip()
+    if not manual_checkpoint:
+        return candidates
+
+    resolved_path = os.path.abspath(manual_checkpoint)
+    if not os.path.exists(resolved_path):
+        raise FileNotFoundError(f"显式指定的 checkpoint 不存在: {resolved_path}")
+
+    return [resolved_path, *[candidate for candidate in candidates if os.path.abspath(candidate) != resolved_path]]
+
+
+def build_save_paths() -> list[str]:
+    save_paths = [
+        os.path.join("ros2_ws", "src", "dashgo_rl_ros2", "models", "policy_torchscript.pt"),
+        os.path.join("catkin_ws", "src", "dashgo_rl", "models", "policy_torchscript.pt"),
+    ]
+
+    ros2_install_model = os.path.join(
+        "ros2_ws",
+        "install",
+        "dashgo_rl_ros2",
+        "share",
+        "dashgo_rl_ros2",
+        "models",
+        "policy_torchscript.pt",
+    )
+    if os.path.isdir(os.path.dirname(ros2_install_model)):
+        save_paths.append(ros2_install_model)
+
+    unique_paths: list[str] = []
+    seen: set[str] = set()
+    for path in save_paths:
+        normalized = os.path.abspath(path)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_paths.append(path)
+    return unique_paths
+
+
 def split_normalizer_from_state_dict(state_dict: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:
     """兼容两类 checkpoint：
     1. RSL-RL 外置 obs_norm_state_dict
@@ -128,13 +187,23 @@ def load_policy_and_normalizer(policy: GeoNavPolicy, checkpoint_path: str, devic
     return policy, normalizer
 
 
-def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str]) -> None:
-    scripted = torch.jit.script(exported_policy.cpu().eval())
+def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str], example_input: torch.Tensor) -> None:
+    exported_policy = exported_policy.cpu().eval()
+    example_input = example_input.cpu()
+
+    try:
+        scripted = torch.jit.script(exported_policy)
+        export_mode = "script"
+    except Exception as exc:
+        print(f"[WARN] torch.jit.script 失败，回退到 torch.jit.trace: {exc}")
+        scripted = torch.jit.trace(exported_policy, example_input)
+        export_mode = "trace"
+
     for save_path in save_paths:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         scripted.save(save_path)
         file_size = os.path.getsize(save_path) / 1024.0 / 1024.0
-        print(f"✅ 已导出: {save_path} ({file_size:.2f} MB)")
+        print(f"✅ 已导出: {save_path} ({file_size:.2f} MB, mode={export_mode})")
 
 
 def main() -> None:
@@ -159,6 +228,7 @@ def main() -> None:
     ).to(device)
 
     candidate_models = find_candidate_checkpoints()
+    candidate_models = prepend_manual_checkpoint(candidate_models, EXPORT_ARGS.checkpoint)
     if not candidate_models:
         print("[ERROR] 未找到可导出的 checkpoint。")
         simulation_app.close()
@@ -194,11 +264,8 @@ def main() -> None:
         sample_output = exported_policy(dummy_tensor.cpu())
     print(f"[INFO] 导出前推理输出 shape: {tuple(sample_output.shape)}")
 
-    save_paths = [
-        os.path.join("ros2_ws", "src", "dashgo_rl_ros2", "models", "policy_torchscript.pt"),
-        os.path.join("catkin_ws", "src", "dashgo_rl", "models", "policy_torchscript.pt"),
-    ]
-    export_model(exported_policy, save_paths)
+    save_paths = build_save_paths()
+    export_model(exported_policy, save_paths, dummy_tensor)
 
     print("\n" + "=" * 80)
     print("✅ 导出完成：策略与 normalizer 已合并进 TorchScript")

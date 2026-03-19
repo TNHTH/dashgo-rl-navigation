@@ -1,0 +1,56 @@
+{
+  "allowed_paths": [
+    "/home/gwh/dashgo_rl_project/autopilot",
+    "/home/gwh/dashgo_rl_project/doctor_training_env.py",
+    "/home/gwh/dashgo_rl_project/eval_checkpoint.py",
+    "/home/gwh/dashgo_rl_project/dashgo_env_v2.py",
+    "/home/gwh/dashgo_rl_project/train_v2.py"
+  ],
+  "created_at": "2026-03-19T06:41:57+00:00",
+  "expected_artifacts": [
+    "结论与根因",
+    "必要时的训练侧补丁",
+    "验证与回归风险说明"
+  ],
+  "inputs": {
+    "checkpoint": "/tmp/pytest-of-gwh/pytest-0/test_evaluate_checkpoint_for_p0/model_1.pt",
+    "doctor": {
+      "checks": [
+        {
+          "details": {
+            "missing_tags": [
+              "Curriculum/target_adaptive",
+              "Episode_Termination/reach_goal",
+              "Episode_Termination/object_collision",
+              "Episode_Termination/time_out",
+              "Metrics/target_pose/position_error"
+            ]
+          },
+          "evidence_paths": [
+            "/tmp/pytest-of-gwh/pytest-0/test_evaluate_checkpoint_for_p0/wave70.log"
+          ],
+          "message": "核心训练标量全部缺失，训练可能异常启动或日志链已断流",
+          "name": "all_core_scalars_missing",
+          "severity": "soft_fail",
+          "source": "runtime",
+          "status": "soft_fail"
+        }
+      ],
+      "created_at": "2026-03-19T06:41:57+00:00",
+      "metadata": {
+        "log_path": "/tmp/pytest-of-gwh/pytest-0/test_evaluate_checkpoint_for_p0/wave70.log"
+      },
+      "recommended_action": "rollback",
+      "status": "soft_fail"
+    },
+    "log_path": "/tmp/pytest-of-gwh/pytest-0/test_evaluate_checkpoint_for_p0/wave70.log",
+    "run_name": "wave70",
+    "summary": {
+      "latest_scalars": {},
+      "run_dir": "/tmp/pytest-of-gwh/pytest-0/test_evaluate_checkpoint_for_p0"
+    }
+  },
+  "job_type": "debug_job",
+  "project_root": "/home/gwh/dashgo_rl_project",
+  "prompt": "训练日志 doctor 检测到代码/观测/传感器异常，需优先排障而非继续升格 checkpoint。"
+}

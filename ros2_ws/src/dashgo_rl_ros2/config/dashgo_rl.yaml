@@ -18,6 +18,19 @@ geo_nav_node:
     near_goal_speed: 0.05
     goal_obs_max_dist: 8.0
     waypoint_obs_max_dist: 1.0
+    heading_guard_enabled: true
+    heading_guard_slowdown_angle_deg: 25.0
+    heading_guard_turn_in_place_angle_deg: 65.0
+    recovery_enabled: true
+    recovery_front_blocked_dist: 0.30
+    recovery_rear_safe_dist: 0.28
+    recovery_stuck_speed: 0.03
+    recovery_goal_min_dist: 0.40
+    recovery_reverse_speed: 0.08
+    recovery_turn_speed: 0.80
+    recovery_duration_sec: 0.90
+    recovery_cooldown_sec: 1.20
+    recovery_side_sector_deg: 70.0
     safety_filter_enabled: true
     goal_topic: /goal_pose
     legacy_goal_topic: /move_base_simple/goal
