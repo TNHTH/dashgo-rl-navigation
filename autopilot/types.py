@@ -72,6 +72,12 @@ class EvalMetrics(JsonModel):
     spin_proxy_rate: float = 0.0
     progress_stall_rate: float = 0.0
     high_clip_ratio: float = 0.0
+    path_efficiency: float = 0.0
+    net_progress_ratio: float = 0.0
+    orbit_score: float = 0.0
+    near_obstacle_dwell: float = 0.0
+    sensor_health_score: float = 0.0
+    log_anomaly_count: float = 0.0
     score: float = 0.0
     total_episodes: int = 0
     completed_episodes: int = 0
@@ -103,6 +109,9 @@ class DoctorCheck(JsonModel):
     name: str
     status: str
     message: str
+    severity: str = "info"
+    source: str = "preflight"
+    evidence_paths: list[str] = field(default_factory=list)
     details: dict[str, Any] = field(default_factory=dict)
 
 
@@ -110,7 +119,48 @@ class DoctorCheck(JsonModel):
 class DoctorResult(JsonModel):
     status: str
     checks: list[DoctorCheck] = field(default_factory=list)
+    recommended_action: str = "continue"
     metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=iso_now)
+
+
+@dataclass
+class AnomalyReport(JsonModel):
+    anomaly_type: str
+    severity: str
+    suspected_layer: str
+    trigger_run_name: str | None = None
+    message: str = ""
+    evidence_paths: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
+    recommended_job: str = "debug_job"
+    created_at: str = field(default_factory=iso_now)
+
+
+@dataclass
+class CodexRouteDecision(JsonModel):
+    job_type: str
+    route_tier: str
+    requested_profile: str
+    requested_model: str
+    effective_model: str
+    requested_reasoning_effort: str
+    effective_reasoning_effort: str
+    resolution_mode: str = "exact"
+    fallback_reason: str = ""
+    catalog_source: str = ""
+    created_at: str = field(default_factory=iso_now)
+
+
+@dataclass
+class CodexJobSpec(JsonModel):
+    job_type: str
+    prompt: str
+    project_root: Path
+    allowed_paths: list[str] = field(default_factory=list)
+    inputs: dict[str, Any] = field(default_factory=dict)
+    expected_artifacts: list[str] = field(default_factory=list)
+    route: CodexRouteDecision | None = None
     created_at: str = field(default_factory=iso_now)
 
 

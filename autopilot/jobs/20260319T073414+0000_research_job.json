@@ -1,0 +1,48 @@
+{
+  "allowed_paths": [
+    "/home/gwh/dashgo_rl_project/autopilot",
+    "/home/gwh/dashgo_rl_project/dashgo_env_v2.py",
+    "/home/gwh/dashgo_rl_project/train_v2.py"
+  ],
+  "created_at": "2026-03-19T07:34:14+00:00",
+  "expected_artifacts": [
+    "结论与根因",
+    "必要时的训练侧补丁",
+    "验证与回归风险说明"
+  ],
+  "inputs": {
+    "auto_generated_rounds": 2,
+    "rationale": {
+      "auto_round_id": 2,
+      "generated_family": "frontblock",
+      "generated_values": [
+        0.57,
+        0.6,
+        0.62
+      ],
+      "selected_run_name": "wave74_gen2_model704_frontblock065_seed44",
+      "selected_scalars": {
+        "Curriculum/target_adaptive": 3.75,
+        "Episode_Termination/object_collision": 0.0,
+        "Episode_Termination/reach_goal": 0.3333333432674408,
+        "Episode_Termination/time_out": 0.6666666865348816,
+        "Metrics/target_pose/orientation_error": 1.2042624950408936,
+        "Metrics/target_pose/position_error": 0.8330262899398804,
+        "Train/mean_reward": -203.35089111328125
+      },
+      "selected_score": [
+        0.3333333432674408,
+        -0.0,
+        -0.6666666865348816,
+        -0.8330262899398804,
+        -1.2042624950408936,
+        -203.35089111328125
+      ],
+      "selected_trial_tag": "frontblock065"
+    },
+    "run_name": "auto_round_exhausted"
+  },
+  "job_type": "research_job",
+  "project_root": "/home/gwh/dashgo_rl_project",
+  "prompt": "自动 follow-up round 已耗尽且未找到通过 gate 的候选，需要读取外部参考并提出新的单变量训练 family。"
+}

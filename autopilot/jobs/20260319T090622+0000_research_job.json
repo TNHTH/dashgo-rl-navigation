@@ -1,0 +1,61 @@
+{
+  "allowed_paths": [
+    "/home/gwh/dashgo_rl_project/autopilot",
+    "/home/gwh/dashgo_rl_project/dashgo_env_v2.py",
+    "/home/gwh/dashgo_rl_project/train_v2.py"
+  ],
+  "created_at": "2026-03-19T09:06:22+00:00",
+  "expected_artifacts": [
+    "结论与根因",
+    "必要时的训练侧补丁",
+    "验证与回归风险说明"
+  ],
+  "inputs": {
+    "auto_generated_rounds": 3,
+    "rationale": {
+      "auto_round_id": 3,
+      "generated_family": "frontblock",
+      "generated_values": [
+        0.77,
+        0.8,
+        0.82
+      ],
+      "selected_run_name": "wave94_gen2_model704_frontblock085_seed44",
+      "selected_scalars": {
+        "Curriculum/target_adaptive": 3.75,
+        "Episode_Termination/object_collision": 0.0,
+        "Episode_Termination/reach_goal": 1.0,
+        "Episode_Termination/time_out": 0.0,
+        "Metrics/target_pose/orientation_error": 0.7525115013122559,
+        "Metrics/target_pose/position_error": 0.24646234512329102,
+        "Train/mean_reward": -219.8426055908203
+      },
+      "selected_score": [
+        1.0,
+        -0.0,
+        -0.0,
+        -0.24646234512329102,
+        -0.7525115013122559,
+        -219.8426055908203
+      ],
+      "selected_trial_tag": "frontblock085"
+    },
+    "run_name": "auto_round_exhausted"
+  },
+  "job_type": "research_job",
+  "project_root": "/home/gwh/dashgo_rl_project",
+  "prompt": "自动 follow-up round 已耗尽且未找到通过 gate 的候选，需要读取外部参考并提出新的单变量训练 family。",
+  "route": {
+    "catalog_source": "/home/gwh/.codex/models_cache.json",
+    "created_at": "2026-03-19T09:06:22+00:00",
+    "effective_model": "gpt-5.4",
+    "effective_reasoning_effort": "xhigh",
+    "fallback_reason": "",
+    "job_type": "research_job",
+    "requested_model": "gpt-5.4",
+    "requested_profile": "authoring",
+    "requested_reasoning_effort": "xhigh",
+    "resolution_mode": "exact",
+    "route_tier": "authoring"
+  }
+}
