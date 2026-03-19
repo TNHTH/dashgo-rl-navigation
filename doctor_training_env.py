@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 import sys
 
+from autopilot.anomaly import analyze_live_sensor_payload, analyze_log_text, build_doctor_result, merge_doctor_results
 from autopilot.io_utils import write_json
 from autopilot.runtime import bootstrap_lineage_file, default_autopilot_root, default_lineage_file, resolve_project_root
 from autopilot.tensorboard_utils import find_event_files, is_tensorboard_available
@@ -26,6 +28,8 @@ def run_doctor(
     log_root: Path,
     mode: str,
     bootstrap: bool,
+    runtime_log: Path | None = None,
+    live_payload: dict | None = None,
 ) -> DoctorResult:
     checks: list[DoctorCheck] = []
 
@@ -113,13 +117,14 @@ def run_doctor(
                 name="observation_contract",
                 status="warning",
                 message="观测合同检查骨架已就位，需后续接线到训练环境",
+                severity="warning",
+                source="preflight",
                 details={"expected_actor_obs": 246, "expected_lidar_history_dims": 216},
             )
         )
 
-    return DoctorResult(
-        status=_status_for_checks(checks),
-        checks=checks,
+    preflight_result = build_doctor_result(
+        checks,
         metadata={
             "mode": mode,
             "project_root": str(project_root),
@@ -127,6 +132,41 @@ def run_doctor(
             "log_root": str(log_root),
         },
     )
+    results = [preflight_result]
+    if runtime_log is not None:
+        log_text = runtime_log.read_text(encoding="utf-8", errors="ignore") if runtime_log.exists() else ""
+        results.append(analyze_log_text(log_text, log_path=str(runtime_log)))
+    if live_payload is not None:
+        results.append(analyze_live_sensor_payload(live_payload))
+    return merge_doctor_results(*results)
+
+
+def run_live_probe(
+    *,
+    project_root: Path,
+    json_out: Path,
+    profile: str,
+    num_envs: int,
+    steps: int,
+) -> dict:
+    isaaclab_shell = Path.home() / "IsaacLab" / "isaaclab.sh"
+    command = [
+        str(isaaclab_shell),
+        "-p",
+        str(project_root / "inspect_live_env.py"),
+        "--headless",
+        "--num_envs",
+        str(num_envs),
+        "--steps",
+        str(steps),
+        "--profile",
+        profile,
+        "--json-out",
+        str(json_out),
+    ]
+    subprocess.run(command, cwd=project_root, check=True)
+    with json_out.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -151,12 +191,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["all", "preflight", "tensorboard", "contract"],
+        choices=["all", "preflight", "tensorboard", "contract", "runtime"],
         default="all",
         help="检查模式",
     )
     parser.add_argument("--bootstrap", action="store_true", help="初始化 autopilot 目录与 lineage.json")
     parser.add_argument("--json-out", type=Path, default=None, help="可选 JSON 输出路径")
+    parser.add_argument("--runtime-log", type=Path, default=None, help="训练 stdout/stderr 日志文件")
+    parser.add_argument("--live-json", type=Path, default=None, help="预先生成的活体传感器 JSON")
+    parser.add_argument("--live-probe", action="store_true", help="调用 inspect_live_env.py 生成活体传感器探针")
+    parser.add_argument("--probe-profile", type=str, default="gen2", help="活体探针使用的 autopilot profile")
+    parser.add_argument("--probe-num-envs", type=int, default=4, help="活体探针环境数")
+    parser.add_argument("--probe-steps", type=int, default=12, help="活体探针采样步数")
     return parser
 
 
@@ -166,6 +212,19 @@ def main(argv: list[str] | None = None) -> int:
     project_root = args.project_root.resolve()
     autopilot_root = args.autopilot_root.resolve() if args.autopilot_root else default_autopilot_root(project_root)
     log_root = args.log_root.resolve() if args.log_root else (project_root / "logs")
+    live_payload = None
+    if args.live_probe:
+        target_json = args.live_json.resolve() if args.live_json is not None else (autopilot_root / "metrics" / "doctor_live_probe.json")
+        live_payload = run_live_probe(
+            project_root=project_root,
+            json_out=target_json,
+            profile=args.probe_profile,
+            num_envs=args.probe_num_envs,
+            steps=args.probe_steps,
+        )
+    elif args.live_json is not None and args.live_json.exists():
+        with args.live_json.resolve().open("r", encoding="utf-8") as handle:
+            live_payload = json.load(handle)
 
     result = run_doctor(
         project_root=project_root,
@@ -173,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         log_root=log_root,
         mode=args.mode,
         bootstrap=args.bootstrap,
+        runtime_log=args.runtime_log.resolve() if args.runtime_log is not None else None,
+        live_payload=live_payload,
     )
     payload = result.to_dict()
     if args.json_out is not None:

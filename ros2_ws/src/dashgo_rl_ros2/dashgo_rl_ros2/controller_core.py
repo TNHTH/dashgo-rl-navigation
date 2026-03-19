@@ -47,6 +47,54 @@ def encode_goal_vector(distance: float, angle: float, max_distance: float) -> np
     )
 
 
+def scale_linear_speed_by_heading(
+    linear_cmd: float,
+    heading_angle: float,
+    slowdown_angle: float = np.deg2rad(25.0),
+    turn_in_place_angle: float = np.deg2rad(65.0),
+) -> float:
+    """根据局部目标夹角压低线速度，避免前进+急转形成绕圈。"""
+    abs_angle = abs(float(wrap_angle(float(heading_angle))))
+    slowdown_angle = max(float(slowdown_angle), 1.0e-3)
+    turn_in_place_angle = max(float(turn_in_place_angle), slowdown_angle + 1.0e-3)
+
+    if abs_angle >= turn_in_place_angle:
+        return 0.0
+    if abs_angle <= slowdown_angle:
+        return float(linear_cmd)
+
+    scale = (turn_in_place_angle - abs_angle) / (turn_in_place_angle - slowdown_angle)
+    return float(linear_cmd * np.clip(scale, 0.0, 1.0))
+
+
+def apply_heading_guard(
+    linear_cmd: float,
+    angular_cmd: float,
+    heading_angle: float,
+    max_angular_cmd: float,
+    slowdown_angle: float = np.deg2rad(25.0),
+    turn_in_place_angle: float = np.deg2rad(65.0),
+) -> tuple[float, float]:
+    """在大夹角或转向方向错误时接管命令，避免持续绕圈。"""
+    wrapped_heading = float(wrap_angle(float(heading_angle)))
+    abs_angle = abs(wrapped_heading)
+    guarded_linear = scale_linear_speed_by_heading(
+        linear_cmd,
+        wrapped_heading,
+        slowdown_angle=slowdown_angle,
+        turn_in_place_angle=turn_in_place_angle,
+    )
+    heading_turn_cmd = float(np.clip(wrapped_heading, -max_angular_cmd, max_angular_cmd))
+
+    if abs_angle >= float(turn_in_place_angle):
+        return 0.0, heading_turn_cmd
+
+    if abs_angle > float(slowdown_angle):
+        return guarded_linear, heading_turn_cmd
+
+    return guarded_linear, float(angular_cmd)
+
+
 def compute_velocity_scaled_lookahead(
     linear_velocity: float,
     forward_min: float = 0.6,
@@ -113,3 +161,31 @@ def select_waypoint_index(distances: Sequence[float], waypoint_dist: float = 1.0
         if distance >= waypoint_dist:
             return index
     return len(distances) - 1
+
+
+def select_progressive_waypoint_index(
+    path_points_in_base: np.ndarray,
+    lookahead_dist: float = 1.0,
+    min_forward_x: float = -0.05,
+) -> int:
+    """先选择当前最近的前向路径点，再沿路径向前取前瞻航点。"""
+    path_points = np.asarray(path_points_in_base, dtype=np.float32)
+    if path_points.ndim != 2 or path_points.shape[1] != 2 or path_points.shape[0] == 0:
+        raise ValueError("路径点格式错误，应为 [N, 2] 且 N > 0。")
+
+    distances = np.linalg.norm(path_points, axis=1)
+    forward_indices = np.flatnonzero(path_points[:, 0] >= float(min_forward_x))
+    if forward_indices.size > 0:
+        nearest_index = int(forward_indices[np.argmin(distances[forward_indices])])
+    else:
+        nearest_index = int(np.argmin(distances))
+
+    if nearest_index >= path_points.shape[0] - 1:
+        return nearest_index
+
+    cumulative = 0.0
+    for index in range(nearest_index + 1, path_points.shape[0]):
+        cumulative += float(np.linalg.norm(path_points[index] - path_points[index - 1]))
+        if cumulative >= float(lookahead_dist):
+            return index
+    return path_points.shape[0] - 1

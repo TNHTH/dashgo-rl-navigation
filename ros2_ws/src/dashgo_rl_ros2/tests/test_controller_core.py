@@ -1,10 +1,13 @@
 import numpy as np
 
 from dashgo_rl_ros2.controller_core import (
+    apply_heading_guard,
     ObservationBuffer,
     compute_velocity_scaled_lookahead,
     encode_goal_vector,
     process_lidar_ranges,
+    select_progressive_waypoint_index,
+    scale_linear_speed_by_heading,
     select_waypoint_index,
 )
 
@@ -104,3 +107,82 @@ def test_select_waypoint_index_uses_reverse_speed_scaled_lookahead():
 
     assert np.isclose(lookahead, 0.45)
     assert select_waypoint_index(distances, waypoint_dist=lookahead) == 2
+
+
+def test_scale_linear_speed_by_heading_keeps_speed_for_small_heading_error():
+    scaled = scale_linear_speed_by_heading(0.3, np.deg2rad(10.0))
+
+    assert np.isclose(scaled, 0.3)
+
+
+def test_scale_linear_speed_by_heading_reduces_speed_for_medium_heading_error():
+    scaled = scale_linear_speed_by_heading(
+        0.3,
+        np.deg2rad(45.0),
+        slowdown_angle=np.deg2rad(25.0),
+        turn_in_place_angle=np.deg2rad(65.0),
+    )
+
+    assert 0.0 < scaled < 0.3
+
+
+def test_scale_linear_speed_by_heading_stops_for_large_heading_error():
+    scaled = scale_linear_speed_by_heading(0.3, np.deg2rad(90.0))
+
+    assert np.isclose(scaled, 0.0)
+
+
+def test_apply_heading_guard_turns_in_place_for_large_heading_error():
+    guarded_v, guarded_w = apply_heading_guard(
+        0.3,
+        -1.0,
+        np.deg2rad(90.0),
+        max_angular_cmd=1.0,
+    )
+
+    assert np.isclose(guarded_v, 0.0)
+    assert np.isclose(guarded_w, 1.0)
+
+
+def test_apply_heading_guard_overrides_wrong_turn_direction():
+    guarded_v, guarded_w = apply_heading_guard(
+        0.3,
+        -0.8,
+        np.deg2rad(40.0),
+        max_angular_cmd=1.0,
+    )
+
+    assert 0.0 < guarded_v < 0.3
+    assert guarded_w > 0.0
+
+
+def test_select_progressive_waypoint_index_skips_old_path_points_behind_robot():
+    path_points = np.array(
+        [
+            [-1.0, 0.0],
+            [-0.5, 0.0],
+            [0.0, 0.0],
+            [0.5, 0.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    index = select_progressive_waypoint_index(path_points, lookahead_dist=0.6)
+
+    assert index == 4
+
+
+def test_select_progressive_waypoint_index_falls_back_to_nearest_when_all_points_behind():
+    path_points = np.array(
+        [
+            [-0.2, 0.0],
+            [-0.4, 0.0],
+            [-0.8, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    index = select_progressive_waypoint_index(path_points, lookahead_dist=0.6)
+
+    assert index == 2
