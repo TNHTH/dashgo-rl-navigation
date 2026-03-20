@@ -237,6 +237,12 @@ def analyze_live_sensor_payload(payload: dict, *, evidence_path: str | None = No
     checks: list[DoctorCheck] = []
     evidence = [evidence_path] if evidence_path else []
     samples = payload.get("samples", []) or []
+    lidar_normalized = bool(payload.get("lidar_normalized", False))
+    lidar_max_range_m = payload.get("lidar_max_range_m")
+    lidar_scale = 1.0
+    if isinstance(lidar_max_range_m, (int, float)) and float(lidar_max_range_m) > 0.0:
+        if lidar_normalized:
+            lidar_scale = float(lidar_max_range_m)
 
     if not samples:
         checks.append(
@@ -309,7 +315,8 @@ def analyze_live_sensor_payload(payload: dict, *, evidence_path: str | None = No
         obstacle_min = min_obstacle_stats.get("min")
         if not isinstance(lidar_min, (int, float)) or not isinstance(obstacle_min, (int, float)):
             continue
-        if abs(float(lidar_min) - float(obstacle_min)) > 0.25:
+        effective_lidar_min = float(lidar_min) * lidar_scale
+        if abs(effective_lidar_min - float(obstacle_min)) > 0.25:
             mismatch_count += 1
     if samples and mismatch_count / len(samples) > 0.20:
         checks.append(
@@ -319,7 +326,11 @@ def analyze_live_sensor_payload(payload: dict, *, evidence_path: str | None = No
                 message="最小障碍距离与 stitched lidar 最近值长期不一致，疑似观测合同漂移",
                 severity="soft_fail",
                 source="preflight",
-                details={"mismatch_ratio": mismatch_count / len(samples)},
+                details={
+                    "mismatch_ratio": mismatch_count / len(samples),
+                    "lidar_normalized": lidar_normalized,
+                    "lidar_scale": lidar_scale,
+                },
                 evidence_paths=evidence,
             )
         )

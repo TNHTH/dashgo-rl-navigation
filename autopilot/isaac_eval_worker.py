@@ -12,8 +12,11 @@ import torch
 from isaaclab.app import AppLauncher
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+SRC_ROOT = PROJECT_ROOT / "src"
+for candidate in (PROJECT_ROOT, SRC_ROOT):
+    candidate_str = str(candidate)
+    if candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
 
 from autopilot.anomaly import behavior_gate_violations, summarize_eval_episodes
 from autopilot.types import EvalRequest, EvalResult
@@ -56,7 +59,7 @@ def resolve_total_episodes(suite: str, requested_episodes: int | None) -> int:
 
 
 def set_robot_state(env, env_ids: torch.Tensor, yaw: torch.Tensor) -> None:
-    from dashgo_env_v2 import quat_from_euler_xyz
+    from dashgo_rl.dashgo_env_v2 import quat_from_euler_xyz
 
     robot = env.scene["robot"]
     state = robot.data.default_root_state[env_ids].clone()
@@ -90,7 +93,7 @@ def set_goal(env, env_ids: torch.Tensor, goal_xy: torch.Tensor) -> None:
 
 
 def load_policy(env, checkpoint: Path):
-    from geo_nav_policy import GeoNavPolicy
+    from dashgo_rl.geo_nav_policy import GeoNavPolicy
 
     obs, _ = env.reset()
     device = env.unwrapped.device
@@ -142,7 +145,7 @@ def initialize_episode_state(env, env_ids: torch.Tensor, scenarios: list[dict], 
     set_robot_state(env, env_ids, yaw_tensor)
     set_goal(env, env_ids, goal_tensor)
 
-    from dashgo_env_v2 import _get_min_obstacle_distance, _get_target_delta_and_heading
+    from dashgo_rl.dashgo_env_v2 import _get_min_obstacle_distance, _get_target_delta_and_heading
     from isaaclab.managers import SceneEntityCfg
 
     asset_cfg = SceneEntityCfg("robot")
@@ -160,7 +163,7 @@ def initialize_episode_state(env, env_ids: torch.Tensor, scenarios: list[dict], 
 
 
 def finalize_episode(env, env_id: int, stat: dict, reason: str) -> dict:
-    from dashgo_env_v2 import _get_target_delta_and_heading
+    from dashgo_rl.dashgo_env_v2 import _get_target_delta_and_heading
     from isaaclab.managers import SceneEntityCfg
 
     asset_cfg = SceneEntityCfg("robot")
@@ -209,7 +212,7 @@ def main() -> int:
     try:
         from isaaclab.envs import ManagerBasedRLEnv
         from isaaclab.managers import SceneEntityCfg
-        from dashgo_env_v2 import DashgoNavEnvV2Cfg, MOTION_CONFIG, _get_min_obstacle_distance, _get_target_delta_and_heading, process_stitched_lidar
+        from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg, MOTION_CONFIG, _get_min_obstacle_distance, _get_target_delta_and_heading, process_stitched_lidar
 
         request = EvalRequest(
             checkpoint=args_cli.checkpoint.resolve(),

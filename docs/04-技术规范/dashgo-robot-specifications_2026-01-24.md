@@ -314,8 +314,8 @@ high_speed_threshold: 0.25  # 小于max_lin_vel (0.3)
 ## 📚 参考文档
 
 1. **ROS配置文件**：
-   - `dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml`
-   - `dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params_fl.yaml`
+   - `drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml`
+   - `drivers/EAI_DRIVER/src/config/my_dashgo_params_fl.yaml`
 
 2. **Isaac Lab配置**：
    - `dashgo_assets.py` - 机器人资产定义

@@ -545,8 +545,8 @@ class DashGoEnv:
 
 ### ROS配置文件
 
-- `dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml` - 机器人参数
-- `dashgo/EAI驱动/dashgo_bringup/config/base_local_planner_params.yaml` - 导航参数
+- `drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml` - 机器人参数
+- `drivers/EAI_DRIVER/src/config/base_local_planner_params.yaml` - 导航参数
 - `dashgo/1/1/nav/param/costmap_common_params.yaml` - 代价地图
 
 ### Isaac Lab配置文件

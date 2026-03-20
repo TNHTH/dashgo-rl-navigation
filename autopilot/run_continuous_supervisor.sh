@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/gwh/dashgo_rl_project"
-AUTOPILOT_ROOT="$PROJECT_ROOT/autopilot"
+AUTOPILOT_ROOT="$PROJECT_ROOT/.artifacts/autopilot"
 LOG_FILE="$AUTOPILOT_ROOT/metrics/continuous_gen2_supervisor.nohup.log"
 PID_FILE="$AUTOPILOT_ROOT/metrics/continuous_gen2_supervisor.pid"
 

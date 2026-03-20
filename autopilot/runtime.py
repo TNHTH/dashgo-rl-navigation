@@ -13,16 +13,17 @@ LINEAGE_SCHEMA_VERSION = 1
 
 
 def resolve_project_root(start: str | Path | None = None) -> Path:
-    if start is None:
-        return Path(__file__).resolve().parent.parent
-    path = Path(start).resolve()
+    path = Path(start).resolve() if start is not None else Path(__file__).resolve()
     if path.is_file():
-        return path.parent
-    return path
+        path = path.parent
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists() and (candidate / "README.md").exists():
+            return candidate
+    return Path(__file__).resolve().parent.parent
 
 
 def default_autopilot_root(project_root: str | Path | None = None) -> Path:
-    return resolve_project_root(project_root) / "autopilot"
+    return resolve_project_root(project_root) / ".artifacts" / "autopilot"
 
 
 def default_lineage_file(project_root: str | Path | None = None) -> Path:

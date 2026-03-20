@@ -11,19 +11,26 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 PROJECT_ROOT_HINT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT_HINT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT_HINT))
+SRC_ROOT_HINT = PROJECT_ROOT_HINT / "src"
+for candidate in (PROJECT_ROOT_HINT, SRC_ROOT_HINT):
+    candidate_str = str(candidate)
+    if candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
 
 from autopilot.anomaly import analyze_log_text, behavior_gate_violations, prefilter_training_summary
 from autopilot.codex_escalator import enqueue_codex_job, inspect_codex_job
 from autopilot.io_utils import read_json, write_json
 from autopilot.runtime import default_autopilot_root, resolve_project_root
-from eval_checkpoint import build_eval_result
-from monitor_training import find_latest_run, summarize_run
+from tools.diagnostics.eval_checkpoint import build_eval_result
+from tools.diagnostics.monitor_training import find_latest_run, summarize_run
 
 
 PROJECT_ROOT = resolve_project_root(Path(__file__).resolve().parent.parent)
 AUTOPILOT_ROOT = default_autopilot_root(PROJECT_ROOT)
+TRAIN_SCRIPT = PROJECT_ROOT / "apps" / "isaac" / "train_v2.py"
+DOCTOR_SCRIPT = PROJECT_ROOT / "tools" / "diagnostics" / "doctor_training_env.py"
+EVAL_SCRIPT = PROJECT_ROOT / "tools" / "diagnostics" / "eval_checkpoint.py"
+DASHGO_ENV_MODULE = PROJECT_ROOT / "src" / "dashgo_rl" / "dashgo_env_v2.py"
 GEN2_RUNS_ROOT = AUTOPILOT_ROOT / "runs" / "gen2"
 STATE_PATH = AUTOPILOT_ROOT / "metrics" / "continuous_supervisor_state.json"
 EVENT_LOG_PATH = AUTOPILOT_ROOT / "metrics" / "continuous_supervisor_events.jsonl"
@@ -481,10 +488,10 @@ def evaluate_checkpoint_for_promotion(
             inputs={"doctor": doctor.to_dict(), "checkpoint": str(checkpoint_path), "summary": summary, "log_path": str(log_path)},
             allowed_paths=[
                 str(PROJECT_ROOT / "autopilot"),
-                str(PROJECT_ROOT / "doctor_training_env.py"),
-                str(PROJECT_ROOT / "eval_checkpoint.py"),
-                str(PROJECT_ROOT / "dashgo_env_v2.py"),
-                str(PROJECT_ROOT / "train_v2.py"),
+                str(DOCTOR_SCRIPT),
+                str(EVAL_SCRIPT),
+                str(DASHGO_ENV_MODULE),
+                str(TRAIN_SCRIPT),
             ],
         )
         return False, {"doctor": doctor.to_dict(), "codex_job": job}
@@ -932,7 +939,7 @@ def launch_training(run_name: str, checkpoint: Path, trial: TrialSpec) -> tuple[
     log_file = AUTOPILOT_ROOT / "metrics" / f"{run_name}.log"
     command = [
         str(ISAACLAB_PYTHON),
-        "train_v2.py",
+        str(TRAIN_SCRIPT),
         "--headless",
         "--gen",
         "gen2",
@@ -1034,10 +1041,10 @@ def run_trial(trial: TrialSpec, checkpoint: Path, next_trial: TrialSpec | None =
             inputs={"doctor": doctor.to_dict(), "summary": summary, "checkpoint": str(checkpoint), "log_file": str(log_file)},
             allowed_paths=[
                 str(PROJECT_ROOT / "autopilot"),
-                str(PROJECT_ROOT / "doctor_training_env.py"),
-                str(PROJECT_ROOT / "eval_checkpoint.py"),
-                str(PROJECT_ROOT / "dashgo_env_v2.py"),
-                str(PROJECT_ROOT / "train_v2.py"),
+                str(DOCTOR_SCRIPT),
+                str(EVAL_SCRIPT),
+                str(DASHGO_ENV_MODULE),
+                str(TRAIN_SCRIPT),
             ],
         )
         emit_status(
@@ -1354,8 +1361,8 @@ def main() -> int:
                     inputs={"auto_generated_rounds": auto_rounds_used + 1, "rationale": rationale},
                     allowed_paths=[
                         str(PROJECT_ROOT / "autopilot"),
-                        str(PROJECT_ROOT / "dashgo_env_v2.py"),
-                        str(PROJECT_ROOT / "train_v2.py"),
+                        str(DASHGO_ENV_MODULE),
+                        str(TRAIN_SCRIPT),
                     ],
                 )
                 emit_status(
@@ -1377,8 +1384,8 @@ def main() -> int:
                 inputs={"auto_generated_rounds": auto_rounds_used, "trial_rounds": [[asdict(item) for item in round_trials] for round_trials in TRIAL_ROUNDS]},
                 allowed_paths=[
                     str(PROJECT_ROOT / "autopilot"),
-                    str(PROJECT_ROOT / "dashgo_env_v2.py"),
-                    str(PROJECT_ROOT / "train_v2.py"),
+                    str(DASHGO_ENV_MODULE),
+                    str(TRAIN_SCRIPT),
                 ],
             )
             emit_status(

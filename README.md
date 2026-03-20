@@ -225,7 +225,7 @@ python -c "import torch; print(torch.cuda.is_available())"
 
 ```bash
 # Headless模式（推荐，GPU利用率高）
-~/IsaacLab/isaaclab.sh -p train_v2.py --headless --enable_cameras --num_envs 24
+~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --enable_cameras --num_envs 24
 
 # 或指定环境数（根据显存调整）
 # 8GB显存：推荐24-32个环境
@@ -248,57 +248,51 @@ Mean reward: -2.03
 
 ```bash
 # 自动加载最新模型
-~/IsaacLab/isaaclab.sh -p play.py --num_envs 1
+~/IsaacLab/isaaclab.sh -p apps/isaac/play.py --num_envs 1
 
 # 或指定checkpoint
-~/IsaacLab/isaaclab.sh -p play.py --checkpoint logs/dashgo_v5_auto/model_450.pt --num_envs 1
+~/IsaacLab/isaaclab.sh -p apps/isaac/play.py \
+  --checkpoint .artifacts/train/logs/<run>/model_450.pt \
+  --num_envs 1
 ```
 
 ### 运行诊断工具
 
 ```bash
 # 全栈诊断（验证硬件+软件+奖励）
-~/IsaacLab/isaaclab.sh -p verify_complete_v3.py --headless
+~/IsaacLab/isaaclab.sh -p apps/isaac/verify_ultimate_v5.py --headless
 ```
 
 ---
 
 ## 项目结构
 
-```
+```text
 dashgo_rl_project/
-├── README.md                             # 本文件
-├── train_v2.py                            # 训练脚本（RSL-RL）
-├── train_cfg_v2.yaml                      # 训练配置（超参数）
-├── dashgo_env_v2.py                       # 仿真环境定义
-├── dashgo_assets.py                       # 机器人资产配置
-├── dashgo_config.py                       # ROS参数加载
-├── geo_nav_policy.py                      # 轻量级网络定义（v3.1）
-├── play.py                                # 演示脚本
-├── verify_complete_v3.py                  # 诊断工具
-├── safety_filter.py                       # 安全过滤器（部署用）
-├── geo_distill_node.py                    # ROS部署节点
-├── issues/                                # 问题记录（70+文档）
-│   ├── README.md                          # 问题索引
-│   ├── 2026-01-27_1730_梯度爆炸导致NaN错误_ValueError.md
-│   ├── 2026-01-27_1727_lidar_sensor实体不存在_场景实体引用错误.md
-│   └── ...
+├── apps/isaac/                            # 训练、回放、导出、验证入口
+├── src/dashgo_rl/                         # 核心Python包
+├── configs/
+│   ├── training/                          # 训练配置
+│   └── robot/                             # URDF与机器人资源
+├── tools/
+│   ├── ops/                               # 部署与运行脚本
+│   ├── diagnostics/                       # 诊断与评估脚本
+│   └── maintenance/                       # 备份、回滚、初始化脚本
+├── workspaces/
+│   ├── ros1_catkin_ws/                    # ROS1部署工作区
+│   └── ros2_ws/                           # ROS2迁移工作区
+├── drivers/
+│   ├── EAI_DRIVER/                        # 权威底盘驱动与参数
+│   └── lakibeam_driver/                   # 权威雷达驱动
+├── references/dashgo/                     # 整机只读参考树
+├── autopilot/                             # 自主值守代码与契约
+├── .artifacts/
+│   ├── train/                             # 训练日志、成功模型、归档
+│   └── autopilot/                         # supervisor运行态
 ├── docs/                                  # 项目文档
-│   ├── Geo-Distill-V2.2-完整方案说明_2026-01-27.md
-│   ├── 训练奖励全0问题分析_2026-01-27.md
-│   ├── dashgo-robot-specifications_2026-01-24.md
-│   └── ...
-├── logs/                                  # 训练日志（自动生成，已gitignore）
-├── dashgo/                                # 实物ROS包（只读参考）
-│   ├── EAI驱动/                           # DashGo D1驱动
-│   │   └── dashgo_bringup/config/        # 参数配置（Sim2Real对齐）
-│   └── cartographer/                      # SLAM建图（参考）
-└── .claude/                               # Claude AI配置（开发用）
-    ├── rules/                             # 开发规则
-    │   ├── isaac-lab-development-iron-rules.md
-    │   └── project-specific-rules.md
-    └── skills/                            # AI技能
-        └── dialogue_optimizer/
+├── issues/                                # 问题记录
+├── tests/                                 # 测试
+└── .claude/                               # 历史Claude配置（保留）
 ```
 
 ---
@@ -377,35 +371,28 @@ Linear(128, 64) → Linear(64, 2)
 
 **第一步：模型导出**
 ```bash
-python export_onnx.py --checkpoint logs/model_450.pt
-# 生成：policy_v2.pt
+~/IsaacLab/isaaclab.sh -p apps/isaac/export_torchscript.py \
+  --checkpoint .artifacts/train/logs/<run>/model_450.pt
 ```
 
-**第二步：上传到Jetson**
+**第二步：构建 ROS1 工作区**
 ```bash
-scp policy_v2.pt jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
-scp geo_distill_node.py jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
-scp safety_filter.py jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
+cd workspaces/ros1_catkin_ws
+catkin_make
 ```
 
-**第三步：实物测试**
+**第三步：使用运维脚本打包与部署**
 ```bash
-# 登录Jetson
-ssh jetson@dashgo
+bash tools/ops/quickstart_deploy.sh export
+bash tools/ops/quickstart_deploy.sh build
+bash tools/ops/quickstart_deploy.sh package
+```
 
-# 启动底盘
-roslaunch dashgo_bringup minimal.launch
-
-# 启动导航节点
-roslaunch dashgo_navigation geo_distill.launch model_path:=policy_v2.pt
-
-# 发送目标点
-rostopic pub /move_base_simple/goal geometry_msgs/PoseStamped \
-  "header: {frame_id: 'map'}
-   pose: {
-     position: {x: 2.0, y: 1.0}
-     orientation: {w: 1.0}
-   }"
+**第四步：Jetson 侧启动**
+```bash
+cd ~/ros1_catkin_ws
+source ~/ros1_catkin_ws/devel/setup.bash
+roslaunch dashgo_rl real_control.launch
 ```
 
 ### 参数对齐验证
@@ -464,7 +451,7 @@ runner:
 watch -n 1 nvidia-smi
 
 # 监控训练日志
-tail -f logs/dashgo_v5_auto/*/log.txt | grep "Mean reward"
+tail -f .artifacts/train/logs/*/log.txt | grep "Mean reward"
 ```
 
 ### 常见问题
