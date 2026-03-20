@@ -272,7 +272,7 @@ print(f"LaserScan range: [{lidar_ranges.min():.2f}, {lidar_ranges.max():.2f}]")
 
 **训练命令**：
 ```bash
-python ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
+python ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80
 ```
 
 **训练配置**（`train_cfg_v2.yaml`）：
@@ -295,7 +295,7 @@ runner:
 **微调选项**（可选）：
 ```bash
 # 从预训练权重微调（如果存在）
-python train_v2.py --load_path logs/model_0.pt --headless
+python apps/isaac/train_v2.py --load_path .artifacts/train/logs/model_0.pt --headless
 ```
 
 ---
@@ -374,7 +374,7 @@ lidar_noisy = lidar_ranges + torch.randn_like(lidar_ranges) * 0.02  # 2cm噪声
 ### 无需修改的文件
 
 1. ✅ **config/dashgo.urdf**（已经正确）
-2. ✅ **train_v2.py**（训练脚本无需修改）
+2. ✅ **apps/isaac/train_v2.py**（训练脚本无需修改）
 3. ✅ **train_cfg_v2.yaml**（超参数可能需要微调）
 
 ---
@@ -447,7 +447,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ### EAI F4 激光雷达规格
 - 问题记录：`issues/2026-01-25_1230_传感器配置不一致问题_LiDARvs深度相机.md`
-- ROS配置：`dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml`
+- ROS配置：`drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml`
 
 ### 相关Commit
 - 坐标系修复：`0ba490e` - 修复reach_goal判定坐标系不一致

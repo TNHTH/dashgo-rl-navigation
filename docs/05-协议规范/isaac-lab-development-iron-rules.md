@@ -158,7 +158,7 @@ policy:
 
 **Python 扁平化**（在脚本中处理）：
 ```python
-# train_v2.py 中自动扁平化
+# apps/isaac/train_v2.py 中自动扁平化
 if "runner" in agent_cfg:
     agent_cfg.update(agent_cfg.pop("runner"))
 ```
@@ -283,7 +283,7 @@ wheel_track = 0.34    # 错误！误差 0.6%
 ```
 
 **来源**：
-- ROS 配置：`dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml`
+- ROS 配置：`drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml`
 - `dashgo_config.py` 中的 `DashGoROSParams` 类
 
 #### 4.2 控制模式配置
@@ -428,7 +428,7 @@ max_ang_vel: 1.0 rad/s     # 最大角速度
 
 **错误现象**：
 ```bash
-~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
+~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80
 # 结果：窗口仍然弹出
 ```
 

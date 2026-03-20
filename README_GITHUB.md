@@ -2,125 +2,74 @@
 
 ## 项目简介
 
-基于深度强化学习的DashGo机器人局部导航项目，使用NVIDIA Isaac Lab和RSL-RL训练。
+基于 Isaac Lab 和 RSL-RL 的 DashGo 局部导航项目，目标是把强化学习策略从 Isaac Sim 平滑迁移到 ROS1/ROS2 实机链路。
 
-## 开发环境
+## 当前目录结构
 
-- **仿真器**: NVIDIA Isaac Sim 4.5
-- **操作系统**: Ubuntu 20.04 LTS
-- **框架**: Isaac Lab 0.46.4 + RSL-RL
-- **语言**: Python 3.10
-
-## 项目结构
-
-```
+```text
 dashgo_rl_project/
-├── train_v2.py              # 训练脚本
-├── train_cfg_v2.yaml         # 训练配置
-├── dashgo_env_v2.py          # 环境定义
-├── dashgo_assets.py          # 机器人资产
-├── dashgo_config.py          # ROS参数配置
-├── play.py                  # 演示脚本
-├── export_onnx.py           # 导出ONNX模型
-├── run_headless_train.sh    # Headless训练启动脚本
-├── check_config.py           # 配置验证脚本
-├── issues/                  # 问题记录
-├── docs/                    # 项目文档
-└── dashgo/                  # 实物ROS包（参考）
+├── apps/isaac/                 # 训练、回放、导出、验证入口
+├── src/dashgo_rl/              # Python核心包
+├── configs/                    # 训练配置与机器人URDF
+├── tools/                      # 运维、诊断、维护脚本
+├── workspaces/
+│   ├── ros1_catkin_ws/         # ROS1部署工作区
+│   └── ros2_ws/                # ROS2迁移工作区
+├── drivers/
+│   ├── EAI_DRIVER/             # 权威底盘驱动与参数
+│   └── lakibeam_driver/        # 权威雷达驱动
+├── references/dashgo/          # 只读整机参考树
+├── autopilot/                  # 自主值守代码与契约
+├── .artifacts/                 # 训练与autopilot运行产物
+├── docs/                       # 文档与计划
+├── issues/                     # 问题记录
+└── tests/                      # 测试
 ```
 
 ## 快速开始
 
-### 1. 训练新模型
+### 1. 训练
 
 ```bash
-# Headless模式（推荐，80个并行环境）
-~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
-
-# 或使用专用脚本
-./run_headless_train.sh --num_envs 80
+~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80
 ```
 
-### 2. 演示已有模型
+### 2. 回放
 
 ```bash
-# 自动加载最新模型
-~/IsaacLab/isaaclab.sh -p play.py --num_envs 1
-
-# 指定模型
-~/IsaacLab/isaaclab.sh -p play.py --checkpoint logs/model_450.pt --num_envs 1
+~/IsaacLab/isaaclab.sh -p apps/isaac/play.py --num_envs 1
+~/IsaacLab/isaaclab.sh -p apps/isaac/play.py \
+  --checkpoint .artifacts/train/logs/<run>/model_450.pt \
+  --num_envs 1
 ```
 
-### 3. 导出ONNX模型
+### 3. 导出 TorchScript
 
 ```bash
-python export_onnx.py --checkpoint logs/model_450.pt
+~/IsaacLab/isaaclab.sh -p apps/isaac/export_torchscript.py
 ```
 
-## 核心特性
+导出目标:
+- `workspaces/ros1_catkin_ws/src/dashgo_rl/models/policy_torchscript.pt`
+- `workspaces/ros2_ws/src/dashgo_rl_ros2/models/policy_torchscript.pt`
 
-### 严格的参数对齐
-- 所有物理参数从ROS配置文件读取
-- 确保仿真与实物一致
-- 配置来源: `dashgo/EAI驱动/dashgo_bringup/config/`
+### 4. 实机部署
 
-### 官方文档优先
-- 严格遵循Isaac Sim 4.5官方文档
-- 所有API使用已验证在目标版本中存在
-- 禁止使用未经验证的功能
+```bash
+bash tools/ops/quickstart_deploy.sh export
+bash tools/ops/quickstart_deploy.sh build
+```
 
-### 问题记录系统
-- 所有问题记录在 `issues/` 目录
-- 包含详细的根本原因分析和解决方案
-- 作为项目经验积累
+## 权威来源
 
-## 最近修改
+- 机器人底盘参数：`drivers/EAI_DRIVER/src/config/`
+- 雷达驱动基线：`drivers/lakibeam_driver/`
+- 整机参考资料：`references/dashgo/`
+- 训练产物：`.artifacts/train/`
+- Autopilot 运行态：`.artifacts/autopilot/`
 
-### 2024-01-24
+## 说明
 
-1. **修复headless模式相机传感器问题**
-   - headless模式下自动禁用相机传感器
-   - 条件配置避免prim路径错误
-   - 创建专用启动脚本
-
-2. **优化参数管理**
-   - 从ROS配置文件读取参数
-   - 避免硬编码
-   - 统一配置中心
-
-3. **完善开发规范**
-   - 创建问题记录系统
-   - 添加项目级开发规则
-   - 严格的版本锁定（Isaac Sim 4.5）
-
-4. **修复训练配置**
-   - 移除不支持的学习率调度参数
-   - 降低朝向奖励权重防止原地转圈
-   - 使用标准AppLauncher用法
-
-## 提交历史
-
-最近26个本地提交（待推送）：
-- 问题修复：headless模式、参数配置、版本锁定
-- 代码重构：ROS参数读取、AppLauncher标准用法
-- 文档完善：问题记录、开发规范
-
-详细提交历史请查看：[提交补丁](/tmp/dashgo_changes.patch)
-
-## 注意事项
-
-- ⚠️ headless模式下激光雷达观测被禁用（返回零值）
-- ⚠️ 即使加--headless，Isaac Sim仍可能打开窗口（正常行为）
-- ✅ 窗口打开不影响训练，可以最小化
-- ✅ 训练正常使用GPU (cuda:0)
-
-## 后续优化
-
-- 使用RayCaster传感器替代相机（支持headless）
-- 添加TensorBoard支持
-- 优化奖励函数
-- 完善单元测试
-
-## 许可证
-
-本项目仅供学习和研究使用。
+- `drivers/EAI_DRIVER/` 与 `drivers/lakibeam_driver/` 是当前主动运行链的权威驱动来源。
+- `references/dashgo/` 保留原始参考内容，只读使用，不再作为运行期主配置来源。
+- 本仓库默认使用 Isaac Sim 4.5、Isaac Lab 0.46.4、Ubuntu 20.04 LTS。
