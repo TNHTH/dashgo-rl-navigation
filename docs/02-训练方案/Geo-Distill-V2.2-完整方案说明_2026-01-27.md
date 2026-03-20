@@ -678,7 +678,7 @@ class GeoDistillNode:
 ```bash
 # 1. 启动训练（64环境，Headless模式）
 cd ~/IsaacLab
-./isaaclab.sh -p train_v2.py --headless --enable_cameras --num_envs 64
+./isaaclab.sh -p apps/isaac/train_v2.py --headless --enable_cameras --num_envs 64
 
 # 2. 训练8000轮（预计8-10小时）
 # 观察指标：
@@ -700,7 +700,7 @@ from train_v2 import *  # 导入训练脚本
 
 # 加载训练好的模型
 runner = OnPolicyRunner(env, cfg)
-runner.load("logs/dashgo_v5_auto/policy_v2.pt")
+runner.load(".artifacts/train/logs/dashgo_v5_auto/policy_v2.pt")
 
 # 导出为TorchScript
 example_input = (torch.randn(1, 72), torch.randn(1, 3), torch.randn(1, 2))
@@ -714,12 +714,12 @@ print("✅ 模型导出成功: policy_v2.pt")
 
 ```bash
 # 1. 上传模型文件
-scp policy_v2.pt jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
+scp policy_v2.pt jetson@dashgo:~/ros1_catkin_ws/src/dashgo_navigation/scripts/
 
 # 2. 上传部署代码
-scp geo_distill_node.py jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
-scp safety_filter.py jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
-scp geo_nav_policy.py jetson@dashgo:~/catkin_ws/src/dashgo_navigation/scripts/
+scp geo_distill_node.py jetson@dashgo:~/ros1_catkin_ws/src/dashgo_navigation/scripts/
+scp safety_filter.py jetson@dashgo:~/ros1_catkin_ws/src/dashgo_navigation/scripts/
+scp geo_nav_policy.py jetson@dashgo:~/ros1_catkin_ws/src/dashgo_navigation/scripts/
 ```
 
 ### 第四步：实物测试
@@ -792,7 +792,7 @@ rostopic pub /move_base_simple/goal geometry_msgs/PoseStamped \
 
 Geo-Distill V2.2 是一套**完整的Sim2Real导航方案**，包含：
 
-1. **仿真训练**（`dashgo_env_v2.py` + `train_v2.py`）
+1. **仿真训练**（`dashgo_env_v2.py` + `apps/isaac/train_v2.py`）
    - 4向深度相机拼接（规避RayCaster Bug）
    - 自动课程学习（3m → 8m线性扩展）
    - 完整奖励函数（严禁倒车刷分）

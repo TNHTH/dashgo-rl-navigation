@@ -435,7 +435,7 @@ target_v = torch.clamp(actions[:, 0] * max_lin_vel, -max_lin_vel, max_lin_vel)
 
 ```bash
 # 使用当前配置训练
-DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
+DISPLAY= ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80
 
 # 监控指标：
 # - 是否出现原地转圈

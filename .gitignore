@@ -117,3 +117,15 @@ catkin_ws/src/*/devel/
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+
+# DashGo RL 目录重组后的工作区编译产物（2026-03-20）
+workspaces/ros1_catkin_ws/build/
+workspaces/ros1_catkin_ws/devel/
+workspaces/ros2_ws/build/
+workspaces/ros2_ws/install/
+workspaces/ros2_ws/log/
+
+# 本地临时与生成环境目录
+.tmp/
+devel/
+install/

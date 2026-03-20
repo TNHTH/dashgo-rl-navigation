@@ -54,10 +54,10 @@
 ## 当前主线
 
 - 基线 anchor:
-  - `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
+  - `/home/gwh/dashgo_rl_project/.artifacts/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt`
 - 当前恢复语义主线:
   - `reward_contextual_reverse_escape()`
 - 当前 supervisor:
   - `/home/gwh/dashgo_rl_project/autopilot/continuous_gen2_supervisor.py`
 - 当前运行态文件:
-  - `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json`
+  - `/home/gwh/dashgo_rl_project/.artifacts/autopilot/metrics/continuous_supervisor_state.json`

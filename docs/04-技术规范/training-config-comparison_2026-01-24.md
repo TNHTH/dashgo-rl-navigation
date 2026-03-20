@@ -202,7 +202,7 @@ max_iterations: 5000  # 折中值（介于1500和10000之间）
 
 **训练命令**：
 ```bash
-DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
+DISPLAY= ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80
 ```
 
 **采样量**：240 × 80 = 19,200 steps/iteration（足够）
@@ -270,9 +270,9 @@ max_iterations: 1500
 **实施方法**：
 ```bash
 # 同时启动3个训练，使用不同端口
-DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80 &  # 保守
-DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80 &  # 折中
-DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80 &  # 激进
+DISPLAY= ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80 &  # 保守
+DISPLAY= ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80 &  # 折中
+DISPLAY= ~/IsaacLab/isaaclab.sh -p apps/isaac/train_v2.py --headless --num_envs 80 &  # 激进
 ```
 
 ---

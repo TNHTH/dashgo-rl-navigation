@@ -65,19 +65,19 @@
 
 ### 2. 参数对齐原则
 
-**所有参数修改必须对齐实物ROS配置**:
+**所有参数修改必须对齐权威驱动与实机参考配置**:
 
 | 参数类别 | 配置来源 | 文件位置 |
 |---------|---------|----------|
-| 轮距/轮径 | `dashgo/` 文件夹 | ROS yaml文件 |
-| 速度限制 | `dashgo/` 文件夹 | base_local_planner_params.yaml |
-| 加速度限制 | `dashgo/` 文件夹 | base_local_planner_params.yaml |
-| 机器人半径 | `dashgo/` 文件夹 | costmap_common_params.yaml |
+| 轮距/轮径 | `drivers/EAI_DRIVER/` | `src/config/my_dashgo_params.yaml` |
+| 速度限制 | `drivers/EAI_DRIVER/` + `workspaces/ros1_catkin_ws/` | 驱动参数 + ROS1 planner 参数 |
+| 加速度限制 | `drivers/EAI_DRIVER/` + `workspaces/ros1_catkin_ws/` | 驱动参数 + ROS1 planner 参数 |
+| 机器人半径 | `references/dashgo/` + `workspaces/ros1_catkin_ws/` | costmap/导航参考参数 |
 
 **验证流程**:
 ```python
 # 修改前检查
-1. 读取 dashgo/ 中对应的ROS配置
+1. 读取 `drivers/EAI_DRIVER/` 与 `references/dashgo/` 中对应配置
 2. 确认仿真参数与实物一致
 3. 添加注释说明参数来源
 ```
@@ -117,49 +117,50 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 **项目特定规则**:
 ```
 /home/gwh/dashgo_rl_project/
-├── config/              # 配置文件（URDF、训练参数）
-├── dashgo/              # 实物ROS包（只读，用于参考）
+├── apps/isaac/          # 训练、回放、导出、验证入口
+├── src/dashgo_rl/       # Isaac/RL 核心代码
+├── configs/             # 训练配置、URDF
+├── tools/               # 运维、诊断、维护脚本
+├── workspaces/          # ROS1/ROS2 工作区
+├── drivers/             # 权威驱动与参数
+├── references/dashgo/   # 整机只读参考树
+├── .artifacts/          # 训练与autopilot产物
 ├── docs/                # 项目文档
-├── logs/                # 训练日志
-├── .claude/             # Claude配置（自动加载规则）
-├── multi-agent-system/  # Agent定义
-├── dashgo_assets.py     # Isaac Lab资产配置
-├── dashgo_env_v2.py     # 训练环境
-└── train_v2.py          # 训练脚本
+└── issues/              # 问题记录
 ```
 
 **禁止操作**:
-- ❌ **修改 `dashgo/` 中的文件（只读参考，严禁任何修改）**
+- ❌ **修改 `references/dashgo/` 中的文件（只读参考，严禁任何修改）**
 - ❌ 将 `policy.onnx`、`*.pth`、`*.ckpt` 提交到git
 - ❌ 提交敏感配置（`.claude.json`、`.mcp.json`）
 
-**⚠️ 特别强调：dashgo/ 文件夹绝对禁止修改**
+**⚠️ 特别强调：references/dashgo/ 文件夹绝对禁止修改**
 
-`dashgo/` 文件夹包含实物机器人的ROS配置和参数，是Sim2Real对齐的**唯一真实来源**：
+`references/dashgo/` 文件夹包含整机级历史配置和参考资料，驱动层权威来源为 `drivers/EAI_DRIVER/` 与 `drivers/lakibeam_driver/`：
 
 **为什么不能修改？**
-1. **实物参数的真实性**: 这些参数来自真实的DashGo D1机器人
-2. **Sim2Real的关键**: 仿真必须严格对齐实物，否则训练的策略无法部署
-3. **版本控制**: dashgo/文件有独立的git历史，不应被项目代码混淆
+1. **参考价值高**: 它保留了前人跑通过的整机资料和目录语义
+2. **Sim2Real 需要比对**: 仿真与部署要同时参考权威驱动参数和整机资料
+3. **避免职责混淆**: 运行期主配置应来自 `drivers/`，不是直接改参考树
 
 **正确使用方式**:
 ```python
-# ✅ 正确：只读取参数
-from dashgo_config import DashGoROSParams
-ros_params = DashGoROSParams.from_yaml("dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml")
+# ✅ 正确：从新包路径读取参数
+from dashgo_rl.dashgo_config import DashGoROSParams
+ros_params = DashGoROSParams.from_yaml("drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml")
 wheel_radius = ros_params.wheel_radius  # 使用真实参数
 
-# ❌ 错误：修改dashgo/文件
-# 不要编辑 dashgo/EAI驱动/dashgo_bringup/config/my_dashgo_params.yaml
+# ❌ 错误：直接修改 references/dashgo/ 或绕过 drivers/
+# 不要把运行期参数主来源重新切回 references/dashgo/
 ```
 
 **参数来源表**:
 | 参数 | 来源文件 | 用途 |
 |------|----------|------|
-| wheel_radius | dashgo/EAI驱动/.../my_dashgo_params.yaml | 轮子半径 |
-| wheel_track | dashgo/EAI驱动/.../my_dashgo_params.yaml | 轮距 |
-| max_vel_x | dashgo/.../base_local_planner_params.yaml | 最大线速度 |
-| max_rot_vel | dashgo/.../base_local_planner_params.yaml | 最大角速度 |
+| wheel_radius | `drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml` | 轮子半径 |
+| wheel_track | `drivers/EAI_DRIVER/src/config/my_dashgo_params.yaml` | 轮距 |
+| max_vel_x | `workspaces/ros1_catkin_ws/src/dashgo_rl/param/base_local_planner_dwa_params.yaml` | 最大线速度 |
+| max_rot_vel | `workspaces/ros1_catkin_ws/src/dashgo_rl/param/base_local_planner_dwa_params.yaml` | 最大角速度 |
 
 ### 5. 官方文档优先原则（版本锁定）
 
@@ -291,7 +292,7 @@ def compute_reward(self) -> torch.Tensor:
 
 **触发条件**（满足任一即自动应用）:
 - ✅ 工作目录是 `/home/gwh/dashgo_rl_project`
-- ✅ 读取了项目文件（`dashgo_assets.py`、`dashgo_env_v2.py`、`train_v2.py`）
+- ✅ 读取了项目文件（`dashgo_assets.py`、`dashgo_env_v2.py`、`apps/isaac/train_v2.py`）
 - ✅ 用户提到项目关键词（"DashGo"、"机器人导航"、"Isaac Lab"、"RSL-RL"）
 
 **自动执行序列**:

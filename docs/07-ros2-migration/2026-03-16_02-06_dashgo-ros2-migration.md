@@ -24,7 +24,7 @@
 
 ### 1. 新增 ROS2 包
 
-位置: `ros2_ws/src/dashgo_rl_ros2`
+位置: `workspaces/ros2_ws/src/dashgo_rl_ros2`
 
 主要内容：
 
@@ -180,7 +180,7 @@ ModuleNotFoundError: No module named 'numpy'
 ### 1. 构建
 
 ```bash
-cd /home/gwh/dashgo_rl_project/ros2_ws
+cd /home/gwh/dashgo_rl_project/workspaces/ros2_ws
 unset PYTHONPATH
 source /opt/ros/humble/setup.bash
 COLCON_PYTHON_EXECUTABLE=/usr/bin/python3.10 colcon build --symlink-install --packages-select dashgo_rl_ros2
@@ -191,7 +191,7 @@ COLCON_PYTHON_EXECUTABLE=/usr/bin/python3.10 colcon build --symlink-install --pa
 ### 2. 单元测试
 
 ```bash
-cd /home/gwh/dashgo_rl_project/ros2_ws/src/dashgo_rl_ros2
+cd /home/gwh/dashgo_rl_project/workspaces/ros2_ws/src/dashgo_rl_ros2
 PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_controller_core.py -q
 ```
 
@@ -205,7 +205,7 @@ PYTHONPATH=$PWD /usr/bin/python3.10 -m pytest tests/test_controller_core.py -q
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash
+source /home/gwh/dashgo_rl_project/workspaces/ros2_ws/install/setup.bash
 ros2 launch dashgo_rl_ros2 minimal_model.launch.py launch_bridge:=true
 ```
 
@@ -222,7 +222,7 @@ CMD_VEL linear=0.0500 angular=0.0300
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash
+source /home/gwh/dashgo_rl_project/workspaces/ros2_ws/install/setup.bash
 ros2 launch dashgo_rl_ros2 real_model_nav.launch.py use_rviz:=false use_amcl:=false
 ```
 
@@ -237,7 +237,7 @@ CMD_VEL linear=0.0500 angular=0.0300
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/gwh/dashgo_rl_project/ros2_ws/install/setup.bash
+source /home/gwh/dashgo_rl_project/workspaces/ros2_ws/install/setup.bash
 ros2 launch dashgo_rl_ros2 gazebo_classic_validation.launch.py use_rviz:=false gui:=false use_amcl:=false
 ```
 

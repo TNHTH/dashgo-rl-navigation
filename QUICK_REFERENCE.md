@@ -27,30 +27,30 @@
 
 ### 创建备份
 ```bash
-./scripts/backup-phase.sh <阶段> <Agent>
+./tools/maintenance/backup-phase.sh <阶段> <Agent>
 ```
 **示例**:
 ```bash
-./scripts/backup-phase.sh phase1 product-agent
-./scripts/backup-phase.sh phase2 architect-agent
+./tools/maintenance/backup-phase.sh phase1 product-agent
+./tools/maintenance/backup-phase.sh phase2 architect-agent
 ```
 
 ### 查看备份
 ```bash
-./scripts/list-backups.sh
+./tools/maintenance/list-backups.sh
 ```
 
 ### 回滚命令
 
 **本地快照回滚**（优先）:
 ```bash
-./scripts/rollback.sh .backups/phase-X-TIMESTAMP
+./tools/maintenance/rollback.sh .backups/phase-X-TIMESTAMP
 ```
 
 **Git回滚**（如果Git可用）:
 ```bash
-./scripts/rollback.sh git 1          # 回滚1步
-./scripts/rollback.sh git <hash>     # 回滚到指定commit
+./tools/maintenance/rollback.sh git 1          # 回滚1步
+./tools/maintenance/rollback.sh git <hash>     # 回滚到指定commit
 ```
 
 ---
@@ -59,7 +59,7 @@
 
 ### 1️⃣ TDD Protocol（测试驱动开发）
 
-**文档**: `docs/tdd-protocol.md`
+**文档**: `docs/05-协议规范/tdd-protocol.md`
 **适用**: backend-agent（强制）、frontend-agent（建议）
 
 **RED-GREEN-REFACTOR循环**:
@@ -96,7 +96,7 @@ async register(email, password) {
 
 ### 2️⃣ Systematic Debugging（系统化调试）
 
-**文档**: `docs/debugging-protocol.md`
+**文档**: `docs/05-协议规范/debugging-protocol.md`
 **适用**: 所有Agent，出现bug时必须
 
 **四步流程**:
@@ -118,7 +118,7 @@ Verify      → 验证修复（测试通过）
 
 ### 3️⃣ Two-Stage Code Review（两阶段代码审查）
 
-**文档**: `docs/code-review-protocol.md`
+**文档**: `docs/05-协议规范/code-review-protocol.md`
 **适用**: integration-agent（阶段3c完成时必须）
 
 **阶段1：规范符合性**（architect-agent + integration-agent）:
@@ -163,11 +163,12 @@ Verify      → 验证修复（测试通过）
 │   ├── tdd-protocol.md           # TDD协议
 │   ├── debugging-protocol.md     # 系统化调试协议
 │   └── code-review-protocol.md   # 两阶段代码审查协议
-├── scripts/               # 工具脚本
-│   ├── init-project.sh
-│   ├── backup-phase.sh
-│   ├── rollback.sh
-│   └── list-backups.sh
+├── tools/
+│   └── maintenance/       # 维护脚本
+│       ├── init-project.sh
+│       ├── backup-phase.sh
+│       ├── rollback.sh
+│       └── list-backups.sh
 ├── .claude/
 │   └── instructions.md    # 系统配置（v4.0 Pro）
 ├── QUICK_REFERENCE.md     # 本文件
@@ -181,7 +182,7 @@ Verify      → 验证修复（测试通过）
 ### 启动新项目
 ```bash
 # 1. 初始化项目
-./scripts/init-project.sh "我的项目名"
+./tools/maintenance/init-project.sh "我的项目名"
 
 # 2. 启动Claude Code
 claude
@@ -243,10 +244,10 @@ Claude: 自动识别architect-agent
 ### 回滚到上一阶段
 ```bash
 # 查看备份
-./scripts/list-backups.sh
+./tools/maintenance/list-backups.sh
 
 # 回滚
-./scripts/rollback.sh .backups/phase-X-[最新备份]
+./tools/maintenance/rollback.sh .backups/phase-X-[最新备份]
 ```
 
 ---
