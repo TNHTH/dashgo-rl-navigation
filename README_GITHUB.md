@@ -1,5 +1,7 @@
 # DashGo RL Navigation Project
 
+仓库导航入口见 [`INDEX.md`](./INDEX.md)。如果你是通过 GitHub / ChatGPT 网页端进入本仓库，建议先从这里开始。
+
 ## 项目简介
 
 基于 Isaac Lab 和 RSL-RL 的 DashGo 局部导航项目，目标是把强化学习策略从 Isaac Sim 平滑迁移到 ROS1/ROS2 实机链路。
