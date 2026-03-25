@@ -682,7 +682,7 @@ class ArduinoROS():
         # Stop the robot
         try:
             rospy.loginfo("Stopping the robot...")
-            self.cmd_vel_pub.Publish(Twist())
+            self.cmd_vel_pub.publish(Twist())
             rospy.sleep(2)
         except:
             pass
@@ -690,4 +690,3 @@ class ArduinoROS():
         
 if __name__ == '__main__':
     myArduino = ArduinoROS()
-

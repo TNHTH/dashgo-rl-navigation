@@ -1,0 +1,35 @@
+{
+  "created_at": "2026-03-24T23:25:27.416067+08:00",
+  "git_commit": "3777ffaf3da9fc81a16de7f36b9f4812f4affaf0",
+  "checkpoint_path": "/home/gwh/dashgo_rl_project/.artifacts/autopilot/runs/gen2/20260319_113548_wave50_gen2_model704_escapecurriculum05_softgeometry_seed44/checkpoints/model_883.pt",
+  "checkpoint_sha256": "6ba9a6c416b4c46309cff5e8b4b91008c4904ea81b73c7d516b69aee3fffa32d",
+  "torchscript": [
+    {
+      "path": "/home/gwh/dashgo_rl_project/workspaces/ros2_ws/src/dashgo_rl_ros2/models/policy_torchscript.pt",
+      "sha256": "c92fcba2f1ba215e4d7c6699335bcc3acec734595980b0e5262610e2f634e487"
+    },
+    {
+      "path": "/home/gwh/dashgo_rl_project/workspaces/ros1_catkin_ws/src/dashgo_rl/models/policy_torchscript.pt",
+      "sha256": "c92fcba2f1ba215e4d7c6699335bcc3acec734595980b0e5262610e2f634e487"
+    },
+    {
+      "path": "/home/gwh/dashgo_rl_project/workspaces/ros2_ws/install/dashgo_rl_ros2/share/dashgo_rl_ros2/models/policy_torchscript.pt",
+      "sha256": "c92fcba2f1ba215e4d7c6699335bcc3acec734595980b0e5262610e2f634e487"
+    }
+  ],
+  "obs_dim": 246,
+  "obs_history_len": 3,
+  "obs_term_order": [
+    "lidar_history",
+    "waypoint_vector_history",
+    "goal_vector_history",
+    "lin_vel_x_history",
+    "yaw_rate_history",
+    "last_action_history"
+  ],
+  "action_dim": 2,
+  "action_semantics": "bounded_tanh_gaussian",
+  "normalizer_embedded": true,
+  "export_script": "/home/gwh/dashgo_rl_project/apps/isaac/export_torchscript.py",
+  "export_mode": "trace"
+}

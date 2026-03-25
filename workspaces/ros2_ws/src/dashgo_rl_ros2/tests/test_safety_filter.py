@@ -34,3 +34,35 @@ def test_safety_filter_allows_but_limits_reverse_motion():
 
     assert safe_v <= 0.0
     assert abs(safe_v) < 0.2
+
+
+def test_safety_filter_preserves_turn_in_place_speed_when_side_clearance_sufficient():
+    filt = DynamicsSafetyFilter(robot_radius=0.2, max_accel=1.0, safety_margin=0.05)
+    scan = np.full(360, 5.0, dtype=np.float32)
+
+    safe_v, safe_w = filt.filter(
+        0.0,
+        0.1,
+        scan,
+        preserve_turn_in_place=True,
+        min_turn_in_place_w=0.35,
+    )
+
+    assert np.isclose(safe_v, 0.0)
+    assert np.isclose(safe_w, 0.35)
+
+
+def test_safety_filter_blocks_blind_reverse_when_rear_sector_is_unobserved():
+    filt = DynamicsSafetyFilter(robot_radius=0.2, max_accel=1.0, safety_margin=0.05)
+    scan = np.full(180, 5.0, dtype=np.float32)
+
+    safe_v, safe_w = filt.filter(
+        -0.2,
+        0.0,
+        scan,
+        angle_min=-np.pi / 2.0,
+        angle_increment=np.pi / 179.0,
+    )
+
+    assert np.isclose(safe_v, 0.0)
+    assert np.isclose(safe_w, 0.0)

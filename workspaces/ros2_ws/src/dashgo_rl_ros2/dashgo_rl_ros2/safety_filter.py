@@ -45,7 +45,8 @@ class DynamicsSafetyFilter:
         wrapped = np.abs(_wrap_angle(angles - center_angle))
         mask = wrapped <= half_width
         if not np.any(mask):
-            return max_range
+            # 当前视场完全不可见的方向按未知处理，实机不能把它当作“绝对安全”。
+            return 0.0
 
         sector = scan_ranges[mask]
         valid = sector[(sector > 0.05) & (sector < max_range)]
@@ -80,6 +81,8 @@ class DynamicsSafetyFilter:
         angle_min: float = -np.pi,
         angle_increment: float | None = None,
         max_range: float = 12.0,
+        preserve_turn_in_place: bool = False,
+        min_turn_in_place_w: float = 0.0,
     ) -> tuple[float, float]:
         scan = np.asarray(scan_ranges, dtype=np.float32)
         if scan.size == 0:
@@ -96,6 +99,9 @@ class DynamicsSafetyFilter:
         rear_clearance = self._min_distance_in_sector(scan, angles, np.pi, self.rear_sector, max_range)
         left_clearance = self._min_distance_in_sector(scan, angles, np.pi / 2.0, self.side_sector, max_range)
         right_clearance = self._min_distance_in_sector(scan, angles, -np.pi / 2.0, self.side_sector, max_range)
+        side_clearance = min(left_clearance, right_clearance)
+        safe_side_clearance = self.radius + self.margin
+        original_cmd_w = cmd_w
 
         if cmd_v > 0.0:
             cmd_v = self._limit_linear_speed(cmd_v, front_clearance)
@@ -104,5 +110,12 @@ class DynamicsSafetyFilter:
 
         if abs(cmd_v) < 0.05:
             cmd_w = self._limit_angular_speed(cmd_w, left_clearance, right_clearance)
+
+        if (
+            preserve_turn_in_place
+            and abs(original_cmd_w) > 1.0e-6
+            and side_clearance >= safe_side_clearance
+        ):
+            cmd_w = float(np.sign(original_cmd_w) * max(abs(cmd_w), float(min_turn_in_place_w)))
 
         return float(cmd_v), float(cmd_w)
