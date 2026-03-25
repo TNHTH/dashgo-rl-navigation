@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -18,15 +18,21 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_amcl = LaunchConfiguration("use_amcl")
     use_rviz = LaunchConfiguration("use_rviz")
+    record_bag = LaunchConfiguration("record_bag")
+    bag_output_dir = LaunchConfiguration("bag_output_dir")
+    bag_prefix = LaunchConfiguration("bag_prefix")
 
     default_dashgo_params = os.path.join(pkg_share, "config", "dashgo_rl.yaml")
     default_nav2_params = os.path.join(pkg_share, "config", "nav2_planning.yaml")
     default_map = os.path.join(pkg_share, "maps", "nav.yaml")
     default_model_path = os.path.join(pkg_share, "models", "policy_torchscript.pt")
     default_rviz_config = os.path.join(pkg_share, "rviz", "dashgo_nav.rviz")
+    default_bag_output_dir = os.path.join(os.path.expanduser("~"), "dashgo_rl_project", ".artifacts", "rosbags")
 
     lifecycle_nodes = ["map_server", "planner_server"]
-    lifecycle_nodes_with_amcl = ["map_server", "planner_server", "amcl"]
+    # AMCL 必须先于 planner_server 激活，这样 map->odom 会先建立，
+    # 避免全局代价地图在激活阶段卡死在等待 map/base_link TF。
+    lifecycle_nodes_with_amcl = ["map_server", "amcl", "planner_server"]
 
     return LaunchDescription(
         [
@@ -38,6 +44,9 @@ def generate_launch_description():
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument("use_amcl", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument("record_bag", default_value="false"),
+            DeclareLaunchArgument("bag_output_dir", default_value=default_bag_output_dir),
+            DeclareLaunchArgument("bag_prefix", default_value="dashgo_real_nav"),
             Node(
                 package="nav2_map_server",
                 executable="map_server",
@@ -134,6 +143,25 @@ def generate_launch_description():
                 condition=IfCondition(use_rviz),
                 arguments=["-d", rviz_config],
                 parameters=[{"use_sim_time": use_sim_time}],
+            ),
+            ExecuteProcess(
+                condition=IfCondition(record_bag),
+                cmd=[
+                    "bash",
+                    "-lc",
+                    [
+                        "mkdir -p \"",
+                        bag_output_dir,
+                        "\" && exec ros2 bag record -o \"",
+                        bag_output_dir,
+                        "/",
+                        bag_prefix,
+                        "\" "
+                        "/scan /odom /cmd_vel /dashgo/global_plan /goal_pose /tf "
+                        "/dashgo/controller_status /dashgo/plan_status",
+                    ],
+                ],
+                output="screen",
             ),
         ]
     )

@@ -27,6 +27,7 @@ DashGo机器人导航训练脚本
 
 import argparse
 import copy
+import json
 import os
 import re
 import sys
@@ -143,6 +144,41 @@ def resolve_autopilot_profile(generation: str) -> str:
     if generation in {"gen1", "gen2", "autopilot"}:
         return generation
     return ""
+
+
+def deep_merge_dict(base: dict, overrides: dict) -> dict:
+    """递归合并 dict，autoresearch 用它注入小范围训练配置覆盖。"""
+    merged = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_autoresearch_overrides() -> tuple[dict, str | None]:
+    """从环境变量指定的 JSON 文件读取 autoresearch 覆盖配置。"""
+    raw_path = os.environ.get("DASHGO_AUTORESEARCH_OVERRIDES_JSON", "").strip()
+    if not raw_path:
+        return {}, None
+    override_path = Path(raw_path).expanduser().resolve()
+    if not override_path.exists():
+        raise FileNotFoundError(f"autoresearch 覆盖文件不存在: {override_path}")
+    payload = json.loads(override_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"autoresearch 覆盖文件格式非法: {override_path}")
+    return payload, str(override_path)
+
+
+def apply_autoresearch_config_overrides(agent_cfg: dict, payload: dict) -> dict:
+    """仅对训练相关配置做受控覆盖，不接管其他运行态。"""
+    config_overrides = payload.get("config") or {}
+    if not isinstance(config_overrides, dict):
+        raise ValueError("autoresearch 覆盖中的 config 字段必须为 dict")
+    if not config_overrides:
+        return agent_cfg
+    return deep_merge_dict(agent_cfg, config_overrides)
 
 
 def resolve_path_candidate(script_dir: str, raw_path: str | None) -> str | None:
@@ -405,6 +441,8 @@ def main():
         train_cfg = OmegaConf.load(cfg_path)
         agent_cfg = OmegaConf.to_container(train_cfg, resolve=True)
         agent_cfg = copy.deepcopy(agent_cfg)
+        autoresearch_overrides, autoresearch_override_path = load_autoresearch_overrides()
+        agent_cfg = apply_autoresearch_config_overrides(agent_cfg, autoresearch_overrides)
 
         # [关键修复] 处理 RSL-RL 的配置结构问题 (KeyError Fix)
         # RSL-RL 需要扁平化的配置，我们将 'runner' 里的内容提取到最外层
@@ -412,6 +450,9 @@ def main():
         if "runner" in agent_cfg:
             runner_cfg = agent_cfg.pop("runner")
             agent_cfg.update(runner_cfg)  # 把 num_steps_per_env 等参数提到根目录
+
+        if autoresearch_override_path:
+            print(f"[INFO] 已加载 autoresearch 覆盖: {autoresearch_override_path}")
 
         if args_cli.seed is not None:
             agent_cfg["seed"] = args_cli.seed
@@ -482,6 +523,8 @@ def main():
             "max_iterations": agent_cfg.get("max_iterations"),
             "save_interval": agent_cfg.get("save_interval"),
             "autopilot_profile": autopilot_profile or "disabled",
+            "autoresearch_override_path": autoresearch_override_path,
+            "autoresearch_overrides": autoresearch_overrides if autoresearch_overrides else None,
             "resume_requested": bool(args_cli.resume or args_cli.checkpoint),
             "resume_checkpoint": resume_path,
             "status": "initialized",

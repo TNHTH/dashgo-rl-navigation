@@ -91,3 +91,25 @@ def test_pause_requested_reads_state(monkeypatch) -> None:
 
     assert supervisor.pause_requested() is True
     assert supervisor.pause_scope() == "all"
+
+
+def test_active_regression_state_detects_running_regression(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "regression_state.json"
+    state_path.write_text('{"status": "train_running", "current_run_name": "bounded_tanh_regression_seed41"}', encoding="utf-8")
+    monkeypatch.setattr(supervisor, "REGRESSION_STATE_PATH", state_path)
+
+    payload = supervisor.active_regression_state()
+
+    assert payload is not None
+    assert payload["current_run_name"] == "bounded_tanh_regression_seed41"
+
+
+def test_active_autoresearch_state_detects_running_supervisor(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "autoresearch_state.json"
+    state_path.write_text('{"supervisor_status": "train_running", "next_trial": "reward.orbit_weight.up_4_0"}', encoding="utf-8")
+    monkeypatch.setattr(supervisor, "AUTORESEARCH_STATE_PATH", state_path)
+
+    payload = supervisor.active_autoresearch_state()
+
+    assert payload is not None
+    assert payload["next_trial"] == "reward.orbit_weight.up_4_0"

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>lakibeam_driver_ros2</name>
+  <version>0.1.0</version>
+  <description>Lakibeam 单雷达 ROS2 原生 LaserScan 驱动。</description>
+
+  <maintainer email="gwh@example.com">gwh</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <depend>dashgo_driver_ros2</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <build_depend>libcurl4-openssl-dev</build_depend>
+  <exec_depend>libcurl4-openssl-dev</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

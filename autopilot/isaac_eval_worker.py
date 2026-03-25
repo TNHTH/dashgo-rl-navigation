@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 
 import torch
 
@@ -186,6 +187,7 @@ def finalize_episode(env, env_id: int, stat: dict, reason: str) -> dict:
         "reverse_case": bool(stat["reverse_case"]),
         "termination_reason": reason,
         "steps": steps,
+        "elapsed_time": float(stat.get("control_dt", 0.0)) * steps,
         "start_distance": start_distance,
         "end_distance": end_distance,
         "path_length": path_length,
@@ -197,7 +199,56 @@ def finalize_episode(env, env_id: int, stat: dict, reason: str) -> dict:
         "progress_stall": progress_stall,
         "orbit_detected": bool(stat["orbit_detected"]),
         "sensor_health_score": float(stat["sensor_health_score"]),
+        "heading_guard_trigger_rate": float(stat.get("heading_guard_trigger_rate", 0.0)),
+        "recovery_trigger_rate": float(stat.get("recovery_trigger_rate", 0.0)),
+        "plan_invalid_ratio": float(stat.get("plan_invalid_ratio", 0.0)),
     }
+
+
+def write_json_file(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_progress(
+    progress_path: Path,
+    *,
+    phase: str,
+    checkpoint: Path,
+    suite: str,
+    total_episodes: int | None = None,
+    completed_episodes: int | None = None,
+    metadata: dict | None = None,
+) -> None:
+    payload = {
+        "phase": phase,
+        "checkpoint": str(checkpoint),
+        "suite": suite,
+        "total_episodes": total_episodes,
+        "completed_episodes": completed_episodes,
+        "metadata": metadata or {},
+    }
+    write_json_file(progress_path, payload)
+
+
+def build_failure_result(
+    *,
+    request: EvalRequest,
+    notes: list[str],
+    metadata: dict | None = None,
+) -> EvalResult:
+    return EvalResult(
+        status="failed",
+        request=request,
+        notes=notes,
+        metadata=metadata or {},
+    )
+
+
+def emit_result(json_out: Path, result: EvalResult) -> None:
+    payload = result.to_dict()
+    write_json_file(json_out, payload)
+    print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
 
 
 def main() -> int:
@@ -206,35 +257,79 @@ def main() -> int:
     if not getattr(args_cli, "enable_cameras", False):
         args_cli.enable_cameras = True
     os.environ["DASHGO_AUTOPILOT_PROFILE"] = "gen2"
-    app_launcher = AppLauncher(args_cli)
-    simulation_app = app_launcher.app
+    request = EvalRequest(
+        checkpoint=args_cli.checkpoint.resolve(),
+        suite=args_cli.suite,
+        project_root=args_cli.project_root.resolve(),
+        requested_episodes=args_cli.requested_episodes,
+        notes=["Isaac quick/main 场景评测 worker"],
+    )
+    progress_path = args_cli.json_out.with_suffix(args_cli.json_out.suffix + ".progress.json")
+    write_progress(
+        progress_path,
+        phase="booting",
+        checkpoint=request.checkpoint,
+        suite=request.suite,
+        total_episodes=args_cli.requested_episodes,
+    )
 
+    simulation_app = None
+    env = None
+    result: EvalResult | None = None
+    exit_code = 1
     try:
+        app_launcher = AppLauncher(args_cli)
+        simulation_app = app_launcher.app
+        write_progress(
+            progress_path,
+            phase="app_started",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=args_cli.requested_episodes,
+        )
+
         from isaaclab.envs import ManagerBasedRLEnv
         from isaaclab.managers import SceneEntityCfg
-        from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg, MOTION_CONFIG, _get_min_obstacle_distance, _get_target_delta_and_heading, process_stitched_lidar
+        from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg, _get_min_obstacle_distance, _get_target_delta_and_heading, process_stitched_lidar
 
-        request = EvalRequest(
-            checkpoint=args_cli.checkpoint.resolve(),
-            suite=args_cli.suite,
-            project_root=args_cli.project_root.resolve(),
-            requested_episodes=args_cli.requested_episodes,
-            notes=["Isaac quick/main 场景评测 worker"],
-        )
         env_cfg = DashgoNavEnvV2Cfg()
         env_cfg.scene.num_envs = 4 if args_cli.suite == "quick" else 6
         env = ManagerBasedRLEnv(cfg=env_cfg)
+        write_progress(
+            progress_path,
+            phase="env_created",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=args_cli.requested_episodes,
+            metadata={"num_envs": env.num_envs},
+        )
         device = env.device
+        control_dt = float(env.cfg.sim.dt * env.cfg.decimation)
         asset_cfg = SceneEntityCfg("robot")
         scenarios = suite_scenarios(args_cli.suite)
         total_episodes = resolve_total_episodes(args_cli.suite, args_cli.requested_episodes)
         policy = load_policy(env, args_cli.checkpoint.resolve())
+        write_progress(
+            progress_path,
+            phase="policy_loaded",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=total_episodes,
+        )
         episodes: list[dict] = []
         active_stats: dict[int, dict] = {}
         next_scene_idx = 0
         env_ids = torch.arange(env.num_envs, device=device, dtype=torch.long)
         env.reset()
         next_scene_idx = initialize_episode_state(env, env_ids, scenarios, next_scene_idx, active_stats)
+        write_progress(
+            progress_path,
+            phase="episodes_initialized",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=total_episodes,
+            completed_episodes=0,
+        )
 
         while len(episodes) < total_episodes and simulation_app.is_running():
             obs = env.observation_manager.compute()
@@ -261,6 +356,7 @@ def main() -> int:
                     continue
                 stat = active_stats[env_id]
                 stat["steps"] += 1
+                stat["control_dt"] = control_dt
                 last_position = torch.tensor(stat["last_position"], device=device)
                 stat["path_length"] += float(torch.norm(position[env_id] - last_position).item())
                 stat["last_position"] = position[env_id].detach().cpu().tolist()
@@ -278,7 +374,7 @@ def main() -> int:
                     stat["near_obstacle_streak"] = 0
                 if delta_distance < 0.02:
                     stat["orbit_progress_streak"] += 1
-                    stat["orbit_yaw_accum"] += float(ang_speed[env_id].item()) * MOTION_CONFIG["control_dt"]
+                    stat["orbit_yaw_accum"] += float(ang_speed[env_id].item()) * control_dt
                     if stat["orbit_progress_streak"] >= 20 and stat["orbit_yaw_accum"] > 6.28318:
                         stat["orbit_detected"] = True
                 else:
@@ -313,6 +409,16 @@ def main() -> int:
             remaining_ids = done_ids[: max(0, min(done_ids.numel(), total_episodes - len(episodes)))]
             if remaining_ids.numel() > 0 and len(episodes) < total_episodes:
                 next_scene_idx = initialize_episode_state(env, remaining_ids, scenarios, next_scene_idx, active_stats)
+            if len(episodes) % max(1, env.num_envs) == 0:
+                write_progress(
+                    progress_path,
+                    phase="running",
+                    checkpoint=request.checkpoint,
+                    suite=request.suite,
+                    total_episodes=total_episodes,
+                    completed_episodes=len(episodes),
+                    metadata={"active_envs": len(active_stats)},
+                )
 
         metrics = summarize_eval_episodes(episodes, suite=args_cli.suite)
         violations = behavior_gate_violations(metrics, suite=args_cli.suite)
@@ -325,13 +431,60 @@ def main() -> int:
             notes=[] if not violations else [f"behavior_gate_veto: {', '.join(violations)}"],
             metadata={"suite": args_cli.suite, "violations": violations},
         )
-        args_cli.json_out.parent.mkdir(parents=True, exist_ok=True)
-        args_cli.json_out.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), flush=True)
-        env.close()
-        return 0 if status == "completed" else 1
+        write_progress(
+            progress_path,
+            phase="result_ready",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=total_episodes,
+            completed_episodes=len(episodes),
+            metadata={"status": status, "violations": violations},
+        )
+        emit_result(args_cli.json_out, result)
+        exit_code = 0 if status == "completed" else 1
+    except BaseException as exc:  # noqa: BLE001
+        notes = [
+            f"Isaac eval worker 在阶段 {json.loads(progress_path.read_text(encoding='utf-8')).get('phase', 'unknown')} 失败: {type(exc).__name__}: {exc}",
+            traceback.format_exc(),
+        ]
+        metadata = {
+            "suite": request.suite,
+            "exception_type": type(exc).__name__,
+            "checkpoint": str(request.checkpoint),
+        }
+        if isinstance(exc, SystemExit):
+            metadata["system_exit_code"] = exc.code
+        result = build_failure_result(request=request, notes=notes, metadata=metadata)
+        write_progress(
+            progress_path,
+            phase="failed",
+            checkpoint=request.checkpoint,
+            suite=request.suite,
+            total_episodes=args_cli.requested_episodes,
+            metadata=metadata,
+        )
+        emit_result(args_cli.json_out, result)
+        exit_code = 1
     finally:
-        simulation_app.close()
+        if env is not None:
+            try:
+                env.close()
+            except Exception:
+                pass
+        if simulation_app is not None:
+            try:
+                simulation_app.close()
+            except Exception:
+                pass
+    write_progress(
+        progress_path,
+        phase="completed" if exit_code == 0 else "exited",
+        checkpoint=request.checkpoint,
+        suite=request.suite,
+        total_episodes=args_cli.requested_episodes,
+        metadata={"exit_code": exit_code},
+    )
+    return exit_code
 
 
 if __name__ == "__main__":

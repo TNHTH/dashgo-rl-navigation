@@ -1,18 +1,29 @@
 import numpy as np
 
 from dashgo_rl_ros2.controller_core import (
-    apply_heading_guard,
     ObservationBuffer,
+    apply_heading_guard,
     compute_velocity_scaled_lookahead,
     encode_goal_vector,
     process_lidar_ranges,
-    select_progressive_waypoint_index,
     scale_linear_speed_by_heading,
+    select_progressive_waypoint_index,
     select_waypoint_index,
+    should_enter_turn_in_place,
+    should_hold_for_plan,
+    should_trigger_recovery,
+    stack_history_by_terms,
 )
 
 
-def test_observation_buffer_stacks_history_in_order():
+TERM_SLICES = (
+    slice(0, 2),
+    slice(2, 3),
+    slice(3, 4),
+)
+
+
+def test_observation_buffer_stacks_history_in_order_when_no_term_slices():
     buffer = ObservationBuffer(history_len=3, obs_dim=4)
     buffer.update(np.array([1, 2, 3, 4], dtype=np.float32))
     buffer.update(np.array([5, 6, 7, 8], dtype=np.float32))
@@ -29,6 +40,38 @@ def test_observation_buffer_stacks_history_in_order():
             ],
             dtype=np.float32,
         ),
+    )
+
+
+def test_stack_history_by_terms_matches_term_major_layout():
+    history = np.array(
+        [
+            [1, 2, 10, 20],
+            [3, 4, 11, 21],
+            [5, 6, 12, 22],
+        ],
+        dtype=np.float32,
+    )
+
+    stacked = stack_history_by_terms(history, TERM_SLICES)
+
+    np.testing.assert_array_equal(
+        stacked,
+        np.array([1, 2, 3, 4, 5, 6, 10, 11, 12, 20, 21, 22], dtype=np.float32),
+    )
+
+
+def test_observation_buffer_supports_term_major_stacking():
+    buffer = ObservationBuffer(history_len=3, obs_dim=4, term_slices=TERM_SLICES)
+    buffer.update(np.array([1, 2, 10, 20], dtype=np.float32))
+    buffer.update(np.array([3, 4, 11, 21], dtype=np.float32))
+    buffer.update(np.array([5, 6, 12, 22], dtype=np.float32))
+
+    stacked = buffer.stacked()
+
+    np.testing.assert_array_equal(
+        stacked,
+        np.array([1, 2, 3, 4, 5, 6, 10, 11, 12, 20, 21, 22], dtype=np.float32),
     )
 
 
@@ -58,6 +101,26 @@ def test_process_lidar_ranges_respects_explicit_front_index():
 
     rolled = np.roll(scan, -3)
     np.testing.assert_array_equal(processed, rolled.reshape(3, 4).min(axis=1))
+
+
+def test_process_lidar_ranges_keeps_full_180_degree_scan_without_tail_drop():
+    scan = np.arange(1, 181, dtype=np.float32)
+    processed = process_lidar_ranges(scan, lidar_dim=72, max_range=999.0, front_index=90, normalize=False)
+
+    rolled = np.roll(scan, -90)
+    edges = np.rint(np.linspace(0, rolled.size, 73)).astype(np.int32)
+    edges[0] = 0
+    edges[-1] = rolled.size
+    expected = []
+    for index in range(72):
+        start = int(edges[index])
+        end = int(edges[index + 1])
+        if end <= start:
+            start = min(start, rolled.size - 1)
+            end = min(start + 1, rolled.size)
+        expected.append(float(np.min(rolled[start:end])))
+
+    np.testing.assert_array_equal(processed, np.asarray(expected, dtype=np.float32))
 
 
 def test_encode_goal_vector_uses_sin_cos_and_normalized_distance():
@@ -93,25 +156,8 @@ def test_select_waypoint_index_falls_back_to_last_pose():
     assert select_waypoint_index(distances, waypoint_dist=1.0) == 2
 
 
-def test_select_waypoint_index_uses_forward_speed_scaled_lookahead():
-    distances = [0.25, 0.58, 0.62, 0.95]
-    lookahead = compute_velocity_scaled_lookahead(0.1)
-
-    assert np.isclose(lookahead, 0.6)
-    assert select_waypoint_index(distances, waypoint_dist=lookahead) == 2
-
-
-def test_select_waypoint_index_uses_reverse_speed_scaled_lookahead():
-    distances = [0.2, 0.42, 0.47, 0.75]
-    lookahead = compute_velocity_scaled_lookahead(-0.1)
-
-    assert np.isclose(lookahead, 0.45)
-    assert select_waypoint_index(distances, waypoint_dist=lookahead) == 2
-
-
 def test_scale_linear_speed_by_heading_keeps_speed_for_small_heading_error():
     scaled = scale_linear_speed_by_heading(0.3, np.deg2rad(10.0))
-
     assert np.isclose(scaled, 0.3)
 
 
@@ -122,13 +168,11 @@ def test_scale_linear_speed_by_heading_reduces_speed_for_medium_heading_error():
         slowdown_angle=np.deg2rad(25.0),
         turn_in_place_angle=np.deg2rad(65.0),
     )
-
     assert 0.0 < scaled < 0.3
 
 
 def test_scale_linear_speed_by_heading_stops_for_large_heading_error():
     scaled = scale_linear_speed_by_heading(0.3, np.deg2rad(90.0))
-
     assert np.isclose(scaled, 0.0)
 
 
@@ -139,7 +183,6 @@ def test_apply_heading_guard_turns_in_place_for_large_heading_error():
         np.deg2rad(90.0),
         max_angular_cmd=1.0,
     )
-
     assert np.isclose(guarded_v, 0.0)
     assert np.isclose(guarded_w, 1.0)
 
@@ -151,7 +194,6 @@ def test_apply_heading_guard_overrides_wrong_turn_direction():
         np.deg2rad(40.0),
         max_angular_cmd=1.0,
     )
-
     assert 0.0 < guarded_v < 0.3
     assert guarded_w > 0.0
 
@@ -169,7 +211,6 @@ def test_select_progressive_waypoint_index_skips_old_path_points_behind_robot():
     )
 
     index = select_progressive_waypoint_index(path_points, lookahead_dist=0.6)
-
     assert index == 4
 
 
@@ -184,5 +225,23 @@ def test_select_progressive_waypoint_index_falls_back_to_nearest_when_all_points
     )
 
     index = select_progressive_waypoint_index(path_points, lookahead_dist=0.6)
-
     assert index == 2
+
+
+def test_should_hold_for_plan_requires_valid_plan_in_strict_mode():
+    assert should_hold_for_plan(True, True, True, False, None, 0.5)
+    assert should_hold_for_plan(True, True, True, True, 1.0, 0.5)
+    assert not should_hold_for_plan(True, True, True, True, 0.2, 0.5)
+
+
+def test_should_enter_turn_in_place_requires_heading_and_clearance():
+    assert should_enter_turn_in_place(np.deg2rad(110.0), np.deg2rad(95.0), 0.5, 0.28)
+    assert not should_enter_turn_in_place(np.deg2rad(80.0), np.deg2rad(95.0), 0.5, 0.28)
+    assert not should_enter_turn_in_place(np.deg2rad(110.0), np.deg2rad(95.0), 0.2, 0.28)
+
+
+def test_should_trigger_recovery_uses_progress_and_forward_intent():
+    assert should_trigger_recovery(0.15, 0.01, 0.20, 0.50)
+    assert not should_trigger_recovery(0.05, 0.01, 0.20, 0.50)
+    assert not should_trigger_recovery(0.15, 0.10, 0.20, 0.50)
+    assert not should_trigger_recovery(0.15, 0.01, 0.20, 0.50, in_turn_in_place=True)

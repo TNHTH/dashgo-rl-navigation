@@ -44,8 +44,8 @@ LIDAR_CONFIG = {
     "max_range": 12.0,            # 最大检测距离 (m) - 仿真配置
     "min_range": 0.15,            # 最小检测距离 (m)
     "update_rate": 10.0,          # 更新频率 (Hz)
-    "num_channels": 360,          # 射线数（v6.0优化）
-    "horizontal_fov": 360.0,      # 水平视野 (度)
+    "num_channels": 216,          # 仿真射线数（前向180°双相机拼接）
+    "horizontal_fov": 180.0,      # 水平视野 (度)
     "install_height": 0.13,       # 安装高度 (m)
 }
 
@@ -164,7 +164,7 @@ class DashGoMotionSpecs:
     # 控制频率
     ros_control_rate: float = 10.0        # ROS base_controller频率 (Hz)
     ros_serial_rate: float = 50.0         # ROS serial_rate (Hz)
-    isaac_control_dt: float = 0.1         # Isaac Lab控制周期 (s)
+    isaac_control_dt: float = 0.05        # Isaac Lab控制周期 (s，当前按 20Hz 对齐实车)
     isaac_sim_dt: float = 0.005           # Isaac Lab仿真周期 (s)
 
     # 物理仿真参数
@@ -188,35 +188,35 @@ class DashGoLidarSpecs:
     """
     DashGo LiDAR传感器规格
 
-    型号: EAI F4 Flash (YDLIDAR G4)
-    来源: 实物配置 + 官方规格
+    型号: Lakibeam 单雷达前向扇区配置
+    来源: drivers/lakibeam_driver + ROS2 实车配置
     """
     # 基本信息
-    model: str = "EAI F4 Flash"           # 型号
-    alias: str = "YDLIDAR G4"             # 别名
+    model: str = "Lakibeam Front Sector"  # 型号
+    alias: str = "lakibeam1"              # 驱动包名
 
     # 扫描参数
-    scan_fov: float = 360.0               # 扫描视野 (度)
-    max_range_real: float = 16.0          # 实物最大距离 (m)
+    scan_fov: float = 180.0               # 扫描视野 (度)
+    max_range_real: float = 12.0          # 实机部署使用的有效距离上限 (m)
     max_range_sim: float = 12.0           # 仿真最大距离 (m) - RayCaster
     min_range: float = 0.15               # 最小距离 (m)
 
     # 频率参数
-    scan_frequency_min: float = 5.0       # 最小扫描频率 (Hz)
-    scan_frequency_max: float = 12.0      # 最大扫描频率 (Hz)
-    scan_frequency_default: float = 7.0   # 默认扫描频率 (Hz)
-    sample_rate: float = 9000.0           # 采样速率 (Hz)
+    scan_frequency_min: float = 10.0      # 最小扫描频率 (Hz)
+    scan_frequency_max: float = 30.0      # 最大扫描频率 (Hz)
+    scan_frequency_default: float = 30.0  # 默认扫描频率 (Hz)
+    sample_rate: float = 43200.0          # 约 1440 点 * 30Hz
 
     # 数据输出
-    data_points_per_scan: int = 720       # 每圈数据点数（实物）
-    sim_channels_v6: int = 360            # v6.0仿真射线数
-    angular_resolution: float = 0.5       # 角度分辨率 (度)
+    data_points_per_scan: int = 1440      # 实机 /scan 常见点数
+    sim_channels_v6: int = 216            # 仿真原始射线数（两台108宽相机拼接）
+    angular_resolution: float = 0.125     # 实机角度分辨率近似值 (度)
 
     # 仿真配置
     sim_update_rate: float = 10.0         # 仿真更新频率 (Hz)
     sim_install_height: float = 0.13      # 安装高度 (m) - 对齐实物
-    sim_num_sectors: int = 36             # 降采样扇区数
-    sim_horizontal_res: float = 1.0       # 水平分辨率 (度) - v6.0
+    sim_num_sectors: int = 72             # 策略输入维度保持72
+    sim_horizontal_res: float = 180.0 / 216.0  # 仿真水平分辨率 (度)
 
     # 障碍物检测
     obstacle_detection_range: float = 3.0    # 障碍物检测距离 (m) - ROS配置
@@ -230,12 +230,12 @@ class DashGoLidarSpecs:
     @property
     def points_per_sector_real(self) -> int:
         """实物每个扇区的点数"""
-        return self.data_points_per_scan // self.sim_num_sectors  # 720 // 36 = 20
+        return self.data_points_per_scan // self.sim_num_sectors  # 1440 // 72 = 20
 
     @property
     def points_per_sector_sim(self) -> int:
         """仿真每个扇区的点数（v6.0）"""
-        return self.sim_channels_v6 // self.sim_num_sectors  # 360 // 36 = 10
+        return self.sim_channels_v6 // self.sim_num_sectors  # 216 // 72 = 3
 
 
 # =============================================================================================

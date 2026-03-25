@@ -66,6 +66,12 @@ class ScalarSeries(JsonModel):
 class EvalMetrics(JsonModel):
     success_rate: float = 0.0
     collision_rate: float = 0.0
+    hard_stop_rate: float = 0.0
+    cmd_saturation_rate: float = 0.0
+    heading_guard_trigger_rate: float = 0.0
+    recovery_trigger_rate: float = 0.0
+    plan_invalid_ratio: float = 0.0
+    time_to_goal: float = 0.0
     timeout_rate: float = 0.0
     mean_steps: float = 0.0
     reverse_case_success_rate: float = 0.0

@@ -1,7 +1,10 @@
 # train_cfg_v2.yaml
 # [DashGo v5.0 Ultimate - 2026-01-25]
 # 策略：低学习率(1.5e-4) + 自动课程(Auto-Curriculum) + 混合奖励(Hybrid Rewards)
-# 特点：自动从3m扩展到8m，reach_goal 2000.0绝对主导，保留Dense奖励保底
+# 说明：
+# - 训练主配置以本文件为唯一来源
+# - 终点奖励与阈值请以 `src/dashgo_rl/dashgo_env_v2.py` 中 REWARD_CONFIG 为准
+# - 观测归一化会在导出阶段由 `export_torchscript.py` 一并打包进 TorchScript
 
 seed: 42
 device: 'cuda:0'
@@ -12,7 +15,7 @@ runner:
   algorithm_class_name: "PPO"
   num_steps_per_env: 24       # ✅ [Gen2 回滚 2026-03-17] 96 步 rollout 会把课程从 4.25m 打回 3.0m，先回到已验证基线
   max_iterations: 9000        # ✅ 8000轮：给足时间让策略充分收敛（用户要求）
-  empirical_normalization: True # ✅ 必开：自动归一化观测数据
+  empirical_normalization: True # ✅ 保留运行期归一化状态，并在导出阶段一起打包
   save_interval: 100          # ✅ 每100轮保存，安全第一
   experiment_name: "dashgo_v5_auto"
   run_name: "v5_ultimate_auto"

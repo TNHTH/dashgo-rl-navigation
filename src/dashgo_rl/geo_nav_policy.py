@@ -29,6 +29,8 @@ import torch.nn as nn
 import numpy as np
 from torch.distributions import Normal
 
+ACTION_EPS = 1.0e-6
+
 
 # ============================================================================
 # [辅助函数] 正交初始化 (Orthogonal Initialization)
@@ -251,10 +253,25 @@ class GeoNavPolicy(nn.Module):
         mu = self.actor_head(h)
         return mu
 
+    def _squash_action(self, latent_action: torch.Tensor) -> torch.Tensor:
+        """将 latent 动作压缩到 [-1, 1]。"""
+        return torch.tanh(latent_action)
+
+    def _unsquash_action(self, bounded_action: torch.Tensor) -> torch.Tensor:
+        """将有界动作映射回 latent 空间，用于 log_prob 计算。"""
+        clipped = torch.clamp(bounded_action, -1.0 + ACTION_EPS, 1.0 - ACTION_EPS)
+        return 0.5 * (torch.log1p(clipped) - torch.log1p(-clipped))
+
+    def _squashed_log_prob(self, latent_action: torch.Tensor, bounded_action: torch.Tensor) -> torch.Tensor:
+        """计算 tanh-squashed Gaussian 的对数概率。"""
+        log_prob = self.distribution.log_prob(latent_action)
+        correction = torch.log(1.0 - bounded_action.pow(2) + ACTION_EPS)
+        return (log_prob - correction).sum(dim=-1)
+
     # ======================================================================
     # [v3.2 新增] 标准forward()函数 - 支持TorchScript导出
     # ======================================================================
-    def forward(self, obs):
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
         标准推理入口（用于TorchScript导出和实机部署）
 
@@ -266,11 +283,8 @@ class GeoNavPolicy(nn.Module):
         Returns:
             mu: 动作均值 Tensor [Batch, 2]
         """
-        # 兼容TensorDict输入
-        x = self._extract_tensor(obs)
-
         # [v3.1] 输入截断：防止 Inf/NaN 进入网络
-        x = torch.clamp(x, min=-10.0, max=10.0)
+        x = torch.clamp(obs, min=-10.0, max=10.0)
 
         # 数据切片
         lidar = x[:, :self.num_lidar].unsqueeze(1)  # [Batch, 1, 216]
@@ -288,7 +302,7 @@ class GeoNavPolicy(nn.Module):
 
         # 输出
         mu = self.actor_head(h)
-        return mu
+        return self._squash_action(mu)
 
     # ======================================================================
     # RSL-RL 必需接口 (The "Must-Haves")
@@ -306,7 +320,8 @@ class GeoNavPolicy(nn.Module):
         RSL-RL调用：runner.act(obs)
         """
         self.update_distribution(observations)
-        return self.distribution.sample()
+        latent_action = self.distribution.sample()
+        return self._squash_action(latent_action)
 
     def get_actions_log_prob(self, actions):
         """
@@ -314,7 +329,9 @@ class GeoNavPolicy(nn.Module):
 
         RSL-RL调用：用于PPO损失计算
         """
-        return self.distribution.log_prob(actions).sum(dim=-1)
+        latent_action = self._unsquash_action(actions)
+        bounded_action = torch.clamp(actions, -1.0 + ACTION_EPS, 1.0 - ACTION_EPS)
+        return self._squashed_log_prob(latent_action, bounded_action)
 
     def act_inference(self, observations):
         """
@@ -322,7 +339,8 @@ class GeoNavPolicy(nn.Module):
 
         RSL-RL调用：runner.get_action(obs)
         """
-        return self.forward_actor(observations)
+        obs_tensor = self._extract_tensor(observations)
+        return self.forward(obs_tensor)
 
     def evaluate(self, critic_observations, **kwargs):
         """
@@ -348,14 +366,15 @@ class GeoNavPolicy(nn.Module):
         原因: PPO算法需要读取这些属性来记录训练轨迹和计算损失
         """
         mean = self.forward_actor(observations)
+        latent_std = torch.clamp(mean * 0.0 + self.std, min=1.0e-3)
 
         # [Fix] 计算并保存 action_mean 和 action_std
         # PPO 算法必须读取这两个属性才能工作
-        self.action_mean = mean
-        self.action_std = mean * 0. + self.std  # 扩展到 [Batch, Actions]
+        self.action_mean = self._squash_action(mean)
+        self.action_std = latent_std
 
         # 创建高斯分布
-        self.distribution = Normal(self.action_mean, self.action_std)
+        self.distribution = Normal(mean, latent_std)
 
         # [Fix 2026-01-27] 计算并保存熵 (Entropy)
         # PPO 算法用它来计算 Loss（探索正则化项）

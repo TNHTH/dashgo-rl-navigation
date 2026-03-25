@@ -12,8 +12,12 @@ from __future__ import annotations
 import argparse
 import copy
 import glob
+import hashlib
+import json
 import os
+import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +25,13 @@ SRC_ROOT = PROJECT_ROOT / "src"
 for candidate in (PROJECT_ROOT, SRC_ROOT):
     candidate_str = str(candidate)
     if candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
+
+ISAACLAB_SOURCE_ROOT = Path.home() / "IsaacLab" / "source"
+for relative in ("isaaclab", "isaaclab_assets", "isaaclab_tasks", "isaaclab_rl"):
+    candidate = ISAACLAB_SOURCE_ROOT / relative
+    candidate_str = str(candidate)
+    if candidate.exists() and candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
 from dashgo_rl.project_paths import (
@@ -43,6 +54,12 @@ def parse_export_args() -> argparse.Namespace:
         type=str,
         default=os.environ.get("DASHGO_EXPORT_CHECKPOINT", ""),
         help="显式指定要导出的 checkpoint；也可通过环境变量 DASHGO_EXPORT_CHECKPOINT 传入。",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=os.environ.get("DASHGO_EXPORT_OUTPUT_DIR", ""),
+        help="导出目录；为空时按默认 ROS1/ROS2 路径覆盖导出。",
     )
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0], *remaining]
@@ -70,6 +87,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from rsl_rl.modules import EmpiricalNormalization
 
 from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg
+from dashgo_rl.dashgo_config import DashGoLidarSpecs
 from dashgo_rl.geo_nav_policy import GeoNavPolicy
 from autopilot.runtime import default_autopilot_root
 
@@ -84,6 +102,30 @@ class ExportedGeoNavPolicy(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.policy(self.normalizer(x))
+
+
+def file_sha256(path: str | os.PathLike[str]) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def current_git_commit() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(DASHGO_PROJECT_ROOT),
+            text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def manifest_path_for_model(model_path: str | os.PathLike[str]) -> Path:
+    model = Path(model_path)
+    return model.with_name(f"{model.stem}.manifest.json")
 
 
 def find_candidate_checkpoints() -> list[str]:
@@ -134,7 +176,11 @@ def prepend_manual_checkpoint(candidates: list[str], manual_checkpoint: str) -> 
     return [resolved_path, *[candidate for candidate in candidates if os.path.abspath(candidate) != resolved_path]]
 
 
-def build_save_paths() -> list[str]:
+def build_save_paths(output_dir: str = "") -> list[str]:
+    output_dir = output_dir.strip()
+    if output_dir:
+        return [str(Path(output_dir).expanduser().resolve() / "policy_torchscript.pt")]
+
     save_paths = [
         str(ROS2_PACKAGE_ROOT / "models" / "policy_torchscript.pt"),
         str(ROS1_PACKAGE_ROOT / "models" / "policy_torchscript.pt"),
@@ -195,7 +241,7 @@ def load_policy_and_normalizer(policy: GeoNavPolicy, checkpoint_path: str, devic
     return policy, normalizer
 
 
-def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str], example_input: torch.Tensor) -> None:
+def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str], example_input: torch.Tensor) -> tuple[str, list[str]]:
     exported_policy = exported_policy.cpu().eval()
     example_input = example_input.cpu()
 
@@ -212,6 +258,30 @@ def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str], e
         scripted.save(save_path)
         file_size = os.path.getsize(save_path) / 1024.0 / 1024.0
         print(f"✅ 已导出: {save_path} ({file_size:.2f} MB, mode={export_mode})")
+    return export_mode, save_paths
+
+
+def write_manifest(save_paths: list[str], payload: dict) -> None:
+    manifest_text = json.dumps(payload, ensure_ascii=False, indent=2)
+    for save_path in save_paths:
+        manifest_path = manifest_path_for_model(save_path)
+        manifest_path.write_text(manifest_text + "\n", encoding="utf-8")
+        print(f"📝 已写入 manifest: {manifest_path}")
+
+
+def build_sensor_contract_payload() -> dict[str, object]:
+    """记录当前训练/部署共享的雷达合同，避免旧模型跨合同复用。"""
+    lidar_specs = DashGoLidarSpecs()
+    return {
+        "contract_id": "lakibeam_front_180_v1",
+        "fov_deg": float(lidar_specs.scan_fov),
+        "policy_lidar_dim": int(lidar_specs.sim_num_sectors),
+        "sim_raw_channels": int(lidar_specs.sim_channels_v6),
+        "real_points_per_scan": int(lidar_specs.data_points_per_scan),
+        "scan_range_start_deg": 90,
+        "scan_range_stop_deg": 270,
+        "max_range_m": float(lidar_specs.max_range_real),
+    }
 
 
 def main() -> None:
@@ -272,8 +342,40 @@ def main() -> None:
         sample_output = exported_policy(dummy_tensor.cpu())
     print(f"[INFO] 导出前推理输出 shape: {tuple(sample_output.shape)}")
 
-    save_paths = build_save_paths()
-    export_model(exported_policy, save_paths, dummy_tensor)
+    save_paths = build_save_paths(EXPORT_ARGS.output_dir)
+    export_mode, exported_paths = export_model(exported_policy, save_paths, dummy_tensor)
+
+    manifest_payload = {
+        "created_at": datetime.now().astimezone().isoformat(),
+        "git_commit": current_git_commit(),
+        "checkpoint_path": selected_path,
+        "checkpoint_sha256": file_sha256(selected_path),
+        "torchscript": [],
+        "obs_dim": int(policy.num_actor_obs),
+        "obs_history_len": 3,
+        "obs_term_order": [
+            "lidar_history",
+            "waypoint_vector_history",
+            "goal_vector_history",
+            "lin_vel_x_history",
+            "yaw_rate_history",
+            "last_action_history",
+        ],
+        "action_dim": int(policy.num_actions),
+        "action_semantics": "bounded_tanh_gaussian",
+        "normalizer_embedded": bool(selected_normalizer is not None),
+        "export_script": str(Path(__file__).resolve()),
+        "export_mode": export_mode,
+        "sensor_contract": build_sensor_contract_payload(),
+    }
+    for exported_path in exported_paths:
+        manifest_payload["torchscript"].append(
+            {
+                "path": exported_path,
+                "sha256": file_sha256(exported_path),
+            }
+        )
+    write_manifest(exported_paths, manifest_payload)
 
     print("\n" + "=" * 80)
     print("✅ 导出完成：策略与 normalizer 已合并进 TorchScript")

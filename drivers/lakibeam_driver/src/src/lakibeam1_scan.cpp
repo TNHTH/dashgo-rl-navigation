@@ -31,6 +31,8 @@ int main(int argc, char **argv)
 	bool inverted;
 	int i = 0, j = 12;
 	int angle_offset = 0;
+	double scan_range_start_deg = 90.0;
+	double scan_range_stop_deg = 270.0;
 	int resolution = 25;
 	int scan_vec_ready = 0;
 	int sockfd;
@@ -52,6 +54,8 @@ int main(int argc, char **argv)
 	nh.getParam("laser_enable", laser_enable);
 	nh.getParam("scan_range_start", scan_range_start);
 	nh.getParam("scan_range_stop", scan_range_stop);
+	scan_range_start_deg = std::atof(scan_range_start.c_str());
+	scan_range_stop_deg = std::atof(scan_range_stop.c_str());
 	std::cout<<output_topic<<std::endl;
 	ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan> (output_topic, 1000);
 
@@ -159,14 +163,24 @@ int main(int argc, char **argv)
 			uint16_t num_readings;
 			float duration = (scan_begin - scan_end).toSec();
 
-			num_readings = scan_vec.size();
-			scan.header.stamp = scan_begin;
-			scan.header.frame_id = frame_id;
-			scan.angle_min = DEG2RAD(-180 + angle_offset);
-			scan.angle_max = DEG2RAD(180 + angle_offset);
-			scan.angle_increment = 2.0 * M_PI / num_readings;
-			scan.scan_time = duration;
-			scan.time_increment = duration/(float)num_readings;
+				num_readings = scan_vec.size();
+				const double scan_span_deg = std::max(scan_range_stop_deg - scan_range_start_deg, 0.0);
+				const double centered_min_deg = -0.5 * scan_span_deg + static_cast<double>(angle_offset);
+				const double centered_max_deg = 0.5 * scan_span_deg + static_cast<double>(angle_offset);
+				scan.header.stamp = scan_begin;
+				scan.header.frame_id = frame_id;
+				scan.angle_min = DEG2RAD(centered_min_deg);
+				scan.angle_max = DEG2RAD(centered_max_deg);
+				if (num_readings > 1)
+				{
+					scan.angle_increment = (scan.angle_max - scan.angle_min) / static_cast<float>(num_readings - 1);
+				}
+				else
+				{
+					scan.angle_increment = 0.0;
+				}
+				scan.scan_time = duration;
+				scan.time_increment = duration/(float)num_readings;
 			scan.range_min = 0.0;
 			scan.range_max = 100.0;
 			scan.ranges.resize(num_readings);
