@@ -1,0 +1,146 @@
+{
+  "source_repo": "TNHTH/codex-skills-config",
+  "ref": "main",
+  "project": {
+    "name": "DashGo RL Navigation",
+    "governance_backend": "github",
+    "manifest_version": "2026-03-25",
+    "sync_policy": "global-install + project-manifest",
+    "notes": [
+      "本项目以 GitHub Issue / PR / Release 作为主生命周期入口。",
+      "本项目只声明实际启用的技能子集，不追踪全部全局技能。",
+      "Linear / Notion 仅作为后续可选扩展，不进入默认执行链。"
+    ]
+  },
+  "sources": {
+    "official": {
+      "repo": "openai/skills",
+      "skills": [
+        "gh-address-comments",
+        "gh-fix-ci"
+      ]
+    },
+    "project_default": {
+      "repo": "TNHTH/codex-skills-config",
+      "skills": [
+        "git-guru",
+        "changelog-generator",
+        "planner",
+        "prd-tracker",
+        "planning-with-files",
+        "autoresearch",
+        "background-supervisor",
+        "retro-optimizer",
+        "continuous-learning"
+      ]
+    },
+    "community_converted": {
+      "repo": "VoltAgent/awesome-claude-code-subagents",
+      "skills": [
+        "voltagent-git-workflow-manager",
+        "voltagent-project-manager",
+        "voltagent-workflow-orchestrator",
+        "voltagent-architect-reviewer"
+      ]
+    }
+  },
+  "groups": {
+    "git_github_lifecycle": [
+      "gh-address-comments",
+      "gh-fix-ci",
+      "git-guru",
+      "changelog-generator",
+      "voltagent-git-workflow-manager"
+    ],
+    "project_spec_execution": [
+      "planner",
+      "prd-tracker",
+      "planning-with-files",
+      "voltagent-project-manager",
+      "voltagent-workflow-orchestrator",
+      "voltagent-architect-reviewer"
+    ],
+    "training_supervision_retro": [
+      "autoresearch",
+      "background-supervisor",
+      "retro-optimizer",
+      "continuous-learning"
+    ]
+  },
+  "optional_extensions": [
+    {
+      "skill": "linear",
+      "reason": "未被选为本轮主治理后端"
+    },
+    {
+      "skill": "notion-spec-to-implementation",
+      "reason": "未被选为本轮默认规格执行链"
+    },
+    {
+      "skill": "code-review",
+      "reason": "可作为补充审查技能，但不是本项目治理清单的硬依赖"
+    }
+  ],
+  "skills": {
+    "gh-address-comments": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "gh-fix-ci": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "git-guru": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "changelog-generator": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "planner": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "prd-tracker": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "planning-with-files": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "voltagent-project-manager": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "voltagent-workflow-orchestrator": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "voltagent-git-workflow-manager": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "voltagent-architect-reviewer": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "autoresearch": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "background-supervisor": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "retro-optimizer": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    },
+    "continuous-learning": {
+      "pin": "cf43d84b9394e2834295b4ce419b6455ff97ffdd",
+      "required": true
+    }
+  }
+}

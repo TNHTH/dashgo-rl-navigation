@@ -19,13 +19,17 @@ DashGo RL Navigation 是一个面向 DashGo D1 机器人的强化学习局部导
 
 1. [`README.md`](./README.md): 项目总览、训练背景、依赖与快速开始
 2. [`README_GITHUB.md`](./README_GITHUB.md): GitHub 视角下的精简入口
-3. [`docs/INDEX.md`](./docs/INDEX.md): 文档总索引
-4. [`AGENTS.md`](./AGENTS.md): 当前仓库长期约束与目录口径
+3. [`docs/08-项目治理/github-lifecycle.md`](./docs/08-项目治理/github-lifecycle.md): GitHub First 生命周期
+4. [`docs/08-项目治理/skills-governance.md`](./docs/08-项目治理/skills-governance.md): 项目 skill 治理入口
+5. [`docs/INDEX.md`](./docs/INDEX.md): 文档总索引
+6. [`AGENTS.md`](./AGENTS.md): 当前仓库长期约束与目录口径
 
 ## 3. 关键目录
 
 | 路径 | 作用 |
 | --- | --- |
+| `.codex/` | 项目级 skill manifest 与治理入口 |
+| `.github/` | GitHub Issue / PR 模板与讨论指南 |
 | `apps/isaac/` | Isaac Lab 训练、回放、导出、验证入口 |
 | `src/dashgo_rl/` | Python 核心包，包含环境、策略、配置与安全逻辑 |
 | `configs/` | 训练配置与机器人 URDF |
@@ -35,7 +39,7 @@ DashGo RL Navigation 是一个面向 DashGo D1 机器人的强化学习局部导
 | `drivers/` | 当前主动使用的底盘与雷达驱动权威来源 |
 | `references/dashgo/` | 只读历史参考树，不作为当前主运行链来源 |
 | `docs/` | 技术文档、迁移记录、执行计划与教学材料 |
-| `issues/` | 问题排查记录与历史诊断 |
+| `issues/` | 长篇问题档案、事故复盘与训练分析附件库 |
 | `tests/` | 当前仓库测试 |
 
 ## 4. 关键入口文件
@@ -67,10 +71,32 @@ DashGo RL Navigation 是一个面向 DashGo D1 机器人的强化学习局部导
 - `tools/ops/quickstart_deploy.sh`: 导出与部署快捷入口
 - `tools/ops/run_real.sh`: 实机运行入口
 - `tools/ops/run_sim.sh`: 仿真运行入口
+- `tools/ops/sync-project-skills.sh`: 项目级 skill 同步与校验入口
+- `tools/ops/report-project-skills.sh`: 项目级 skill 矩阵与来源报告
 - `tools/diagnostics/doctor_training_env.py`: 训练环境诊断
 - `tools/diagnostics/eval_checkpoint.py`: checkpoint 评估
 
-## 5. 当前推荐理解路径
+## 5. GitHub First 生命周期
+
+当前项目固定为 7 段治理流程：
+
+1. GitHub Issue 建立问题或目标
+2. `planner` / `prd-tracker` 生成计划与验收
+3. `autoresearch` / `background-supervisor` 执行训练与值守
+4. `gh-fix-ci` / `gh-address-comments` 处理 PR 与 CI
+5. `voltagent-architect-reviewer` 做设计与风险审查
+6. `changelog-generator` 生成变更摘要
+7. `retro-optimizer` 产出复盘和流程修正
+
+配套入口：
+
+- [`.codex/skills.manifest.json`](./.codex/skills.manifest.json)
+- [`docs/08-项目治理/github-lifecycle.md`](./docs/08-项目治理/github-lifecycle.md)
+- [`docs/08-项目治理/skills-governance.md`](./docs/08-项目治理/skills-governance.md)
+- [`tools/ops/sync-project-skills.sh`](./tools/ops/sync-project-skills.sh)
+- [`tools/ops/report-project-skills.sh`](./tools/ops/report-project-skills.sh)
+
+## 6. 当前推荐理解路径
 
 按“训练链”理解:
 
@@ -87,9 +113,9 @@ DashGo RL Navigation 是一个面向 DashGo D1 机器人的强化学习局部导
 3. `workspaces/ros1_catkin_ws/src/dashgo_rl/` 或 `workspaces/ros2_ws/src/dashgo_rl_ros2/`
 4. `drivers/EAI_DRIVER/` 与 `drivers/lakibeam_driver/`
 
-## 6. 当前仓库阅读注意事项
+## 7. 当前仓库阅读注意事项
 
 - `references/dashgo/` 文件很多，主要用于参考，不代表当前主运行链。
-- 当前仓库可能长期处于脏工作区，本索引不代表所有本地修改都已经推送到 GitHub。
+- 本地 `issues/` 不再承担当前工作项唯一入口，它现在是长篇分析附件库。
 - ChatGPT 网页端连接 GitHub 时，只能看到已经推送到远端默认分支的内容。
 - 如果 GitHub 代码搜索仍显示 “indexing”，通常需要等待索引完成，或通过一次小提交触发重新索引。

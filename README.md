@@ -15,6 +15,7 @@
 - [技术架构](#技术架构)
 - [快速开始](#快速开始)
 - [项目结构](#项目结构)
+- [项目治理与技能入口](#项目治理与技能入口)
 - [Geo-Distill V2.2方案](#geo-distill-v22方案)
 - [Sim2Real部署](#sim2real部署)
 - [训练指南](#训练指南)
@@ -290,10 +291,49 @@ dashgo_rl_project/
 │   ├── train/                             # 训练日志、成功模型、归档
 │   └── autopilot/                         # supervisor运行态
 ├── docs/                                  # 项目文档
-├── issues/                                # 问题记录
+├── .codex/                                # 项目级skill manifest
+├── .github/                               # GitHub治理模板
+├── issues/                                # 长篇问题档案 / 事故复盘附件库
 ├── tests/                                 # 测试
 └── .claude/                               # 历史Claude配置（保留）
 ```
+
+---
+
+## 项目治理与技能入口
+
+### GitHub First 生命周期
+
+当前项目的主治理后端已经固定为 GitHub：
+
+- GitHub Issue：当前工作项主入口
+- GitHub PR：代码合并与 CI / review 主入口
+- GitHub Release / Changelog：发布摘要入口
+- 本地 `issues/`：长篇问题档案、事故复盘和训练分析附件库
+
+这意味着：
+
+1. 当前工作优先进入 GitHub Issue
+2. 长篇日志、终端摘录、训练分析和事故复盘进入本地 `issues/` 或 `docs/`
+3. PR 中同时引用 GitHub Issue 和本地深度文档
+
+### 项目级 Skill 入口
+
+本仓库已经显式声明项目级 skill 集：
+
+- manifest: [`.codex/skills.manifest.json`](.codex/skills.manifest.json)
+- 同步脚本: [`tools/ops/sync-project-skills.sh`](tools/ops/sync-project-skills.sh)
+- 报告脚本: [`tools/ops/report-project-skills.sh`](tools/ops/report-project-skills.sh)
+- GitHub 生命周期说明: [`docs/08-项目治理/github-lifecycle.md`](docs/08-项目治理/github-lifecycle.md)
+- Skill 治理说明: [`docs/08-项目治理/skills-governance.md`](docs/08-项目治理/skills-governance.md)
+- Autoresearch 运维说明: [`docs/08-项目治理/autoresearch-operations.md`](docs/08-项目治理/autoresearch-operations.md)
+- 事故与复盘策略: [`docs/08-项目治理/incident-and-retro-policy.md`](docs/08-项目治理/incident-and-retro-policy.md)
+
+### GitHub 模板入口
+
+- Issue 模板目录: [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)
+- PR 模板: [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md)
+- Discussion 指南: [`.github/DISCUSSION_GUIDE.md`](.github/DISCUSSION_GUIDE.md)
 
 ---
 
@@ -474,11 +514,18 @@ tail -f .artifacts/train/logs/*/log.txt | grep "Mean reward"
 
 ### 问题追踪系统
 
-所有遇到的问题都记录在`issues/`目录，包含：
+当前采用双层问题管理：
+
+1. GitHub Issue 负责当前工作项、优先级、状态和关联 PR
+2. 本地 `issues/` 目录负责长篇问题档案、事故复盘、训练分析和现场日志附件
+
+本地 `issues/` 文档通常包含：
+
 - 问题描述（错误信息、复现步骤）
 - 根本原因分析
 - 解决方案
 - 验证方法
+- 与 GitHub Issue / PR 的交叉引用
 
 ### 重要问题文档
 
@@ -488,8 +535,8 @@ tail -f .artifacts/train/logs/*/log.txt | grep "Mean reward"
 - [诊断脚本导入顺序错误](issues/2026-01-27_1705_诊断脚本导入顺序错误_ModuleNotFoundError.md) - AppLauncher顺序修复
 
 **历史问题**：
-- 70+问题文档，涵盖RSL-RL兼容性、Isaac Sim配置、训练稳定性等
-- 查看[issues/README.md](issues/README.md)获取完整索引
+- 70+问题文档，涵盖 RSL-RL 兼容性、Isaac Sim 配置、训练稳定性和实机 bringup
+- 查看 [issues/README.md](issues/README.md) 了解本地 `issues/` 的新定位
 
 ---
 
@@ -598,10 +645,10 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ### 问题反馈
 
 如果遇到问题：
-1. 查阅`issues/`目录中的问题记录
+1. 先在 GitHub 创建或定位当前 Issue
 2. 运行诊断工具收集信息
-3. 创建新的问题文档（按照`issues/README.md`模板）
-4. 提交到GitHub Issues
+3. 需要长篇分析时，在本地 `issues/` 或 `docs/` 中创建附件文档
+4. 在 Issue / PR 中回链这些本地附件
 
 ---
 
