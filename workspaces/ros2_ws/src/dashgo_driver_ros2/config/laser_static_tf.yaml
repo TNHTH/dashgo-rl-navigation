@@ -1,0 +1,6 @@
+static_tf_node:
+  ros__parameters:
+    parent_frame: base_link
+    child_frame: laser
+    translation: [0.0, 0.0, 0.0]
+    rotation_rpy: [0.0, 0.0, 0.0]

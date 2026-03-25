@@ -18,7 +18,34 @@ from autopilot.io_utils import write_json
 from autopilot.runtime import default_autopilot_root, resolve_project_root
 from autopilot.types import EvalMetrics, EvalRequest, EvalResult
 
-ISAACLAB_PYTHON = Path.home() / "IsaacLab" / "_isaac_sim" / "python.sh"
+def resolve_isaac_python() -> Path:
+    candidates = [
+        Path.home() / "IsaacSim" / "python.sh",
+        Path.home() / "IsaacLab" / "_isaac_sim" / "python.sh",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+ISAACLAB_PYTHON = resolve_isaac_python()
+
+
+def parse_json_from_text(text: str) -> dict | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DashGo checkpoint 评测骨架")
     parser.add_argument("--checkpoint", type=Path, required=True, help="待评测的 checkpoint 路径")
@@ -40,6 +67,7 @@ def build_eval_result(
     suite: str,
     project_root: Path,
     requested_episodes: int | None,
+    worker_json_out: Path | None = None,
 ) -> EvalResult:
     request = EvalRequest(
         checkpoint=checkpoint,
@@ -92,7 +120,7 @@ def build_eval_result(
             metadata={"checkpoint_exists": True, "worker": str(worker)},
         )
 
-    temp_json = default_autopilot_root(project_root) / "metrics" / f"eval_{suite}_{checkpoint.stem}.json"
+    temp_json = worker_json_out if worker_json_out is not None else default_autopilot_root(project_root) / "metrics" / f"eval_{suite}_{checkpoint.stem}.json"
     command = [
         str(ISAACLAB_PYTHON),
         str(worker),
@@ -110,14 +138,19 @@ def build_eval_result(
         command.extend(["--requested-episodes", str(requested_episodes)])
     try:
         completed = subprocess.run(command, cwd=project_root, check=False, capture_output=True, text=True)
-        if not temp_json.exists():
+        if temp_json.exists():
+            payload = json.loads(temp_json.read_text(encoding="utf-8"))
+        else:
+            payload = parse_json_from_text(completed.stdout)
+            if payload is not None:
+                write_json(temp_json, payload)
+        if payload is None:
             return EvalResult(
                 status="failed",
                 request=request,
                 notes=["Isaac 评测 worker 未产出结果文件。", completed.stderr.strip() or completed.stdout.strip()],
                 metadata={"command": command, "worker": str(worker), "returncode": completed.returncode},
             )
-        payload = json.loads(temp_json.read_text(encoding="utf-8"))
         metrics = payload.get("metrics")
         parsed_metrics = payload_to_metrics(metrics) if isinstance(metrics, dict) else None
         notes = list(payload.get("notes", []))
@@ -152,6 +185,12 @@ def payload_to_metrics(payload: dict) -> EvalMetrics:
     return EvalMetrics(
         success_rate=float(payload.get("success_rate", 0.0)),
         collision_rate=float(payload.get("collision_rate", 0.0)),
+        hard_stop_rate=float(payload.get("hard_stop_rate", 0.0)),
+        cmd_saturation_rate=float(payload.get("cmd_saturation_rate", payload.get("high_clip_ratio", 0.0))),
+        heading_guard_trigger_rate=float(payload.get("heading_guard_trigger_rate", 0.0)),
+        recovery_trigger_rate=float(payload.get("recovery_trigger_rate", 0.0)),
+        plan_invalid_ratio=float(payload.get("plan_invalid_ratio", 0.0)),
+        time_to_goal=float(payload.get("time_to_goal", 0.0)),
         timeout_rate=float(payload.get("timeout_rate", 0.0)),
         mean_steps=float(payload.get("mean_steps", 0.0)),
         reverse_case_success_rate=float(payload.get("reverse_case_success_rate", 0.0)),
@@ -178,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         suite=args.suite,
         project_root=args.project_root.resolve(),
         requested_episodes=args.requested_episodes,
+        worker_json_out=args.json_out.resolve() if args.json_out is not None else None,
     )
     payload = result.to_dict()
     if args.json_out is not None:

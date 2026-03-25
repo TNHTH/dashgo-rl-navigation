@@ -9,9 +9,15 @@ import numpy as np
 class ObservationBuffer:
     """维护固定长度的历史观测堆叠。"""
 
-    def __init__(self, history_len: int = 3, obs_dim: int = 82) -> None:
+    def __init__(
+        self,
+        history_len: int = 3,
+        obs_dim: int = 82,
+        term_slices: Sequence[slice] | None = None,
+    ) -> None:
         self.history_len = history_len
         self.obs_dim = obs_dim
+        self.term_slices = tuple(term_slices) if term_slices else None
         self.buffer = deque(maxlen=history_len)
         self.reset()
 
@@ -26,7 +32,22 @@ class ObservationBuffer:
         self.buffer.append(current_obs.astype(np.float32, copy=False))
 
     def stacked(self) -> np.ndarray:
-        return np.concatenate(list(self.buffer)).astype(np.float32, copy=False)
+        if not self.term_slices:
+            return np.concatenate(list(self.buffer)).astype(np.float32, copy=False)
+        history = np.stack(list(self.buffer), axis=0)
+        return stack_history_by_terms(history, self.term_slices)
+
+
+def stack_history_by_terms(history: np.ndarray, term_slices: Sequence[slice]) -> np.ndarray:
+    """按 Isaac Lab 的 term-major 方式重排历史观测。"""
+    frames = np.asarray(history, dtype=np.float32)
+    if frames.ndim != 2:
+        raise ValueError("历史观测应为二维数组 [history, obs_dim]。")
+
+    parts: list[np.ndarray] = []
+    for term_slice in term_slices:
+        parts.append(frames[:, term_slice].reshape(-1))
+    return np.concatenate(parts).astype(np.float32, copy=False)
 
 
 def wrap_angle(angle: np.ndarray | float) -> np.ndarray | float:
@@ -95,6 +116,65 @@ def apply_heading_guard(
     return guarded_linear, float(angular_cmd)
 
 
+def should_hold_for_plan(
+    strict_mode: bool,
+    goal_active: bool,
+    plan_required: bool,
+    plan_valid: bool,
+    plan_age_sec: float | None,
+    plan_timeout_sec: float,
+    tf_ok: bool = True,
+) -> bool:
+    """正式模式下的导航合同检查。"""
+    if not strict_mode:
+        return False
+    if not goal_active:
+        return True
+    if not tf_ok:
+        return True
+    if not plan_required:
+        return False
+    if not plan_valid:
+        return True
+    if plan_age_sec is None:
+        return True
+    return float(plan_age_sec) > float(plan_timeout_sec)
+
+
+def should_enter_turn_in_place(
+    heading_angle: float,
+    turn_in_place_angle: float,
+    front_clearance: float,
+    front_clearance_min: float,
+) -> bool:
+    """是否需要进入显式原地对齐。"""
+    return abs(float(wrap_angle(float(heading_angle)))) >= float(turn_in_place_angle) and float(
+        front_clearance
+    ) >= float(front_clearance_min)
+
+
+def should_trigger_recovery(
+    avg_forward_cmd: float,
+    progress_delta: float,
+    front_clearance: float,
+    rear_clearance: float,
+    min_forward_intent: float = 0.10,
+    min_progress: float = 0.05,
+    front_blocked_dist: float = 0.28,
+    rear_safe_dist: float = 0.30,
+    in_turn_in_place: bool = False,
+) -> bool:
+    """根据前向意图、进度停滞和净空判断是否需要脱困。"""
+    if in_turn_in_place:
+        return False
+    return (
+        float(avg_forward_cmd) > float(min_forward_intent)
+        and float(progress_delta) < float(min_progress)
+        and float(front_clearance) < float(front_blocked_dist)
+        and float(rear_clearance) > float(rear_safe_dist)
+    )
+
+
 def compute_velocity_scaled_lookahead(
     linear_velocity: float,
     forward_min: float = 0.6,
@@ -122,6 +202,22 @@ def process_lidar_ranges(
     normalize: bool = True,
 ) -> np.ndarray:
     """将任意长度的雷达数据压缩为训练期使用的 72 维格式。"""
+    def min_pool_resample(raw_scan: np.ndarray, target_dim: int) -> np.ndarray:
+        """按等角度分桶做最小池化，避免 180→72 时丢弃尾部数据。"""
+        input_len = raw_scan.shape[0]
+        edges = np.rint(np.linspace(0, input_len, target_dim + 1)).astype(np.int32)
+        edges[0] = 0
+        edges[-1] = input_len
+        pooled = np.empty(target_dim, dtype=np.float32)
+        for index in range(target_dim):
+            start = int(edges[index])
+            end = int(edges[index + 1])
+            if end <= start:
+                start = min(start, input_len - 1)
+                end = min(start + 1, input_len)
+            pooled[index] = float(np.min(raw_scan[start:end]))
+        return pooled
+
     raw_ranges = np.asarray(ranges, dtype=np.float32)
     if raw_ranges.size == 0:
         raise ValueError("雷达数据为空，无法生成观测。")
@@ -135,10 +231,7 @@ def process_lidar_ranges(
 
     input_len = raw_ranges.shape[0]
     if input_len >= lidar_dim:
-        sector_size = input_len // lidar_dim
-        truncated_len = lidar_dim * sector_size
-        raw_truncated = raw_ranges[:truncated_len]
-        processed = raw_truncated.reshape(lidar_dim, sector_size).min(axis=1)
+        processed = min_pool_resample(raw_ranges, lidar_dim)
     else:
         target_indices = np.linspace(0, input_len - 1, lidar_dim)
         processed = np.interp(target_indices, np.arange(input_len), raw_ranges)

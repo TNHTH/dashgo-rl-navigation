@@ -34,6 +34,8 @@ DASHGO_ENV_MODULE = PROJECT_ROOT / "src" / "dashgo_rl" / "dashgo_env_v2.py"
 GEN2_RUNS_ROOT = AUTOPILOT_ROOT / "runs" / "gen2"
 STATE_PATH = AUTOPILOT_ROOT / "metrics" / "continuous_supervisor_state.json"
 EVENT_LOG_PATH = AUTOPILOT_ROOT / "metrics" / "continuous_supervisor_events.jsonl"
+REGRESSION_STATE_PATH = AUTOPILOT_ROOT / "metrics" / "regression_state.json"
+AUTORESEARCH_STATE_PATH = AUTOPILOT_ROOT / "autoresearch" / "state.json"
 ISAACLAB_PYTHON = Path.home() / "IsaacLab" / "_isaac_sim" / "python.sh"
 BASE_ANCHOR = AUTOPILOT_ROOT / "anchors" / "wave44_model704_stablehistory_seed44" / "model_704_stablehistory.pt"
 BASE_CURRICULUM_DIST = 3.75
@@ -168,6 +170,45 @@ TRIAL_ROUNDS = [
 
 def read_state() -> dict:
     return read_json(STATE_PATH, default={}) or {}
+
+
+def active_regression_state() -> dict | None:
+    payload = read_json(REGRESSION_STATE_PATH, default={}) or {}
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("status") or "")
+    if status in {
+        "booting",
+        "train_running",
+        "eval_running",
+        "exporting",
+        "waiting_retry",
+        "stopping",
+    }:
+        return payload
+    return None
+
+
+def active_autoresearch_state() -> dict | None:
+    payload = read_json(AUTORESEARCH_STATE_PATH, default={}) or {}
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("supervisor_status") or "")
+    if status in {
+        "booting",
+        "adopting_active_run",
+        "planning_change",
+        "applying_change",
+        "train_running",
+        "eval_running",
+        "analyzing",
+        "keep_candidate",
+        "discard_candidate",
+        "promoting_longrun",
+        "awaiting_codex_capacity",
+    }:
+        return payload
+    return None
 
 
 def log_state(**extra) -> None:
@@ -1081,6 +1122,22 @@ def main() -> int:
         raise FileNotFoundError(f"未找到 Isaac Python 启动器: {ISAACLAB_PYTHON}")
     if not BASE_ANCHOR.exists():
         raise FileNotFoundError(f"未找到基线 anchor: {BASE_ANCHOR}")
+
+    regression_state = active_regression_state()
+    if regression_state is not None:
+        emit_paused_drained(
+            message="检测到正式 regression 正在运行，continuous supervisor 保持暂停，不插队启动 trial queue。",
+            run_name=regression_state.get("current_run_name"),
+        )
+        return 0
+
+    autoresearch_state = active_autoresearch_state()
+    if autoresearch_state is not None:
+        emit_paused_drained(
+            message="检测到 autoresearch supervisor 正在运行，continuous supervisor 保持暂停，不插队启动 trial queue。",
+            run_name=autoresearch_state.get("next_trial"),
+        )
+        return 0
 
     restore_auto_rounds_from_events()
 

@@ -1,6 +1,7 @@
 geo_nav_node:
   ros__parameters:
     use_sim_time: false
+    model_path: ""
     control_rate: 20.0
     max_lin_vel: 0.3
     max_ang_vel: 1.0
@@ -19,18 +20,27 @@ geo_nav_node:
     goal_obs_max_dist: 8.0
     waypoint_obs_max_dist: 1.0
     heading_guard_enabled: true
-    heading_guard_slowdown_angle_deg: 25.0
-    heading_guard_turn_in_place_angle_deg: 65.0
+    heading_guard_slowdown_angle_deg: 45.0
+    heading_guard_turn_in_place_angle_deg: 95.0
+    turn_in_place_min_ang_vel: 0.35
+    strict_mode: true
+    plan_required: true
+    goal_frame: map
+    plan_stale_timeout_sec: 0.5
+    status_topic: /dashgo/controller_status
+    plan_status_topic: /dashgo/plan_status
     recovery_enabled: true
-    recovery_front_blocked_dist: 0.30
-    recovery_rear_safe_dist: 0.28
-    recovery_stuck_speed: 0.03
+    recovery_front_blocked_dist: 0.28
+    recovery_rear_safe_dist: 0.30
     recovery_goal_min_dist: 0.40
     recovery_reverse_speed: 0.08
     recovery_turn_speed: 0.80
-    recovery_duration_sec: 0.90
-    recovery_cooldown_sec: 1.20
+    recovery_cooldown_sec: 2.0
+    recovery_commit_sec: 1.5
     recovery_side_sector_deg: 70.0
+    recovery_progress_window_sec: 1.0
+    recovery_min_progress: 0.05
+    recovery_min_forward_intent: 0.10
     safety_filter_enabled: true
     goal_topic: /goal_pose
     legacy_goal_topic: /move_base_simple/goal
@@ -39,7 +49,6 @@ geo_nav_node:
     scan_topic: /scan
     odom_topic: /odom
     base_frame: base_link
-    model_path: ""
 
 goal_plan_bridge:
   ros__parameters:
@@ -47,6 +56,11 @@ goal_plan_bridge:
     goal_topic: /goal_pose
     legacy_goal_topic: /move_base_simple/goal
     plan_topic: /dashgo/global_plan
+    plan_status_topic: /dashgo/plan_status
     planner_action_name: /compute_path_to_pose
     planner_id: GridBased
     action_wait_timeout_sec: 2.0
+    goal_frame: map
+    reject_non_map_goal: true
+    transform_timeout_sec: 0.1
+    status_publish_rate_sec: 0.5

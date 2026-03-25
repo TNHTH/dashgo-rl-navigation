@@ -38,37 +38,41 @@ def _get_env_float(name: str, default: float) -> float:
         return default
 
 # =============================================================================
-# 训练超参数常量定义（来自 train_cfg_v2.yaml 和 ROS 配置）
+# 训练/运动参数常量
+# 说明：
+# - 训练主配置的唯一来源是 `configs/training/train_cfg_v2.yaml`
+# - 这里保留的常量只用于环境内部计算或历史兼容
+# - 若数值与 YAML 不一致，优先修正到与 YAML 对齐
 # =============================================================================
 
 # PPO训练参数
 PPO_CONFIG = {
-    "seed": 42,                # 随机种子（保证可重复性）
-    "num_steps_per_env": 480,  # 每个环境的步数（约32秒 @ 15fps）
-    "num_mini_batches": 4,     # 小批量数量
-    "entropy_coef": 0.01,      # 熵系数（鼓励探索，0.01为保守值）
-    "max_iterations": 10000,   # 最大训练迭代次数
-    "save_interval": 50,       # 模型保存间隔
+    "seed": 42,
+    "num_steps_per_env": 24,
+    "num_mini_batches": 4,
+    "entropy_coef": 0.005,
+    "max_iterations": 9000,
+    "save_interval": 100,
 }
 
 # 神经网络架构参数
 NETWORK_CONFIG = {
-    "init_noise_std": 0.8,  # 策略初始化噪声标准差（0.8为RSL推荐值）
-    "actor_hidden_dims": [512, 256, 128],  # Actor网络隐藏层
-    "critic_hidden_dims": [512, 256, 128], # Critic网络隐藏层
-    "activation": "elu",     # 激活函数
+    "init_noise_std": 1.0,
+    "actor_hidden_dims": [128, 64],
+    "critic_hidden_dims": [512, 256, 128],
+    "activation": "elu",
 }
 
 # PPO算法参数
 ALGORITHM_CONFIG = {
-    "value_loss_coef": 1.0,  # 值函数损失系数
-    "clip_param": 0.2,       # PPO裁剪参数（标准值0.2）
-    "num_learning_epochs": 5,  # 每次更新的学习轮数
-    "learning_rate": 1.0e-4,  # 学习率（从3e-4降到1e-4提高稳定性）
-    "max_grad_norm": 1.0,     # 梯度裁剪阈值
-    "gamma": 0.99,            # 折扣因子（0.99平衡短期和长期奖励）
-    "lam": 0.95,              # GAE(lambda)参数
-    "desired_kl": 0.01,       # 期望KL散度（用于自适应学习率）
+    "value_loss_coef": 1.0,
+    "clip_param": 0.2,
+    "num_learning_epochs": 3,
+    "learning_rate": 1.5e-4,
+    "max_grad_norm": 1.0,
+    "gamma": 0.99,
+    "lam": 0.95,
+    "desired_kl": 0.005,
 }
 
 # 机器人运动参数（来自ROS配置）
@@ -79,7 +83,6 @@ MOTION_CONFIG = {
     "max_accel_lin": 1.0,     # 最大线加速度 (m/s²)
     "max_accel_ang": 0.6,     # 最大角加速度 (rad/s²)
     "max_wheel_vel": 5.0,     # 最大轮速
-    "control_dt": 0.1,        # 控制时间步 (s，即10Hz控制频率)
 }
 
 # 奖励函数参数（权重和阈值）
@@ -102,11 +105,18 @@ REWARD_CONFIG = {
     "alive_penalty": 1.0,
     "reward_clip_min": -20.0,
     "reward_clip_max": 120.0,
-    "reverse_escape_term_weight": _get_env_float("DASHGO_REVERSE_ESCAPE_WEIGHT", 0.25),
+    "reverse_escape_term_weight": _get_env_float("DASHGO_REVERSE_ESCAPE_WEIGHT", 0.0),
     "reverse_escape_front_blocked": _get_env_float("DASHGO_REVERSE_ESCAPE_FRONT_BLOCKED", 0.55),
     "reverse_escape_rear_clear": _get_env_float("DASHGO_REVERSE_ESCAPE_REAR_CLEAR", 0.80),
     "reverse_escape_progress_threshold": _get_env_float("DASHGO_REVERSE_ESCAPE_PROGRESS_THRESHOLD", 0.02),
     "reverse_escape_ang_penalty": _get_env_float("DASHGO_REVERSE_ESCAPE_ANG_PENALTY", 0.10),
+    "progress_stall_term_weight": _get_env_float("DASHGO_PROGRESS_STALL_WEIGHT", 3.5),
+    "orbit_term_weight": _get_env_float("DASHGO_ORBIT_WEIGHT", 3.0),
+    "orbit_activation_distance": _get_env_float("DASHGO_ORBIT_ACTIVATION_DISTANCE", 0.75),
+    "orbit_min_progress": _get_env_float("DASHGO_ORBIT_MIN_PROGRESS", 0.01),
+    "orbit_min_angular_speed": _get_env_float("DASHGO_ORBIT_MIN_ANGULAR_SPEED", 0.35),
+    "orbit_max_forward_speed": _get_env_float("DASHGO_ORBIT_MAX_FORWARD_SPEED", 0.18),
+    "orbit_trigger_steps": _get_env_float("DASHGO_ORBIT_TRIGGER_STEPS", 10.0),
 }
 
 # 观测处理参数
@@ -146,6 +156,9 @@ RECOVERY_SCENARIO_CONFIG = {
     "front_blocker_y": 0.32,
     "front_cap_x": 1.12,
 }
+
+SIM_LIDAR_MAX_RANGE = 12.0
+SIM_LIDAR_POLICY_DIM = 72
 
 
 def append_curriculum_trace(payload: dict) -> None:
@@ -528,6 +541,7 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
         self.prev_actions = None
         self.max_accel_lin = MOTION_CONFIG["max_accel_lin"]
         self.max_accel_ang = MOTION_CONFIG["max_accel_ang"]
+        self.control_dt = float(env.cfg.sim.dt * env.cfg.decimation)
 
     def process_actions(self, actions: torch.Tensor, *args, **kwargs):
         # 对齐ROS速度限制
@@ -546,11 +560,10 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
 
         # 加速度平滑
         if self.prev_actions is not None:
-            dt = MOTION_CONFIG["control_dt"]
             delta_v = target_v - self.prev_actions[:, 0]
             delta_w = target_w - self.prev_actions[:, 1]
-            max_delta_v = self.max_accel_lin * dt
-            max_delta_w = self.max_accel_ang * dt
+            max_delta_v = self.max_accel_lin * self.control_dt
+            max_delta_w = self.max_accel_ang * self.control_dt
             delta_v = torch.clamp(delta_v, -max_delta_v, max_delta_v)
             delta_w = torch.clamp(delta_w, -max_delta_w, max_delta_w)
             target_v = self.prev_actions[:, 0] + delta_v
@@ -680,8 +693,8 @@ def _compute_raycaster_distance(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityC
     修改原因：RayCaster受Warp Mesh限制无法检测障碍物，用深度相机替代
 
     逻辑：
-        1. 从深度相机获取深度图 [N, Height, Width] -> [N, 1, 180]
-        2. 展平为 [N, 180] 模拟LiDAR
+        1. 从深度相机获取深度图 [N, ...]
+        2. 将 batch 之后的所有维度统一展平为 [N, num_rays]
         3. 处理无效值并限制范围
 
     返回：原始距离数据 (单位: 米)，形状 [num_envs, 180]
@@ -689,16 +702,18 @@ def _compute_raycaster_distance(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityC
     # 1. 获取传感器
     sensor = env.scene[sensor_cfg.name]
 
-    # 2. 从深度相机获取数据 [N, Height, Width] -> [N, 1, 180]
+    # 2. 从深度相机获取数据 [N, ...]
     depth_image = sensor.data.output["distance_to_image_plane"]
 
-    # 3. 展平为 [N, 180] 的LiDAR格式
-    ranges = depth_image.squeeze(dim=1)  # 移除高度维度
+    # 3. 统一展平为 [N, num_rays] 的 LiDAR 格式。
+    #    Isaac Sim / CameraCfg 在不同路径下可能给出 [N, 1, W] 或 [N, 1, 1, W]，
+    #    这里不再假设只有单个高度维度。
+    ranges = depth_image.reshape(depth_image.shape[0], -1)
 
     # 4. 处理无效值
     # 将无穷大(没打到物体)替换为最大距离
     # 将负值或NaN设为0
-    max_range = 10.0  # EAI F4 参数
+    max_range = SIM_LIDAR_MAX_RANGE
     ranges = torch.nan_to_num(ranges, posinf=max_range, neginf=0.0)
     ranges = torch.clamp(ranges, min=0.0, max=max_range)
 
@@ -753,87 +768,78 @@ def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
     return depth_sectors
 
 
-# ============================================================================
-# [Geo-Distill V2.2] 4向深度相机拼接处理函数
-# ============================================================================
+def _sanitize_scan_tensor(scan: torch.Tensor, max_range: float = SIM_LIDAR_MAX_RANGE) -> torch.Tensor:
+    """统一清洗深度扫描数据，确保训练和部署使用同一量纲边界。"""
+    scan = torch.nan_to_num(scan, posinf=max_range, neginf=0.0)
+    return torch.clamp(scan, min=0.0, max=max_range)
+
+
+def _min_pool_resample_torch(scan: torch.Tensor, target_dim: int) -> torch.Tensor:
+    """按等角度分桶做最小池化，避免 180→72 时直接截断尾部。"""
+    batch_size, input_len = scan.shape
+    edges = torch.round(torch.linspace(0, input_len, target_dim + 1, device=scan.device)).to(torch.long)
+    edges[0] = 0
+    edges[-1] = input_len
+    pooled = []
+    for index in range(target_dim):
+        start = int(edges[index].item())
+        end = int(edges[index + 1].item())
+        if end <= start:
+            start = min(start, input_len - 1)
+            end = min(start + 1, input_len)
+        pooled.append(torch.min(scan[:, start:end], dim=1).values)
+    return torch.stack(pooled, dim=1).reshape(batch_size, target_dim)
+
+
+def _get_forward_sector_scan(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    获取与实机一致的前向 180° 原始扫描。
+
+    排序语义：
+    - 先构造 [-90°, +90°] 的前向扇区
+    - 再在 `process_forward_lidar()` 内重排为 front-centered 顺序
+    """
+    d_front_right = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_right"))
+    d_front_left = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_left"))
+
+    # Camera 图像默认按像素从左到右排列；这里显式翻转，使拼接后的角度顺序稳定为 [-90°, +90°]。
+    scan_right = torch.flip(d_front_right, dims=[1])
+    scan_left = torch.flip(d_front_left, dims=[1])
+    return _sanitize_scan_tensor(torch.cat([scan_right, scan_left], dim=1), max_range=SIM_LIDAR_MAX_RANGE)
+
+
+def process_forward_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """
+    [Sim2Real V3.0] 前向 180° 双相机拼接 + front-centered 72 维 LiDAR。
+
+    设计目标：
+        1. 与实机 lakibeam 单雷达 180° 扇区对齐
+        2. 保持策略输入维度 72 不变
+        3. 与 ROS2 部署端 `process_lidar_ranges()` 的 front-centered 语义一致
+    """
+    forward_scan = _get_forward_sector_scan(env)
+    front_centered_scan = torch.roll(forward_scan, shifts=-(forward_scan.shape[1] // 2), dims=1)
+    downsampled = _min_pool_resample_torch(front_centered_scan, SIM_LIDAR_POLICY_DIM)
+    return downsampled / SIM_LIDAR_MAX_RANGE
+
 
 def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
     """
-    [Geo-Distill V2.2] 4向深度相机拼接 + 降采样 (360 → 72)
+    向后兼容旧评估/诊断入口。
 
-    开发基准: Isaac Sim 4.5 + Ubuntu 20.04
-    修复原因：单相机无法实现360° FOV，使用4个90°相机拼接
-
-    数据流：
-        1. 获取4个相机深度数据 [N, 90] each
-        2. 拼接成360度全景 (逆时针：Front→Left→Back→Right)
-        3. 降采样到72点 (每5°一个点)
-        4. 归一化到 [0, 1]
-
-    Returns:
-        torch.Tensor: 形状为 [num_envs, 72] 的归一化LiDAR数据
-
-    对齐实物：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
+    历史上 `process_stitched_lidar()` 表示 360° 四相机拼接；
+    当前实机合同已切换为前向 180°，这里保留旧函数名，仅作为
+    `process_forward_lidar()` 的兼容别名，避免评估 worker 因导入失败白跑。
     """
-    # 1. 获取4个相机的深度数据
-    # [Fix 2026-01-27] Isaac Lab 相机数据存储在 .data.output 字典中
-    # 架构师诊断：CameraData 将所有请求的数据类型存储在 output 字典中
-    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]  # [N, 1, 90]
-    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]    # [N, 1, 90]
-    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]    # [N, 1, 90]
-    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]  # [N, 1, 90]
-
-    # 2. 压缩维度 [N, 1, 90] → [N, 90]
-    scan_front = d_front.squeeze(1)
-    scan_left = d_left.squeeze(1)
-    scan_back = d_back.squeeze(1)
-    scan_right = d_right.squeeze(1)
-
-    # 3. 拼接成360度 (逆时针：Front→Left→Back→Right)
-    #    对齐实车EAI F4雷达的逆时针扫描方向
-    full_scan = torch.cat([scan_front, scan_left, scan_back, scan_right], dim=1)  # [N, 360]
-
-    # 4. 处理无效值
-    max_range = 12.0  # EAI F4 最大距离
-    full_scan = torch.nan_to_num(full_scan, posinf=max_range, neginf=0.0)
-    full_scan = torch.clamp(full_scan, min=0.0, max=max_range)
-
-    # 5. 降采样 360 → 72 (Min-Pooling保留每组最小距离)
-    # [Phase 1.1修复] 架构师审计发现Max-Pooling导致42.8%漏检率
-    # 原理：每5个连续点取最小值，保留最近障碍物信息
-    # 修复：torch.max → torch.min (2026-01-31)
-    # 数学：LiDAR数据值小=障碍物近(危险)，值大=空旷(安全)
-    #      min([0.5, 2.0, 3.5, 4.0, 2.5]) = 0.5m ✅ 保留危险信息
-    #      max([0.5, 2.0, 3.5, 4.0, 2.5]) = 4.0m ❌ 忽略障碍物
-    N = full_scan.shape[0]
-    full_scan_reshaped = full_scan.reshape(N, 4, 90)  # [N, 4, 90] = 360点分组
-    full_scan_reshaped = full_scan_reshaped.reshape(N, 4, 18, 5)  # [N, 4, 18, 5] 每组5点
-    downsampled, _ = torch.min(full_scan_reshaped, dim=3)  # [N, 4, 18] 取最小值 ✅
-    downsampled = downsampled.reshape(N, 72)  # [N, 72] 展平为72维
-
-    # 6. 归一化到 [0, 1]
-    return downsampled / max_range
+    return process_forward_lidar(env)
 
 # ============================================================================
 # [v8.0] 业界标准避障策略 - 速度-距离动态约束
 # ============================================================================
 
 def _get_min_obstacle_distance(env: ManagerBasedRLEnv) -> torch.Tensor:
-    d_front = env.scene["camera_front"].data.output["distance_to_image_plane"]
-    d_left = env.scene["camera_left"].data.output["distance_to_image_plane"]
-    d_back = env.scene["camera_back"].data.output["distance_to_image_plane"]
-    d_right = env.scene["camera_right"].data.output["distance_to_image_plane"]
-    batch_size = d_front.shape[0]
-    all_pixels = torch.cat([d_front, d_left, d_back, d_right], dim=1).view(batch_size, -1)
-    all_pixels = torch.nan_to_num(all_pixels, posinf=12.0)
-    return torch.min(all_pixels, dim=1)[0]
-
-
-def _get_camera_min_distance(env: ManagerBasedRLEnv, camera_name: str) -> torch.Tensor:
-    """提取单个方向深度相机的最近障碍距离。"""
-    depth = env.scene[camera_name].data.output["distance_to_image_plane"]
-    flat_depth = torch.nan_to_num(depth, posinf=12.0, neginf=0.0).view(depth.shape[0], -1)
-    return torch.min(flat_depth, dim=1)[0]
+    forward_scan = _get_forward_sector_scan(env)
+    return torch.min(forward_scan, dim=1)[0]
 
 
 def penalty_unsafe_speed(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, min_dist_threshold: float = 0.6) -> torch.Tensor:
@@ -966,6 +972,70 @@ def penalty_progress_stall(
         max=1.0,
     )
     return penalty
+
+
+def penalty_orbiting(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    target_kind: str = "waypoint",
+    activation_distance: float = 0.75,
+    min_progress: float = 0.01,
+    min_angular_speed: float = 0.35,
+    max_forward_speed: float = 0.18,
+    warmup_steps: int = 20,
+    trigger_steps: int = 10,
+) -> torch.Tensor:
+    """惩罚远离目标时高角速度绕圈且缺乏净进展的行为。"""
+    if target_kind == "waypoint":
+        target_pos = _get_command_waypoint_pos_w(env, command_name, asset_cfg)[:, :2]
+    else:
+        target_pos = _get_command_target_pos_w(env, command_name)[:, :2]
+
+    robot = env.scene[asset_cfg.name]
+    robot_pos = torch.nan_to_num(robot.data.root_pos_w[:, :2], nan=0.0, posinf=0.0, neginf=0.0)
+    dist = torch.norm(target_pos - robot_pos, dim=-1)
+    forward_speed = torch.abs(
+        torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+    )
+    angular_speed = torch.abs(
+        torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0)
+    )
+
+    if not hasattr(env, "_orbit_prev_target_distance"):
+        env._orbit_prev_target_distance = dist.clone()
+    if not hasattr(env, "_orbit_counts"):
+        env._orbit_counts = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
+
+    env._orbit_counts[env.episode_length_buf < 2] = 0
+    prev_dist = env._orbit_prev_target_distance
+    progress = prev_dist - dist
+    env._orbit_prev_target_distance = dist.detach().clone()
+
+    orbiting = (
+        (env.episode_length_buf > warmup_steps)
+        & (dist > activation_distance)
+        & (progress < min_progress)
+        & (angular_speed > min_angular_speed)
+        & (forward_speed < max_forward_speed)
+    )
+    env._orbit_counts = torch.where(
+        orbiting,
+        env._orbit_counts + 1,
+        torch.zeros_like(env._orbit_counts),
+    )
+
+    penalty = torch.clamp(
+        (env._orbit_counts.float() - float(trigger_steps)) / float(max(trigger_steps, 1)),
+        min=0.0,
+        max=1.0,
+    )
+    speed_scale = torch.clamp(
+        (angular_speed - min_angular_speed) / max(MOTION_CONFIG["max_ang_vel"] - min_angular_speed, 1.0e-3),
+        min=0.0,
+        max=1.0,
+    )
+    return penalty * speed_scale
 
 
 # =============================================================================
@@ -1235,14 +1305,14 @@ def reward_contextual_reverse_escape(
     rear_clear_threshold: float = 0.80,
     progress_threshold: float = 0.02,
 ) -> torch.Tensor:
-    """仅在前堵后通且推进停滞时，奖励受控倒车脱困。"""
+    """前向 180° 合同下默认不鼓励盲目倒车；保留接口仅用于兼容旧奖励图谱。"""
     robot = env.scene[asset_cfg.name]
     _, _, angle_error = _get_target_delta_and_heading(env, command_name, asset_cfg, target_kind=target_kind)
     forward_vel = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
     ang_vel = torch.abs(torch.nan_to_num(robot.data.root_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0))
 
-    front_min = _get_camera_min_distance(env, "camera_front")
-    rear_min = _get_camera_min_distance(env, "camera_back")
+    front_min = _get_min_obstacle_distance(env)
+    rear_min = torch.zeros_like(front_min)
     progress_speed = forward_vel * torch.cos(angle_error)
 
     front_blocked_gate = torch.clamp(
@@ -1745,11 +1815,11 @@ class DashgoObservationsCfg:
         # 风险：如果lidar移到其他位置，网络会将速度数据当成雷达数据
         # 操作：添加/删除观测项时，确保lidar始终是第一个定义的
 
-        # [Geo-Distill V2.2] 使用4向拼接LiDAR (72维)
-        # 修复原因：单相机无法360° FOV，4个90°相机拼接实现全向扫描
+        # [Sim2Real V3.0] 使用前向 180° 双相机拼接 LiDAR (72维)
+        # 说明：保持输入维度不变，但彻底移除实机不存在的后向观测。
         lidar = ObservationTermCfg(
-            func=process_stitched_lidar,
-            params={}  # 无需sensor_cfg，函数内部直接访问4个相机
+            func=process_forward_lidar,
+            params={}  # 无需 sensor_cfg，函数内部直接访问前左/前右双相机
         )
 
         waypoint_vector = ObservationTermCfg(
@@ -2025,50 +2095,25 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
     )
 
     # ============================================================================
-    # [Geo-Distill V2.2] 4向深度相机拼接方案
+    # [Sim2Real V3.0] 前向 180° 双相机方案
     # ============================================================================
     #
-    # 问题：单相机无法实现360° FOV (Pinhole>170°会严重畸变)
-    # 解决：使用4个90°相机拼接成360°全景深度图
+    # 设计目标：
+    # 1. 与实机 lakibeam 驱动配置的 90°→270° 有效扇区对齐
+    # 2. 移除训练中虚假的后向 180° 观测
+    # 3. 保持 72 维策略输入不变
     #
-    # 拼接顺序（逆时针）：Front(0°) → Left(+90°) → Back(180°) → Right(-90°)
-    # 降采样：360 rays → 72 points (每5°一个点)
-    #
-    # 实物对齐：EAI F4 LiDAR (360°扫描、5-12m范围、5-10Hz频率)
-    #
-    # [架构师建议 2026-01-27] ⚠️ 重要：四元数顺序验证
-    # - Isaac Sim 使用 (w, x, y, z) 顺序
-    # - 必须在 GUI 中手动验证相机朝向（避免装反）
-    # - 验证方法：打开 Isaac Sim GUI → 检查 4 个相机的视野是否正确
+    # 实现方式：
+    # - 前右相机：中心 -45°，覆盖 [-90°, 0°]
+    # - 前左相机：中心 +45°，覆盖 [0°, +90°]
+    # - 每台相机 108 列，总计 216 原始射线，对应 72 维最小池化时正好 3:1
     # ============================================================================
 
-    # 1. 前向相机 (Front, 0°)
-    #    Quaternion: (w, x, y, z) = (1.0, 0.0, 0.0, 0.0) → Identity (0°旋转)
-    camera_front = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_front",
-        update_period=0.1,  # 10 Hz（接近实物5-10Hz）
-        height=1, width=90,  # 90°分辨率
-        data_types=["distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
-            focus_distance=400.0,
-            horizontal_aperture=20.955,  # 90° FOV
-            clipping_range=(0.1, 12.0),  # 对齐EAI F4最大距离
-        ),
-        offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.22),  # 提高到接近顶置雷达高度，避免看见自身轮组/底盘
-            rot=(1.0, 0.0, 0.0, 0.0),  # ✅ Identity quaternion (0°)
-            convention="world",
-        ),
-    )
-
-    # 2. 左侧相机 (Left, +90°)
-    #    Quaternion: (w, x, y, z) = (0.707, 0.0, 0.0, 0.707)
-    #    公式: (cos45°, 0, 0, sin45°) → Z轴+90°旋转
-    camera_left = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_left",
+    camera_front_right = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_front_right",
         update_period=0.1,
-        height=1, width=90,
+        height=1,
+        width=108,
         data_types=["distance_to_image_plane"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0,
@@ -2078,18 +2123,16 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.22),
-            rot=(0.707, 0.0, 0.0, 0.707),  # ✅ Z+90° (sin45=0.707, cos45=0.707)
+            rot=(0.9238795, 0.0, 0.0, -0.3826834),
             convention="world",
         ),
     )
 
-    # 3. 后向相机 (Back, 180°)
-    #    Quaternion: (w, x, y, z) = (0.0, 0.0, 1.0, 0.0)
-    #    公式: (cos90°, 0, 0, sin90°) → Z轴+180°旋转
-    camera_back = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_back",
+    camera_front_left = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_front_left",
         update_period=0.1,
-        height=1, width=90,
+        height=1,
+        width=108,
         data_types=["distance_to_image_plane"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0,
@@ -2099,28 +2142,7 @@ class DashgoSceneV2Cfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.22),
-            rot=(0.0, 0.0, 1.0, 0.0),  # ✅ Z+180° (0,0,1,0)
-            convention="world",
-        ),
-    )
-
-    # 4. 右侧相机 (Right, -90° / 270°)
-    #    Quaternion: (w, x, y, z) = (-0.707, 0.0, 0.0, 0.707)
-    #    公式: (cos(-45°), 0, 0, sin(-45°)) → Z轴-90°旋转
-    camera_right = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Dashgo/base_link/cam_right",
-        update_period=0.1,
-        height=1, width=90,
-        data_types=["distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
-            focus_distance=400.0,
-            horizontal_aperture=20.955,
-            clipping_range=(0.1, 12.0),
-        ),
-        offset=CameraCfg.OffsetCfg(
-            pos=(0.0, 0.0, 0.22),
-            rot=(-0.707, 0.0, 0.0, 0.707),  # ✅ Z-90° (sin-45=-0.707, cos-45=0.707)
+            rot=(0.9238795, 0.0, 0.0, 0.3826834),
             convention="world",
         ),
     )
@@ -2210,11 +2232,26 @@ class DashgoRewardsCfg:
 
     progress_stall = RewardTermCfg(
         func=penalty_progress_stall,
-        weight=-2.0,
+        weight=-REWARD_CONFIG["progress_stall_term_weight"],
         params={
             "command_name": "target_pose",
             "asset_cfg": SceneEntityCfg("robot"),
             "target_kind": "waypoint",
+        },
+    )
+
+    orbit_penalty = RewardTermCfg(
+        func=penalty_orbiting,
+        weight=-REWARD_CONFIG["orbit_term_weight"],
+        params={
+            "command_name": "target_pose",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_kind": "waypoint",
+            "activation_distance": REWARD_CONFIG["orbit_activation_distance"],
+            "min_progress": REWARD_CONFIG["orbit_min_progress"],
+            "min_angular_speed": REWARD_CONFIG["orbit_min_angular_speed"],
+            "max_forward_speed": REWARD_CONFIG["orbit_max_forward_speed"],
+            "trigger_steps": int(REWARD_CONFIG["orbit_trigger_steps"]),
         },
     )
 
@@ -2391,7 +2428,7 @@ class DashgoCurriculumCfg:
 
 @configclass
 class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
-    decimation = 4
+    decimation = 3
     episode_length_s = 90.0  # ✅ [架构师修正 2026-01-24] 课程学习：从 60s 增加到 90s（1350步），给机器人更多时间绕过障碍物
     scene = DashgoSceneV2Cfg(num_envs=16, env_spacing=15.0)
     sim = sim_utils.SimulationCfg(

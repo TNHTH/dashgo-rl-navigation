@@ -62,6 +62,53 @@ def test_behavior_gate_blocks_orbiting_policy() -> None:
     violations = behavior_gate_violations(metrics, suite="quick")
     assert "orbit_score>0.10" in violations
     assert "progress_stall_rate>0.25" in violations
+    assert metrics.hard_stop_rate == 0.0
+    assert metrics.cmd_saturation_rate == metrics.high_clip_ratio
+
+
+def test_summarize_eval_episodes_populates_new_regression_metrics() -> None:
+    episodes = [
+        {
+            "termination_reason": "reach_goal",
+            "reverse_case": False,
+            "steps": 20,
+            "elapsed_time": 1.0,
+            "path_efficiency": 0.8,
+            "net_progress_ratio": 0.9,
+            "near_obstacle_dwell_ratio": 0.1,
+            "spin_proxy_ratio": 0.1,
+            "high_clip_ratio": 0.2,
+            "progress_stall": False,
+            "orbit_detected": False,
+            "sensor_health_score": 1.0,
+            "heading_guard_trigger_rate": 0.0,
+            "recovery_trigger_rate": 0.0,
+            "plan_invalid_ratio": 0.0,
+        },
+        {
+            "termination_reason": "object_collision",
+            "reverse_case": False,
+            "steps": 30,
+            "elapsed_time": 1.5,
+            "path_efficiency": 0.2,
+            "net_progress_ratio": 0.1,
+            "near_obstacle_dwell_ratio": 0.4,
+            "spin_proxy_ratio": 0.5,
+            "high_clip_ratio": 0.6,
+            "progress_stall": True,
+            "orbit_detected": False,
+            "sensor_health_score": 1.0,
+            "heading_guard_trigger_rate": 0.0,
+            "recovery_trigger_rate": 0.0,
+            "plan_invalid_ratio": 0.0,
+        },
+    ]
+    metrics = summarize_eval_episodes(episodes, suite="main")
+    assert metrics.success_rate == 0.5
+    assert metrics.collision_rate == 0.5
+    assert metrics.hard_stop_rate == 0.5
+    assert metrics.cmd_saturation_rate == 0.4
+    assert metrics.time_to_goal == 1.0
 
 
 def test_prefilter_training_summary_requires_clean_scalars() -> None:
