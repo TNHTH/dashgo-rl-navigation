@@ -1,6 +1,6 @@
 # DashGo RL Navigation 项目文档索引
 
-> **更新时间**: 2026-03-20
+> **更新时间**: 2026-03-25
 > **文档状态**: 已按新仓库结构整理
 > **项目阶段**: 仓库重构 + Sim2Real/ROS2 双线维护
 
@@ -89,6 +89,18 @@ ROS2 工作区迁移记录与配置修复。
 | [DashGo ROS2 迁移记录](./07-ros2-migration/2026-03-16_02-06_dashgo-ros2-migration.md) | 2026-03-16 | ROS2 工作区、节点与 Gazebo 验证链梳理 |
 | [ROS YAML 修复记录](./07-ros2-migration/ros_yaml_fix.md) | - | ROS2 参数文件修复 |
 
+### 08-项目治理 🧭
+
+项目治理、GitHub 生命周期、skill 接入与复盘策略。
+
+| 文档名称 | 创建日期 | 内容描述 |
+|---------|---------|---------|
+| [Skill治理说明](./08-项目治理/skills-governance.md) | 2026-03-25 | 项目级 skill manifest、来源分层与同步命令 |
+| [GitHub First 生命周期](./08-项目治理/github-lifecycle.md) | 2026-03-25 | GitHub Issue / PR / Release 主链 |
+| [Autoresearch运维说明](./08-项目治理/autoresearch-operations.md) | 2026-03-25 | 训练值守、状态文件与流程入口 |
+| [事故与复盘策略](./08-项目治理/incident-and-retro-policy.md) | 2026-03-25 | 事故记录分层与 retro 触发规则 |
+| [GitHub Skill融合与治理改造记录](./08-项目治理/dashgo-skill-integration-and-github-governance_2026-03-25.md) | 2026-03-25 | 本轮 skill 集成与项目治理改造记录 |
+
 ### plans 🧭
 
 执行计划、迁移记录与工作台账。
@@ -124,6 +136,9 @@ ROS2 工作区迁移记录与配置修复。
 - **部署到实物** → [Sim2Real完整部署指南](./01-部署指南/Sim2Real完整部署指南_架构师修正版_2026-01-28.md)
 - **安装主机依赖** → [方案C安装指南](./01-部署指南/方案C安装指南_2026-01-29.md)
 - **开始训练** → [训练方案v5.0](./02-训练方案/训练方案v5.0_最终综合版_2026-01-25.md)
+- **理解 GitHub 工作流** → [GitHub First 生命周期](./08-项目治理/github-lifecycle.md)
+- **查看项目 skill 治理** → [Skill治理说明](./08-项目治理/skills-governance.md)
+- **查看 autoresearch 运维入口** → [Autoresearch运维说明](./08-项目治理/autoresearch-operations.md)
 - **查看实物参数** → [DashGo机器人规格](./04-技术规范/dashgo-robot-specifications_2026-01-24.md)
 - **排查训练问题** → [训练奖励全0问题分析](./02-训练方案/训练奖励全0问题分析_2026-01-27.md)
 - **了解开发规范** → [Isaac Lab开发铁律](./05-协议规范/isaac-lab-development-iron-rules.md)
@@ -143,13 +158,19 @@ ROS2 工作区迁移记录与配置修复。
 | 05-协议规范 | 5 | - |
 | 06-项目历史 | 5 | 2026-01-24 |
 | 07-ROS2迁移 | 2 | 2026-03-16 |
+| 08-项目治理 | 5 | 2026-03-25 |
 | plans | 5 | 2026-03-20 |
 | 99-archive | 8 | 2026-01-29 |
-| **总计** | **48** | **2026-03-20** |
+| **总计** | **53** | **2026-03-25** |
 
 ---
 
 ## 🔄 文档更新日志
+
+### 2026-03-25
+- ✅ 新增 08-项目治理 分类导航
+- ✅ 新增 GitHub First 生命周期、skill 治理与 autoresearch 运维文档
+- ✅ 补充项目级 skill manifest 与治理入口
 
 ### 2026-03-20
 - ✅ 完成仓库目录重构
@@ -178,4 +199,4 @@ ROS2 工作区迁移记录与配置修复。
 
 **维护者**: Claude Code AI Assistant
 **文档版本**: v1.0
-**最后更新**: 2026-03-20
+**最后更新**: 2026-03-25
