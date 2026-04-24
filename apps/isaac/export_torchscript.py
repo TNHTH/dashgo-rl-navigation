@@ -43,7 +43,6 @@ from dashgo_rl.project_paths import (
     TRAIN_SUCCESS_MODELS_ROOT,
 )
 
-import torch
 from isaaclab.app import AppLauncher
 
 
@@ -75,6 +74,8 @@ EXPORT_ARGS = parse_export_args()
 app_launcher = AppLauncher(headless=True, enable_cameras=True)
 simulation_app = app_launcher.app
 
+import torch
+
 print("\n" + "=" * 80)
 print("🤖 [Isaac Sim] 引擎启动成功... 正在导出模型")
 print("=" * 80)
@@ -88,6 +89,7 @@ from rsl_rl.modules import EmpiricalNormalization
 
 from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg
 from dashgo_rl.dashgo_config import DashGoLidarSpecs
+from dashgo_rl.deployment.contracts import DashGoObservationContract
 from dashgo_rl.geo_nav_policy import GeoNavPolicy
 from autopilot.runtime import default_autopilot_root
 
@@ -364,6 +366,10 @@ def main() -> None:
         "action_dim": int(policy.num_actions),
         "action_semantics": "bounded_tanh_gaussian",
         "normalizer_embedded": bool(selected_normalizer is not None),
+        "io_contract": DashGoObservationContract(
+            obs_dim=int(policy.num_actor_obs),
+            action_dim=int(policy.num_actions),
+        ).to_manifest(),
         "export_script": str(Path(__file__).resolve()),
         "export_mode": export_mode,
         "sensor_contract": build_sensor_contract_payload(),

@@ -47,6 +47,7 @@ from dashgo_rl.project_paths import (
     TRAIN_LOGS_ROOT,
     TRAIN_SUCCESS_ROOT,
 )
+from dashgo_rl.training_config import resolve_num_envs
 
 # ===============================================================================
 # [架构师V3.1补丁] 强力注入 Isaac Lab 源码路径（抢占优先级）
@@ -67,7 +68,6 @@ print("[DEBUG] Isaac Lab paths inserted at position 0:", sys.path[:4])
 
 # ===============================================================================
 
-from omegaconf import OmegaConf
 from autopilot.io_utils import read_json, write_json
 from autopilot.runtime import append_lineage_record, build_run_layout, sanitize_name
 from autopilot.types import LineageRecord
@@ -399,6 +399,7 @@ def main():
         import torch
         import glob
         import re
+        from omegaconf import OmegaConf
 
         # [方案2 2026-01-27] 注入轻量网络到RSL-RL
         # 必须在导入rsl_rl模块之前执行
@@ -481,12 +482,10 @@ def main():
         env_cfg = DashgoNavEnvV2Cfg()
         if "seed" in agent_cfg:
             env_cfg.seed = agent_cfg["seed"]
-        if args_cli.num_envs:
-            env_cfg.scene.num_envs = args_cli.num_envs
-        else:
-            # 自主值守训练默认以 32 环境起跑，优先保证 Isaac Sim 稳定性和可恢复性。
-            print("[INFO] 未指定 num_envs，默认使用 32 个环境")
-            env_cfg.scene.num_envs = 32
+        resolved_num_envs = resolve_num_envs(args_cli.num_envs, agent_cfg, env_cfg.scene.num_envs)
+        source = "CLI" if args_cli.num_envs is not None else ("YAML" if agent_cfg.get("num_envs") is not None else "环境默认")
+        env_cfg.scene.num_envs = resolved_num_envs
+        print(f"[INFO] num_envs={resolved_num_envs} (来源: {source})")
 
         run_layout = build_run_layout(
             project_root=DASHGO_PROJECT_ROOT,

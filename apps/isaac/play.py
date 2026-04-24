@@ -15,7 +15,6 @@ import glob
 import os
 import re
 import sys
-import torch
 from typing import Optional
 from pathlib import Path
 
@@ -24,6 +23,13 @@ SRC_ROOT = PROJECT_ROOT / "src"
 for candidate in (PROJECT_ROOT, SRC_ROOT):
     candidate_str = str(candidate)
     if candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
+
+ISAACLAB_SOURCE_ROOT = Path.home() / "IsaacLab" / "source"
+for relative in ("isaaclab", "isaaclab_assets", "isaaclab_tasks", "isaaclab_rl"):
+    candidate = ISAACLAB_SOURCE_ROOT / relative
+    candidate_str = str(candidate)
+    if candidate.exists() and candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
 from dashgo_rl.project_paths import TRAIN_LOGS_ROOT
@@ -62,6 +68,8 @@ if not args_cli.headless:
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+import torch
+
 print("\n" + "=" * 80)
 print("🤖 [Isaac Sim] 引擎启动成功... 正在加载模块")
 print("=" * 80)
@@ -72,6 +80,7 @@ print("=" * 80)
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 import isaaclab.sim as sim_utils
+from rsl_rl.modules import EmpiricalNormalization
 from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg
 from dashgo_rl.geo_nav_policy import GeoNavPolicy  # [关键] 使用训练时的策略网络
 
@@ -87,6 +96,37 @@ def find_best_checkpoint(log_root: str) -> Optional[str]:
         return None
 
     return max(model_files, key=lambda p: (extract_iter_from_path(p), os.path.getmtime(p)))
+
+
+def split_normalizer_from_state_dict(state_dict: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:
+    policy_state = dict(state_dict)
+    legacy_norm_state = {}
+    for key in list(policy_state.keys()):
+        if key.startswith("actor_obs_normalizer."):
+            legacy_norm_state[key.replace("actor_obs_normalizer.", "", 1)] = policy_state.pop(key)
+        elif key.startswith("critic_obs_normalizer."):
+            policy_state.pop(key)
+    return policy_state, legacy_norm_state or None
+
+
+def build_normalizer(obs_dim: int, checkpoint: dict, fallback_state: dict[str, torch.Tensor] | None, device: torch.device):
+    norm_state = checkpoint.get("obs_norm_state_dict") if isinstance(checkpoint, dict) else None
+    if norm_state is None:
+        norm_state = fallback_state
+    if norm_state is None:
+        return None
+    normalizer = EmpiricalNormalization(shape=[obs_dim]).to(device)
+    normalizer.load_state_dict(norm_state, strict=True)
+    normalizer.eval()
+    return normalizer
+
+
+def normalize_policy_observation(obs, normalizer):
+    if normalizer is None:
+        return obs
+    if hasattr(obs, "get"):
+        return {"policy": normalizer(obs["policy"])}
+    return normalizer(obs)
 
 
 def resolve_manual_goal() -> Optional[tuple[float, float, float]]:
@@ -224,8 +264,11 @@ def main():
             state_dict = loaded_dict
 
         # 加载权重（严格模式）
+        state_dict, fallback_norm_state = split_normalizer_from_state_dict(state_dict)
         policy.load_state_dict(state_dict, strict=True)
+        normalizer = build_normalizer(policy.num_actor_obs, loaded_dict, fallback_norm_state, device)
         print("✅ 权重加载成功！")
+        print(f"[INFO] normalizer: {'已加载' if normalizer is not None else '未找到，将使用原始观测'}")
 
     except Exception as e:
         print(f"❌ 权重加载失败: {e}")
@@ -255,7 +298,7 @@ def main():
 
         with torch.no_grad():
             # 使用 act_inference (确定性策略)
-            actions = policy.act_inference(obs)
+            actions = policy.act_inference(normalize_policy_observation(obs, normalizer))
 
         # 执行动作
         step_ret = env.step(actions)
