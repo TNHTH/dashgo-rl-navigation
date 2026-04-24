@@ -12,7 +12,6 @@ DashGo 终极验证工具 v5.1 (Sensor Probes Edition)
 日期: 2026-01-30
 """
 
-import torch
 import os
 import sys
 import numpy as np
@@ -26,6 +25,13 @@ for candidate in (PROJECT_ROOT, SRC_ROOT):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
+ISAACLAB_SOURCE_ROOT = Path.home() / "IsaacLab" / "source"
+for relative in ("isaaclab", "isaaclab_assets", "isaaclab_tasks", "isaaclab_rl"):
+    candidate = ISAACLAB_SOURCE_ROOT / relative
+    candidate_str = str(candidate)
+    if candidate.exists() and candidate_str not in sys.path:
+        sys.path.insert(0, candidate_str)
+
 from dashgo_rl.project_paths import TRAINING_CONFIG_PATH
 
 # Isaac Lab 核心
@@ -36,6 +42,8 @@ from isaaclab.app import AppLauncher
 # ==============================================================================
 app_launcher = AppLauncher(headless=True, enable_cameras=True)
 simulation_app = app_launcher.app
+
+import torch
 
 print("\n" + "=" * 80)
 print("🤖 [Isaac Sim] 引擎启动成功... 正在加载模块")

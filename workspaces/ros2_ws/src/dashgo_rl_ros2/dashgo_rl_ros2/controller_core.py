@@ -5,6 +5,11 @@ from typing import Sequence
 
 import numpy as np
 
+try:
+    from dashgo_rl.deployment.contracts import select_local_waypoint
+except Exception:  # pragma: no cover - ROS2 独立安装时保留本地实现
+    select_local_waypoint = None
+
 
 class ObservationBuffer:
     """维护固定长度的历史观测堆叠。"""
@@ -262,6 +267,9 @@ def select_progressive_waypoint_index(
     min_forward_x: float = -0.05,
 ) -> int:
     """先选择当前最近的前向路径点，再沿路径向前取前瞻航点。"""
+    if select_local_waypoint is not None:
+        return select_local_waypoint(path_points_in_base, lookahead_dist, min_forward_x)
+
     path_points = np.asarray(path_points_in_base, dtype=np.float32)
     if path_points.ndim != 2 or path_points.shape[1] != 2 or path_points.shape[0] == 0:
         raise ValueError("路径点格式错误，应为 [N, 2] 且 N > 0。")

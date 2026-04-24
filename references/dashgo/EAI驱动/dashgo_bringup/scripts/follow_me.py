@@ -26,7 +26,7 @@ if __name__ == '__main__':
             continue
         
         dist = getDistance(0, 0, trans[0], trans[1])
-        print trans[0], trans[1], dist
+        print(trans[0], trans[1], dist)
         if (dist>0.5):
             angular = 2 * math.atan2(trans[1], trans[0])
             linear = 0.2 * math.sqrt(trans[0] ** 2 + trans[1] ** 2)

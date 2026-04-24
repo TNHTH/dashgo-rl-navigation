@@ -368,9 +368,10 @@ class GeoNavPolicy(nn.Module):
         mean = self.forward_actor(observations)
         latent_std = torch.clamp(mean * 0.0 + self.std, min=1.0e-3)
 
-        # [Fix] 计算并保存 action_mean 和 action_std
-        # PPO 算法必须读取这两个属性才能工作
-        self.action_mean = self._squash_action(mean)
+        # PPO/RSL-RL 的 action_mean/action_std 必须描述 latent Gaussian，
+        # 否则 KL 和自适应学习率会把 tanh 后的均值当成分布均值。
+        self.action_mean = mean
+        self.bounded_action_mean = self._squash_action(mean)
         self.action_std = latent_std
 
         # 创建高斯分布
