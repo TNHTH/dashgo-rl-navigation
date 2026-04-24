@@ -170,12 +170,12 @@ def generate_bundle_test(linear_solver,
     sparse_backend_tag = ''
 
   # Use a double underscore; otherwise the names are harder to understand.
-  test_class_name = '_'.join(filter(lambda x: x, [
+  test_class_name = '_'.join([x for x in [
       camelcasify(linear_solver),
       camelcasify(sparse_backend_tag),
       camelcasify(preconditioner_tag),
       ordering[1:],  # Strip 'k'
-      'Threads' if thread_config == MULTI_THREADED else '']))
+      'Threads' if thread_config == MULTI_THREADED else ''] if x])
 
   # Initial template parameters (augmented more below).
   template_parameters = dict(
@@ -236,7 +236,7 @@ def generate_bundle_test(linear_solver,
     fd.write(BUNDLE_ADJUSTMENT_TEST_TEMPLATE % template_parameters)
 
   # All done.
-  print 'Generated', filename
+  print('Generated', filename)
 
   return filename
 

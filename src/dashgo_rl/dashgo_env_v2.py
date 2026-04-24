@@ -26,6 +26,7 @@ from isaaclab.terrains.height_field import (
 TERRAIN_GEN_AVAILABLE = True
 from .dashgo_assets import DASHGO_D1_CFG
 from .dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
+from .control.differential_drive import DifferentialDriveLimits, project_cmd_vel_to_feasible_set
 
 def _get_env_float(name: str, default: float) -> float:
     """读取环境变量浮点配置，解析失败时回退默认值。"""
@@ -83,6 +84,13 @@ MOTION_CONFIG = {
     "max_accel_lin": 1.0,     # 最大线加速度 (m/s²)
     "max_accel_ang": 0.6,     # 最大角加速度 (rad/s²)
     "max_wheel_vel": 5.0,     # 最大轮速
+}
+
+TRAINING_CONTRACT = {
+    # 前向 180 度 LiDAR 无后向障碍感知，默认不训练倒车策略。
+    # 需要后向传感器后再用环境变量显式打开。
+    "allow_reverse_motion": os.environ.get("DASHGO_ALLOW_REVERSE_TRAINING", "0") == "1",
+    "allow_reverse_targets": os.environ.get("DASHGO_ALLOW_REVERSE_TARGETS", "0") == "1",
 }
 
 # 奖励函数参数（权重和阈值）
@@ -543,10 +551,22 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
         self.max_accel_ang = MOTION_CONFIG["max_accel_ang"]
         self.control_dt = float(env.cfg.sim.dt * env.cfg.decimation)
 
+    def reset(self, env_ids: torch.Tensor | None = None):
+        reset_result = super().reset(env_ids)
+        if self.prev_actions is None:
+            return reset_result
+        if env_ids is None:
+            self.prev_actions.zero_()
+        else:
+            self.prev_actions[env_ids] = 0.0
+        return reset_result
+
     def process_actions(self, actions: torch.Tensor, *args, **kwargs):
         # 对齐ROS速度限制
         max_lin_vel = MOTION_CONFIG["max_lin_vel"]
-        max_reverse_speed = MOTION_CONFIG["max_reverse_speed"]
+        max_reverse_speed = (
+            MOTION_CONFIG["max_reverse_speed"] if TRAINING_CONTRACT["allow_reverse_motion"] else 0.0
+        )
         max_ang_vel = MOTION_CONFIG["max_ang_vel"]
 
         # 速度裁剪：前进和倒车使用非对称上限
@@ -558,29 +578,28 @@ class UniDiffDriveAction(mdp.actions.JointVelocityAction):
         target_v = torch.clamp(target_v, -max_reverse_speed, max_lin_vel)
         target_w = torch.clamp(actions[:, 1] * max_ang_vel, -max_ang_vel, max_ang_vel)
 
-        # 加速度平滑
-        if self.prev_actions is not None:
-            delta_v = target_v - self.prev_actions[:, 0]
-            delta_w = target_w - self.prev_actions[:, 1]
-            max_delta_v = self.max_accel_lin * self.control_dt
-            max_delta_w = self.max_accel_ang * self.control_dt
-            delta_v = torch.clamp(delta_v, -max_delta_v, max_delta_v)
-            delta_w = torch.clamp(delta_w, -max_delta_w, max_delta_w)
-            target_v = self.prev_actions[:, 0] + delta_v
-            target_w = self.prev_actions[:, 1] + delta_w
+        limits = DifferentialDriveLimits(
+            wheel_radius=self.wheel_radius,
+            track_width=self.track_width,
+            max_linear_velocity=max_lin_vel,
+            max_reverse_velocity=max_reverse_speed,
+            max_angular_velocity=max_ang_vel,
+            max_linear_acceleration=self.max_accel_lin,
+            max_angular_acceleration=self.max_accel_ang,
+            max_wheel_velocity=MOTION_CONFIG["max_wheel_vel"],
+            control_dt=self.control_dt,
+        )
+        projection = project_cmd_vel_to_feasible_set(
+            target_v,
+            target_w,
+            limits=limits,
+            previous_command=self.prev_actions,
+        )
+        self.prev_actions = torch.stack(
+            [projection.linear_velocity, projection.angular_velocity], dim=-1
+        ).detach().clone()
 
-        self.prev_actions = torch.stack([target_v, target_w], dim=-1).clone()
-
-        # 差速驱动转换
-        v_left = (target_v - target_w * self.track_width / 2.0) / self.wheel_radius
-        v_right = (target_v + target_w * self.track_width / 2.0) / self.wheel_radius
-
-        # 裁剪到执行器限制
-        max_wheel_vel = MOTION_CONFIG["max_wheel_vel"]
-        v_left = torch.clamp(v_left, -max_wheel_vel, max_wheel_vel)
-        v_right = torch.clamp(v_right, -max_wheel_vel, max_wheel_vel)
-
-        joint_actions = torch.stack([v_left, v_right], dim=-1)
+        joint_actions = torch.stack([projection.left_wheel_velocity, projection.right_wheel_velocity], dim=-1)
         return super().process_actions(joint_actions, *args, **kwargs)
 
 # =============================================================================
@@ -799,13 +818,20 @@ def _get_forward_sector_scan(env: ManagerBasedRLEnv) -> torch.Tensor:
     - 先构造 [-90°, +90°] 的前向扇区
     - 再在 `process_forward_lidar()` 内重排为 front-centered 顺序
     """
+    step_key = getattr(env, "common_step_counter", None)
+    cache = getattr(env, "_dashgo_forward_scan_cache", None)
+    if cache is not None and cache.get("step_key") == step_key:
+        return cache["scan"]
+
     d_front_right = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_right"))
     d_front_left = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_left"))
 
     # Camera 图像默认按像素从左到右排列；这里显式翻转，使拼接后的角度顺序稳定为 [-90°, +90°]。
     scan_right = torch.flip(d_front_right, dims=[1])
     scan_left = torch.flip(d_front_left, dims=[1])
-    return _sanitize_scan_tensor(torch.cat([scan_right, scan_left], dim=1), max_range=SIM_LIDAR_MAX_RANGE)
+    scan = _sanitize_scan_tensor(torch.cat([scan_right, scan_left], dim=1), max_range=SIM_LIDAR_MAX_RANGE)
+    env._dashgo_forward_scan_cache = {"step_key": step_key, "scan": scan}
+    return scan
 
 
 def process_forward_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -1711,8 +1737,12 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
             robot_pos = torch.zeros((len(env_ids), 3), device=self.device)
         r = torch.empty(len(env_ids), device=self.device).uniform_(self.min_dist, self.max_dist)
         theta = torch.empty(len(env_ids), device=self.device).uniform_(-math.pi, math.pi)
-        # 显式增加“目标在车后方”的采样比例，避免经验池几乎全是前进轨迹。
-        reverse_mask = torch.rand(len(env_ids), device=self.device) < 0.35
+        # 前向 180 度 LiDAR 默认不采样车后目标；后向感知补齐后再显式打开。
+        reverse_mask = (
+            torch.rand(len(env_ids), device=self.device) < 0.35
+            if TRAINING_CONTRACT["allow_reverse_targets"]
+            else torch.zeros(len(env_ids), device=self.device, dtype=torch.bool)
+        )
         if torch.any(reverse_mask):
             reverse_count = int(reverse_mask.sum().item())
             reverse_angles = torch.empty(reverse_count, device=self.device).uniform_(0.65 * math.pi, math.pi)
@@ -2433,7 +2463,7 @@ class DashgoNavEnvV2Cfg(ManagerBasedRLEnvCfg):
     scene = DashgoSceneV2Cfg(num_envs=16, env_spacing=15.0)
     sim = sim_utils.SimulationCfg(
         dt=1 / 60,
-        render_interval=10,
+        render_interval=6,
         render=RenderCfg(
             antialiasing_mode="DLAA",
             enable_direct_lighting=True,

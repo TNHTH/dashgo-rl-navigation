@@ -127,5 +127,15 @@ workspaces/ros2_ws/log/
 
 # 本地临时与生成环境目录
 .tmp/
+.codex/tmp/
+task_plan.md
+progress.md
+findings.md
+log/
 devel/
 install/
+
+# 本仓库外的工作区和本地产物
+workspaces/clash-control/dist/
+workspaces/remote_monitor/
+workspaces/dual-arm*/
