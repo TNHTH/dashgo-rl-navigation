@@ -82,10 +82,10 @@
 - Create: `src/dashgo_rl/envs/targeting.py`
 - Modify: `src/dashgo_rl/dashgo_env_v2.py`
 
-- [ ] Extract dynamic obstacle state and recovery scenario state into small manager classes.
-- [ ] Extract reference path build/waypoint selection into `ReferencePathTracker`.
-- [ ] Keep Isaac Lab callbacks as thin functions so config terms remain stable.
-- [ ] Verify targeted import and baseline tests:
+- [x] Extract dynamic obstacle state and recovery scenario state into small manager classes.
+- [x] Extract reference path build/waypoint selection into `ReferencePathTracker`.
+- [x] Keep Isaac Lab callbacks as thin functions so config terms remain stable.
+- [x] Verify targeted import and baseline tests:
   `PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_module_contracts.py tests/test_deployment_contracts.py tests/test_differential_drive.py`
 
 ## Task 5: Objectify Training App

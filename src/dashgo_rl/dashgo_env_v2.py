@@ -27,6 +27,11 @@ TERRAIN_GEN_AVAILABLE = True
 from .dashgo_assets import DASHGO_D1_CFG
 from .dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 from .control.differential_drive import DifferentialDriveLimits, project_cmd_vel_to_feasible_set
+from .envs.dynamic_obstacles import (
+    DynamicObstacleState,
+    RecoveryScenarioState,
+    compute_stop_go_motion as compute_stop_go_motion_state,
+)
 from .envs.sensors import (
     ForwardLidarProcessor,
     SIM_LIDAR_MAX_RANGE,
@@ -34,6 +39,7 @@ from .envs.sensors import (
     min_pool_resample_tensor,
     sanitize_scan_tensor,
 )
+from .envs.targeting import ReferencePathTracker
 
 def _get_env_float(name: str, default: float) -> float:
     """读取环境变量浮点配置，解析失败时回退默认值。"""
@@ -204,44 +210,14 @@ def _rotate_local_xy(local_xy: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
     return torch.stack([rot_x, rot_y], dim=-1)
 
 
-def _ensure_dynamic_obstacle_state(env: ManagerBasedRLEnv, asset_names: tuple[str, ...]) -> dict:
+def _ensure_dynamic_obstacle_state(env: ManagerBasedRLEnv, asset_names: tuple[str, ...]) -> DynamicObstacleState:
     """按需初始化 Gen2 动态障碍状态缓存。"""
-    state = getattr(env, "_dynamic_obstacle_state", None)
-    if state is not None:
-        if state.get("num_envs") == env.num_envs and tuple(state.get("asset_names", ())) == tuple(asset_names):
-            return state
-
-    num_slots = len(asset_names)
-    state = {
-        "num_envs": env.num_envs,
-        "asset_names": tuple(asset_names),
-        "active_slot": torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long),
-        "center_xy": torch.zeros((env.num_envs, num_slots, 2), device=env.device),
-        "axis_xy": torch.zeros((env.num_envs, num_slots, 2), device=env.device),
-        "amplitude": torch.zeros((env.num_envs, num_slots), device=env.device),
-        "cycle_rate": torch.zeros((env.num_envs, num_slots), device=env.device),
-        "phase": torch.zeros((env.num_envs, num_slots), device=env.device),
-        "yaw_w": torch.zeros((env.num_envs, num_slots), device=env.device),
-        "height": torch.full((env.num_envs, num_slots), 0.5, device=env.device),
-    }
-    env._dynamic_obstacle_state = state
-    return state
+    return DynamicObstacleState.for_env(env, asset_names)
 
 
-def _ensure_recovery_scenario_state(env: ManagerBasedRLEnv) -> dict:
+def _ensure_recovery_scenario_state(env: ManagerBasedRLEnv) -> RecoveryScenarioState:
     """按需初始化“前堵后退”课程状态缓存。"""
-    state = getattr(env, "_recovery_scenario_state", None)
-    if state is not None and state.get("num_envs") == env.num_envs:
-        return state
-
-    state = {
-        "num_envs": env.num_envs,
-        "active": torch.zeros(env.num_envs, device=env.device, dtype=torch.bool),
-        "goal_distance": torch.zeros(env.num_envs, device=env.device),
-        "goal_theta": torch.zeros(env.num_envs, device=env.device),
-    }
-    env._recovery_scenario_state = state
-    return state
+    return RecoveryScenarioState.for_env(env)
 
 
 def _write_kinematic_obstacle_pose(
@@ -272,42 +248,21 @@ def _compute_stop_go_motion(
     amplitude: torch.Tensor, phase: torch.Tensor, cycle_rate: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """停走型障碍：四段式保持/前进/保持/后退。"""
-    cycle = torch.remainder(phase / (2.0 * math.pi), 1.0)
-    disp_norm = torch.empty_like(cycle)
-    speed = torch.zeros_like(cycle)
-
-    seg_hold_back = cycle < 0.25
-    disp_norm[seg_hold_back] = -1.0
-
-    seg_forward = (cycle >= 0.25) & (cycle < 0.50)
-    if torch.any(seg_forward):
-        alpha = (cycle[seg_forward] - 0.25) / 0.25
-        disp_norm[seg_forward] = -1.0 + 2.0 * alpha
-        speed[seg_forward] = amplitude[seg_forward] * (2.0 / 0.25) * cycle_rate[seg_forward]
-
-    seg_hold_front = (cycle >= 0.50) & (cycle < 0.75)
-    disp_norm[seg_hold_front] = 1.0
-
-    seg_backward = cycle >= 0.75
-    if torch.any(seg_backward):
-        alpha = (cycle[seg_backward] - 0.75) / 0.25
-        disp_norm[seg_backward] = 1.0 - 2.0 * alpha
-        speed[seg_backward] = -amplitude[seg_backward] * (2.0 / 0.25) * cycle_rate[seg_backward]
-
-    displacement = amplitude * disp_norm
-    return displacement, speed
+    return compute_stop_go_motion_state(amplitude, phase, cycle_rate)
 
 
-def _write_dynamic_obstacle_slot(env: ManagerBasedRLEnv, env_ids: torch.Tensor, slot_idx: int, state: dict) -> None:
+def _write_dynamic_obstacle_slot(
+    env: ManagerBasedRLEnv, env_ids: torch.Tensor, slot_idx: int, state: DynamicObstacleState
+) -> None:
     """把指定槽位的脚本化障碍写回仿真。"""
     if env_ids.numel() == 0:
         return
 
-    asset_name = state["asset_names"][slot_idx]
+    asset_name = state.asset_names[slot_idx]
     asset = env.scene[asset_name]
-    amplitude = state["amplitude"][env_ids, slot_idx]
-    phase = state["phase"][env_ids, slot_idx]
-    cycle_rate = state["cycle_rate"][env_ids, slot_idx]
+    amplitude = state.amplitude[env_ids, slot_idx]
+    phase = state.phase[env_ids, slot_idx]
+    cycle_rate = state.cycle_rate[env_ids, slot_idx]
 
     if DYNAMIC_OBSTACLE_PROFILE_NAMES[slot_idx] == "stop_go":
         displacement, speed_along_axis = _compute_stop_go_motion(amplitude, phase, cycle_rate)
@@ -316,14 +271,14 @@ def _write_dynamic_obstacle_slot(env: ManagerBasedRLEnv, env_ids: torch.Tensor, 
         displacement = amplitude * torch.sin(phase)
         speed_along_axis = amplitude * phase_speed * torch.cos(phase)
 
-    axis_xy = state["axis_xy"][env_ids, slot_idx]
-    center_xy = state["center_xy"][env_ids, slot_idx]
-    yaw_w = state["yaw_w"][env_ids, slot_idx]
+    axis_xy = state.axis_xy[env_ids, slot_idx]
+    center_xy = state.center_xy[env_ids, slot_idx]
+    yaw_w = state.yaw_w[env_ids, slot_idx]
     origins_xy = env.scene.env_origins[env_ids, :2]
 
     root_pose = asset.data.default_root_state[env_ids, :7].clone()
     root_pose[:, 0:2] = origins_xy + center_xy + axis_xy * displacement.unsqueeze(-1)
-    root_pose[:, 2] = state["height"][env_ids, slot_idx]
+    root_pose[:, 2] = state.height[env_ids, slot_idx]
 
     zeros = torch.zeros_like(yaw_w)
     root_pose[:, 3:7] = quat_from_euler_xyz(zeros, zeros, yaw_w)
@@ -349,17 +304,11 @@ def configure_dynamic_obstacles(
         return
 
     state = _ensure_dynamic_obstacle_state(env, asset_names)
-    state["active_slot"][env_ids] = -1
-    state["center_xy"][env_ids] = 0.0
-    state["axis_xy"][env_ids] = 0.0
-    state["amplitude"][env_ids] = 0.0
-    state["cycle_rate"][env_ids] = 0.0
-    state["phase"][env_ids] = 0.0
-    state["yaw_w"][env_ids] = 0.0
+    state.reset_envs(env_ids)
 
     slot_ids = torch.randint(0, len(asset_names), (len(env_ids),), device=env.device)
     layout_yaw = torch.empty(len(env_ids), device=env.device).uniform_(-math.pi, math.pi)
-    state["active_slot"][env_ids] = slot_ids
+    state.active_slot[env_ids] = slot_ids
 
     templates = (
         {"center": (1.2, 0.0), "axis": (0.0, 1.0), "amp": (0.8, 1.2), "cycle": (0.02, 0.045)},
@@ -386,12 +335,12 @@ def configure_dynamic_obstacles(
         cycle_rate = torch.empty(count, device=env.device).uniform_(*template["cycle"])
         phase = torch.empty(count, device=env.device).uniform_(0.0, 2.0 * math.pi)
 
-        state["center_xy"][slot_env_ids, slot_idx] = center_xy
-        state["axis_xy"][slot_env_ids, slot_idx] = axis_xy
-        state["amplitude"][slot_env_ids, slot_idx] = amplitude
-        state["cycle_rate"][slot_env_ids, slot_idx] = cycle_rate
-        state["phase"][slot_env_ids, slot_idx] = phase
-        state["yaw_w"][slot_env_ids, slot_idx] = yaw
+        state.center_xy[slot_env_ids, slot_idx] = center_xy
+        state.axis_xy[slot_env_ids, slot_idx] = axis_xy
+        state.amplitude[slot_env_ids, slot_idx] = amplitude
+        state.cycle_rate[slot_env_ids, slot_idx] = cycle_rate
+        state.phase[slot_env_ids, slot_idx] = phase
+        state.yaw_w[slot_env_ids, slot_idx] = yaw
 
         _write_dynamic_obstacle_slot(env, slot_env_ids, slot_idx, state)
 
@@ -411,7 +360,7 @@ def animate_dynamic_obstacles(
         return
 
     state = _ensure_dynamic_obstacle_state(env, asset_names)
-    active_slots = state["active_slot"][env_ids]
+    active_slots = state.active_slot[env_ids]
 
     for slot_idx in range(len(asset_names)):
         slot_mask = active_slots == slot_idx
@@ -419,9 +368,9 @@ def animate_dynamic_obstacles(
             continue
 
         slot_env_ids = env_ids[slot_mask]
-        state["phase"][slot_env_ids, slot_idx] = torch.remainder(
-            state["phase"][slot_env_ids, slot_idx]
-            + (2.0 * math.pi * state["cycle_rate"][slot_env_ids, slot_idx] * motion_dt),
+        state.phase[slot_env_ids, slot_idx] = torch.remainder(
+            state.phase[slot_env_ids, slot_idx]
+            + (2.0 * math.pi * state.cycle_rate[slot_env_ids, slot_idx] * motion_dt),
             2.0 * math.pi,
         )
         _write_dynamic_obstacle_slot(env, slot_env_ids, slot_idx, state)
@@ -437,9 +386,7 @@ def configure_recovery_escape_scenarios(env: ManagerBasedRLEnv, env_ids: torch.T
         return
 
     scenario_state = _ensure_recovery_scenario_state(env)
-    scenario_state["active"][env_ids] = False
-    scenario_state["goal_distance"][env_ids] = 0.0
-    scenario_state["goal_theta"][env_ids] = 0.0
+    scenario_state.reset_envs(env_ids)
 
     scenario_mask = torch.rand(len(env_ids), device=env.device) < RECOVERY_SCENARIO_CONFIG["probability"]
     if not torch.any(scenario_mask):
@@ -451,7 +398,7 @@ def configure_recovery_escape_scenarios(env: ManagerBasedRLEnv, env_ids: torch.T
     _, _, robot_yaw = euler_xyz_from_quat(robot.data.root_quat_w[scenario_env_ids])
     robot_yaw = torch.nan_to_num(robot_yaw, nan=0.0, posinf=0.0, neginf=0.0)
 
-    scenario_state["active"][scenario_env_ids] = True
+    scenario_state.active[scenario_env_ids] = True
     goal_distance = torch.empty(len(scenario_env_ids), device=env.device).uniform_(
         RECOVERY_SCENARIO_CONFIG["goal_distance_min"],
         RECOVERY_SCENARIO_CONFIG["goal_distance_max"],
@@ -465,8 +412,8 @@ def configure_recovery_escape_scenarios(env: ManagerBasedRLEnv, env_ids: torch.T
         torch.ones(len(scenario_env_ids), device=env.device),
         -torch.ones(len(scenario_env_ids), device=env.device),
     )
-    scenario_state["goal_distance"][scenario_env_ids] = goal_distance
-    scenario_state["goal_theta"][scenario_env_ids] = goal_theta * goal_sign
+    scenario_state.goal_distance[scenario_env_ids] = goal_distance
+    scenario_state.goal_theta[scenario_env_ids] = goal_theta * goal_sign
 
     local_left = torch.tensor(
         [RECOVERY_SCENARIO_CONFIG["front_blocker_x"], RECOVERY_SCENARIO_CONFIG["front_blocker_y"]],
@@ -486,7 +433,7 @@ def configure_recovery_escape_scenarios(env: ManagerBasedRLEnv, env_ids: torch.T
 
     # 将运动学动态障碍停到远处，避免与脱困课程互相干扰。
     dynamic_state = _ensure_dynamic_obstacle_state(env, DYNAMIC_OBSTACLE_ASSET_NAMES)
-    dynamic_state["active_slot"][scenario_env_ids] = -1
+    dynamic_state.active_slot[scenario_env_ids] = -1
     parked_positions = {
         "obs_inner_1": (2.2, 2.2),
         "obs_inner_3": (-2.2, 2.2),
@@ -1649,32 +1596,22 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
         self.max_path_points = OBSERVATION_CONFIG["max_path_points"]
         self.pose_command_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.goal_pose_w = torch.zeros(self.num_envs, 7, device=self.device)
-        self.waypoint_pose_w = torch.zeros(self.num_envs, 7, device=self.device)
         self.pose_command_w[:, 3] = 1.0 
         self.goal_pose_w[:, 3] = 1.0
-        self.waypoint_pose_w[:, 3] = 1.0
         self.heading_command_w = torch.zeros(self.num_envs, device=self.device)
-        self.reference_path_w = torch.zeros(self.num_envs, self.max_path_points, 3, device=self.device)
-        self.reference_path_len = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
-        self.reference_path_cursor = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
-    def _build_linear_reference_path(self, start_xy: torch.Tensor, goal_xy: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        batch_size = start_xy.shape[0]
-        delta = goal_xy - start_xy
-        dist = torch.norm(delta, dim=-1)
-        steps = torch.clamp(
-            torch.ceil(dist / OBSERVATION_CONFIG["path_resolution"]).long() + 1,
-            min=2,
-            max=self.max_path_points,
+        self.path_tracker = ReferencePathTracker(
+            num_envs=self.num_envs,
+            max_path_points=self.max_path_points,
+            path_resolution=OBSERVATION_CONFIG["path_resolution"],
+            device=self.device,
         )
-        t = torch.linspace(0.0, 1.0, self.max_path_points, device=self.device).unsqueeze(0)
-        goal_progress = (steps - 1).clamp(min=1).unsqueeze(-1).float()
-        scaled_t = torch.clamp(t * goal_progress, max=goal_progress) / goal_progress
-        interp_xy = start_xy.unsqueeze(1) + delta.unsqueeze(1) * scaled_t.unsqueeze(-1)
-        path = torch.zeros(batch_size, self.max_path_points, 3, device=self.device)
-        path[:, :, :2] = interp_xy
-        headings = torch.atan2(delta[:, 1], delta[:, 0]).unsqueeze(-1).expand(-1, self.max_path_points)
-        path[:, :, 2] = headings
-        return path, steps
+        self.waypoint_pose_w = self.path_tracker.waypoint_pose_w
+        self.reference_path_w = self.path_tracker.reference_path_w
+        self.reference_path_len = self.path_tracker.reference_path_len
+        self.reference_path_cursor = self.path_tracker.reference_path_cursor
+
+    def _build_linear_reference_path(self, start_xy: torch.Tensor, goal_xy: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.path_tracker.build_linear(start_xy, goal_xy)
 
     def get_waypoint_pose_w(self, asset_name: str = "robot") -> torch.Tensor:
         robot = self._env.scene[asset_name]
@@ -1682,33 +1619,7 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
         speed = torch.nan_to_num(robot.data.root_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
         lookahead = compute_velocity_scaled_lookahead(speed)
 
-        path_xy = self.reference_path_w[:, :, :2]
-        distances = torch.norm(path_xy - robot_pos.unsqueeze(1), dim=-1)
-        mask = (
-            torch.arange(self.max_path_points, device=self.device).unsqueeze(0)
-            < self.reference_path_len.unsqueeze(1)
-        )
-        masked_distances = torch.where(mask, distances, torch.full_like(distances, 1.0e6))
-        nearest_idx = torch.argmin(masked_distances, dim=1)
-        self.reference_path_cursor = torch.maximum(self.reference_path_cursor, nearest_idx)
-
-        cursor_dist = torch.gather(masked_distances, 1, self.reference_path_cursor.unsqueeze(1)).squeeze(1)
-        target_mask = mask & (distances >= lookahead.unsqueeze(1))
-        target_mask &= (
-            torch.arange(self.max_path_points, device=self.device).unsqueeze(0)
-            >= self.reference_path_cursor.unsqueeze(1)
-        )
-        fallback_idx = (self.reference_path_len - 1).clamp(min=0)
-        has_target = torch.any(target_mask, dim=1)
-        candidate_idx = torch.argmax(target_mask.to(torch.int64), dim=1)
-        selected_idx = torch.where(has_target, candidate_idx, fallback_idx)
-        self.reference_path_cursor = torch.maximum(self.reference_path_cursor, selected_idx)
-
-        selected = self.reference_path_w[torch.arange(self.num_envs, device=self.device), self.reference_path_cursor]
-        self.waypoint_pose_w[:, :3] = selected
-        self.waypoint_pose_w[:, 3] = 1.0
-        self.waypoint_pose_w[:, 4:] = 0.0
-        return self.waypoint_pose_w
+        return self.path_tracker.select_waypoints(robot_pos, lookahead)
     
     def _resample_command(self, env_ids: torch.Tensor):
         robot = self._env.scene[self.cfg.asset_name]
@@ -1735,10 +1646,10 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
             )
             theta[reverse_mask] = reverse_angles * reverse_sign
         scenario_state = _ensure_recovery_scenario_state(self._env)
-        recovery_mask = scenario_state["active"][env_ids]
+        recovery_mask = scenario_state.active[env_ids]
         if torch.any(recovery_mask):
-            r[recovery_mask] = scenario_state["goal_distance"][env_ids][recovery_mask]
-            theta[recovery_mask] = scenario_state["goal_theta"][env_ids][recovery_mask]
+            r[recovery_mask] = scenario_state.goal_distance[env_ids][recovery_mask]
+            theta[recovery_mask] = scenario_state.goal_theta[env_ids][recovery_mask]
         goal_xy = torch.stack(
             [
                 robot_pos[:, 0] + r * torch.cos(theta),
@@ -1754,11 +1665,7 @@ class RelativeRandomTargetCommand(mdp.UniformPoseCommand):
         self.pose_command_w[env_ids] = self.goal_pose_w[env_ids]
         self.heading_command_w[env_ids] = 0.0
 
-        path, steps = self._build_linear_reference_path(robot_pos[:, :2], goal_xy)
-        self.reference_path_w[env_ids] = path
-        self.reference_path_len[env_ids] = steps
-        self.reference_path_cursor[env_ids] = 0
-        self.waypoint_pose_w[env_ids] = self.goal_pose_w[env_ids]
+        self.path_tracker.reset_paths(env_ids, robot_pos[:, :2], goal_xy, self.goal_pose_w)
 
     def _update_metrics(self):
         robot = self._env.scene[self.cfg.asset_name]

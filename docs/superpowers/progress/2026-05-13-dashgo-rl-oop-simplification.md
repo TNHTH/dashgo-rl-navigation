@@ -159,12 +159,51 @@ Observed:
 
 Task 3 result: `ForwardLidarProcessor` now owns numpy scan processing, Torch scan sanitization/min-pool resampling, Isaac front-camera scan stitching, and step-key caching. `dashgo_env_v2.py` keeps compatibility functions but delegates the LiDAR path to the processor.
 
+### 2026-05-13 Task 4 RED
+
+Command:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_state_objects.py
+```
+
+Observed:
+
+```text
+ModuleNotFoundError: No module named 'dashgo_rl.envs.dynamic_obstacles'
+ModuleNotFoundError: No module named 'dashgo_rl.envs.targeting'
+```
+
+Result: expected RED. Dynamic obstacle/recovery state managers and `ReferencePathTracker` did not exist yet.
+
+### 2026-05-13 Task 4 GREEN
+
+Commands:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_state_objects.py
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_module_contracts.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_env_state_objects.py
+python3 -m compileall -q src/dashgo_rl/envs/dynamic_obstacles.py src/dashgo_rl/envs/targeting.py
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+3 passed
+11 passed
+compileall exit 0
+37 passed
+```
+
+Task 4 result: dynamic obstacle state, recovery scenario state, stop-go motion, and reference-path tracking now live in small object modules. Isaac Lab event functions and command callbacks remain stable thin entrypoints in `dashgo_env_v2.py`.
+
 ## Task Status
 
 - [x] Task 1: Add simplification test net
 - [x] Task 2: Extract policy checkpoint I/O
 - [x] Task 3: Move LiDAR processing into sensors module
-- [ ] Task 4: Object boundaries in environment state
+- [x] Task 4: Object boundaries in environment state
 - [ ] Task 5: Objectify training app
 - [ ] Task 6: Extract ROS2 bridge base
 - [ ] Task 7: Launch helper follow-up
@@ -177,4 +216,4 @@ Task 3 result: `ForwardLidarProcessor` now owns numpy scan processing, Torch sca
 
 ## Next Step
 
-Start Task 4 by adding failing tests for small environment-state objects before moving dynamic-obstacle, recovery, or reference-path code.
+Start Task 5 by adding failing tests for pure training app orchestration before editing `apps/isaac/train_v2.py`.
