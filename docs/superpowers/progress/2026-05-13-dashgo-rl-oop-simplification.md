@@ -79,10 +79,56 @@ Observed:
 
 Task 1 result: created the initial simplification test net and minimal pure-Python shells for policy I/O, env module imports, and ROS2 bridge command publishing.
 
+### 2026-05-13 Task 2 RED
+
+Command:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_policy_io.py
+```
+
+Observed:
+
+```text
+ImportError: cannot import name 'PolicyNormalizerBundle' from 'dashgo_rl.deployment.policy_io'
+```
+
+Result: expected RED. The policy I/O abstraction requested by Task 2 did not exist.
+
+### 2026-05-13 Task 2 GREEN
+
+Commands:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_policy_io.py tests/test_geo_nav_policy.py tests/test_isaac_entrypoints.py
+python3 -m compileall -q src/dashgo_rl/deployment/policy_io.py apps/isaac/play.py apps/isaac/export_torchscript.py
+```
+
+Observed:
+
+```text
+8 passed
+compileall exit 0
+```
+
+Baseline re-check:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+37 passed
+```
+
+Task 2 result: `policy_io` now owns checkpoint iteration parsing, checkpoint discovery, manual checkpoint prioritization, legacy normalizer splitting, bundle construction, and policy/normalizer loading. `play.py` and `export_torchscript.py` reuse the shared loader while preserving Isaac `AppLauncher`/`torch` import order.
+
 ## Task Status
 
 - [x] Task 1: Add simplification test net
-- [ ] Task 2: Extract policy checkpoint I/O
+- [x] Task 2: Extract policy checkpoint I/O
 - [ ] Task 3: Move LiDAR processing into sensors module
 - [ ] Task 4: Object boundaries in environment state
 - [ ] Task 5: Objectify training app

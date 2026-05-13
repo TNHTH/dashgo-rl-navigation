@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import glob
 import hashlib
 import json
 import os
@@ -90,6 +89,11 @@ from rsl_rl.modules import EmpiricalNormalization
 from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg
 from dashgo_rl.dashgo_config import DashGoLidarSpecs
 from dashgo_rl.deployment.contracts import DashGoObservationContract
+from dashgo_rl.deployment.policy_io import (
+    find_model_checkpoints,
+    load_policy_and_normalizer,
+    prepend_manual_checkpoint,
+)
 from dashgo_rl.geo_nav_policy import GeoNavPolicy
 from autopilot.runtime import default_autopilot_root
 
@@ -131,51 +135,26 @@ def manifest_path_for_model(model_path: str | os.PathLike[str]) -> Path:
 
 
 def find_candidate_checkpoints() -> list[str]:
-    def extract_iter(path: str) -> int:
-        name = os.path.basename(path)
-        if not name.startswith("model_") or not name.endswith(".pt"):
-            return -1
-        try:
-            return int(name.split("_")[1].split(".")[0])
-        except Exception:
-            return -1
-
-    def sorted_models(pattern: str) -> list[str]:
-        models = glob.glob(pattern, recursive=True)
-        models.sort(key=lambda path: (extract_iter(path), os.path.getmtime(path)), reverse=True)
-        return models
-
-    candidates: list[str] = []
+    candidates = []
     autopilot_root = default_autopilot_root(DASHGO_PROJECT_ROOT)
     if autopilot_root.exists():
-        candidates.extend(sorted_models(str(autopilot_root / "runs" / "**" / "checkpoints" / "model_*.pt")))
+        candidates.extend(find_model_checkpoints([autopilot_root / "runs"]))
 
     training_success = TRAIN_SUCCESS_MODELS_ROOT / "model_final.pt"
     if training_success.exists():
-        candidates.append(str(training_success))
+        candidates.append(training_success)
 
-    candidates.extend(sorted_models(str(TRAIN_LOGS_ROOT / "**" / "model_*.pt")))
+    candidates.extend(find_model_checkpoints([TRAIN_LOGS_ROOT]))
 
     unique_candidates: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
-        if candidate in seen:
+        candidate_str = str(candidate)
+        if candidate_str in seen:
             continue
-        seen.add(candidate)
-        unique_candidates.append(candidate)
+        seen.add(candidate_str)
+        unique_candidates.append(candidate_str)
     return unique_candidates
-
-
-def prepend_manual_checkpoint(candidates: list[str], manual_checkpoint: str) -> list[str]:
-    manual_checkpoint = manual_checkpoint.strip()
-    if not manual_checkpoint:
-        return candidates
-
-    resolved_path = os.path.abspath(manual_checkpoint)
-    if not os.path.exists(resolved_path):
-        raise FileNotFoundError(f"显式指定的 checkpoint 不存在: {resolved_path}")
-
-    return [resolved_path, *[candidate for candidate in candidates if os.path.abspath(candidate) != resolved_path]]
 
 
 def build_save_paths(output_dir: str = "") -> list[str]:
@@ -201,46 +180,6 @@ def build_save_paths(output_dir: str = "") -> list[str]:
         seen.add(normalized)
         unique_paths.append(path)
     return unique_paths
-
-
-def split_normalizer_from_state_dict(state_dict: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:
-    """兼容两类 checkpoint：
-    1. RSL-RL 外置 obs_norm_state_dict
-    2. 旧模型把 actor_obs_normalizer.* 混在 model_state_dict 内
-    """
-    policy_state = dict(state_dict)
-    legacy_norm_state = {}
-
-    for key in list(policy_state.keys()):
-        if key.startswith("actor_obs_normalizer."):
-            legacy_norm_state[key.replace("actor_obs_normalizer.", "", 1)] = policy_state.pop(key)
-        elif key.startswith("critic_obs_normalizer."):
-            policy_state.pop(key)
-
-    return policy_state, legacy_norm_state or None
-
-
-def build_normalizer(obs_dim: int, checkpoint: dict, fallback_state: dict[str, torch.Tensor] | None) -> torch.nn.Module | None:
-    norm_state = checkpoint.get("obs_norm_state_dict")
-    if norm_state is None:
-        norm_state = fallback_state
-    if norm_state is None:
-        return None
-
-    normalizer = EmpiricalNormalization(shape=[obs_dim])
-    normalizer.load_state_dict(norm_state, strict=True)
-    normalizer.eval()
-    return normalizer
-
-
-def load_policy_and_normalizer(policy: GeoNavPolicy, checkpoint_path: str, device: torch.device) -> tuple[GeoNavPolicy, torch.nn.Module | None]:
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    raw_state_dict = checkpoint.get("model_state_dict", checkpoint)
-    policy_state, fallback_norm_state = split_normalizer_from_state_dict(raw_state_dict)
-
-    policy.load_state_dict(policy_state, strict=True)
-    normalizer = build_normalizer(policy.num_actor_obs, checkpoint, fallback_norm_state)
-    return policy, normalizer
 
 
 def export_model(exported_policy: ExportedGeoNavPolicy, save_paths: list[str], example_input: torch.Tensor) -> tuple[str, list[str]]:
@@ -307,8 +246,7 @@ def main() -> None:
         init_noise_std=1.0,
     ).to(device)
 
-    candidate_models = find_candidate_checkpoints()
-    candidate_models = prepend_manual_checkpoint(candidate_models, EXPORT_ARGS.checkpoint)
+    candidate_models = [str(path) for path in prepend_manual_checkpoint(find_candidate_checkpoints(), EXPORT_ARGS.checkpoint)]
     if not candidate_models:
         print("[ERROR] 未找到可导出的 checkpoint。")
         simulation_app.close()
@@ -321,7 +259,7 @@ def main() -> None:
         try:
             print(f"[INFO] 尝试加载 checkpoint: {model_path}")
             policy = copy.deepcopy(policy_template).to(device)
-            policy, selected_normalizer = load_policy_and_normalizer(policy, model_path, device)
+            policy, selected_normalizer = load_policy_and_normalizer(policy, model_path, torch, EmpiricalNormalization, device)
             selected_path = model_path
             break
         except Exception as exc:

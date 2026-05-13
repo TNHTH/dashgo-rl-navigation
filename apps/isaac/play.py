@@ -11,9 +11,7 @@ DashGo 推理脚本 (play.py) v6.1
 """
 
 import argparse
-import glob
 import os
-import re
 import sys
 from typing import Optional
 from pathlib import Path
@@ -82,43 +80,17 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 import isaaclab.sim as sim_utils
 from rsl_rl.modules import EmpiricalNormalization
 from dashgo_rl.dashgo_env_v2 import DashgoNavEnvV2Cfg
+from dashgo_rl.deployment.policy_io import (
+    extract_checkpoint_iteration,
+    find_model_checkpoints,
+    load_policy_and_normalizer,
+)
 from dashgo_rl.geo_nav_policy import GeoNavPolicy  # [关键] 使用训练时的策略网络
 
 
-def extract_iter_from_path(path: str) -> int:
-    match = re.search(r"model_(\d+)\.pt$", path)
-    return int(match.group(1)) if match else -1
-
-
 def find_best_checkpoint(log_root: str) -> Optional[str]:
-    model_files = glob.glob(os.path.join(log_root, "**", "model_*.pt"), recursive=True)
-    if not model_files:
-        return None
-
-    return max(model_files, key=lambda p: (extract_iter_from_path(p), os.path.getmtime(p)))
-
-
-def split_normalizer_from_state_dict(state_dict: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:
-    policy_state = dict(state_dict)
-    legacy_norm_state = {}
-    for key in list(policy_state.keys()):
-        if key.startswith("actor_obs_normalizer."):
-            legacy_norm_state[key.replace("actor_obs_normalizer.", "", 1)] = policy_state.pop(key)
-        elif key.startswith("critic_obs_normalizer."):
-            policy_state.pop(key)
-    return policy_state, legacy_norm_state or None
-
-
-def build_normalizer(obs_dim: int, checkpoint: dict, fallback_state: dict[str, torch.Tensor] | None, device: torch.device):
-    norm_state = checkpoint.get("obs_norm_state_dict") if isinstance(checkpoint, dict) else None
-    if norm_state is None:
-        norm_state = fallback_state
-    if norm_state is None:
-        return None
-    normalizer = EmpiricalNormalization(shape=[obs_dim]).to(device)
-    normalizer.load_state_dict(norm_state, strict=True)
-    normalizer.eval()
-    return normalizer
+    candidates = find_model_checkpoints([log_root])
+    return str(candidates[0]) if candidates else None
 
 
 def normalize_policy_observation(obs, normalizer):
@@ -252,21 +224,10 @@ def main():
             return
 
     print(f"[INFO] 加载权重: {model_path}")
-    print(f"[INFO] 识别到模型迭代: {extract_iter_from_path(model_path)}")
+    print(f"[INFO] 识别到模型迭代: {extract_checkpoint_iteration(model_path)}")
 
     try:
-        loaded_dict = torch.load(model_path, map_location=device)
-
-        # 处理 state_dict 键名
-        if 'model_state_dict' in loaded_dict:
-            state_dict = loaded_dict['model_state_dict']
-        else:
-            state_dict = loaded_dict
-
-        # 加载权重（严格模式）
-        state_dict, fallback_norm_state = split_normalizer_from_state_dict(state_dict)
-        policy.load_state_dict(state_dict, strict=True)
-        normalizer = build_normalizer(policy.num_actor_obs, loaded_dict, fallback_norm_state, device)
+        policy, normalizer = load_policy_and_normalizer(policy, model_path, torch, EmpiricalNormalization, device)
         print("✅ 权重加载成功！")
         print(f"[INFO] normalizer: {'已加载' if normalizer is not None else '未找到，将使用原始观测'}")
 
