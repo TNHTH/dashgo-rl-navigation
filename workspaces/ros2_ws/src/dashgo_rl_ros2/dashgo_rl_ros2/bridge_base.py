@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 
 def is_stale(now_sec: float, stamp_sec: float | None, timeout_sec: float) -> bool:
@@ -25,3 +25,38 @@ class BridgeCommandPublisher:
         self.debug_cmd_pub.publish(twist)
         if not self.shadow_mode:
             self.cmd_pub.publish(twist)
+
+
+@dataclass(frozen=True)
+class DiagnosticStatusBuilder:
+    """把节点状态字段转成 DiagnosticStatus。"""
+
+    diagnostic_status_cls: Any
+    key_value_cls: Any
+
+    @staticmethod
+    def format_value(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return str(value).lower()
+        return str(value)
+
+    def build(
+        self,
+        name: str,
+        hardware_id: str,
+        level: int,
+        message: str,
+        values: Mapping[str, Any],
+    ) -> Any:
+        status = self.diagnostic_status_cls()
+        status.name = name
+        status.hardware_id = hardware_id
+        status.level = level
+        status.message = message
+        status.values = [
+            self.key_value_cls(key=str(key), value=self.format_value(value))
+            for key, value in values.items()
+        ]
+        return status

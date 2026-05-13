@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dashgo_rl_ros2.bridge_base import BridgeCommandPublisher, is_stale
+from dashgo_rl_ros2.bridge_base import BridgeCommandPublisher, DiagnosticStatusBuilder, is_stale
 
 
 @dataclass
@@ -17,6 +17,25 @@ class FakePublisher:
 
     def publish(self, msg) -> None:
         self.messages.append(msg)
+
+
+class FakeDiagnosticStatus:
+    OK = 0
+    WARN = 1
+    ERROR = 2
+
+    def __init__(self) -> None:
+        self.name = ""
+        self.hardware_id = ""
+        self.level = self.OK
+        self.message = ""
+        self.values = []
+
+
+@dataclass
+class FakeKeyValue:
+    key: str = ""
+    value: str = ""
 
 
 def test_is_stale_treats_missing_stamp_and_positive_timeout_as_stale() -> None:
@@ -48,3 +67,32 @@ def test_bridge_command_publisher_publishes_to_cmd_when_not_shadowed() -> None:
 
     assert debug_pub.messages == [twist]
     assert cmd_pub.messages == [twist]
+
+
+def test_diagnostic_status_builder_formats_values() -> None:
+    builder = DiagnosticStatusBuilder(
+        diagnostic_status_cls=FakeDiagnosticStatus,
+        key_value_cls=FakeKeyValue,
+    )
+
+    status = builder.build(
+        name="node",
+        hardware_id="hardware",
+        level=FakeDiagnosticStatus.WARN,
+        message="waiting",
+        values={
+            "ready": True,
+            "age": None,
+            "distance": "1.250",
+        },
+    )
+
+    assert status.name == "node"
+    assert status.hardware_id == "hardware"
+    assert status.level == FakeDiagnosticStatus.WARN
+    assert status.message == "waiting"
+    assert [(item.key, item.value) for item in status.values] == [
+        ("ready", "true"),
+        ("age", ""),
+        ("distance", "1.250"),
+    ]

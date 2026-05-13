@@ -108,10 +108,10 @@
 - Modify existing tracked ROS2 nodes where applicable.
 - Test: `workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py`
 
-- [ ] Add pure `is_stale()` helper.
-- [ ] Add `BridgeCommandPublisher` for debug/cmd publishing and shadow mode.
-- [ ] Add `DiagnosticStatusBuilder` only if it removes duplication without hiding per-node status semantics.
-- [ ] Verify:
+- [x] Add pure `is_stale()` helper.
+- [x] Add `BridgeCommandPublisher` for debug/cmd publishing and shadow mode.
+- [x] Add `DiagnosticStatusBuilder` only if it removes duplication without hiding per-node status semantics.
+- [x] Verify:
   `PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py`
 
 ## Task 7: Launch Helper Follow-Up
@@ -119,13 +119,13 @@
 **Files:**
 - Deferred unless NavRL/NeuPAN launch files are intentionally ported into this worktree.
 
-- [ ] If untracked NavRL/NeuPAN launch files are ported, create a shared helper and preserve all launch argument names/defaults.
-- [ ] If not ported, record blocker and leave current tracked launch behavior unchanged.
+- [x] Not applicable this wave: untracked NavRL/NeuPAN launch files were not ported into this isolated branch.
+- [x] Record blocker and leave current tracked launch behavior unchanged.
 
 ## Final Verification
 
-- [ ] Run:
+- [x] Run:
   `PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests workspaces/ros2_ws/src/dashgo_rl_ros2/tests`
-- [ ] Run if ROS2 package files changed:
+- [x] Attempt if ROS2 package files changed; blocked by missing sibling package install artifacts in this isolated worktree:
   `cd workspaces/ros2_ws && colcon build --packages-select dashgo_rl_ros2 && colcon test --packages-select dashgo_rl_ros2 --event-handlers console_direct+`
-- [ ] Update progress file with exact evidence and residual risks.
+- [x] Update progress file with exact evidence and residual risks.

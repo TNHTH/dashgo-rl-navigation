@@ -1,4 +1,6 @@
-from geometry_msgs.msg import PoseStamped
+import pytest
+
+PoseStamped = pytest.importorskip("geometry_msgs.msg").PoseStamped
 
 from dashgo_rl_ros2.goal_plan_bridge import build_empty_path, normalize_goal_pose
 

@@ -15,6 +15,8 @@ from rclpy.time import Time
 from tf2_geometry_msgs import do_transform_pose_stamped
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .bridge_base import DiagnosticStatusBuilder
+
 
 GoalTransformFn = Callable[[PoseStamped, str], PoseStamped | None]
 
@@ -92,6 +94,7 @@ class GoalPlanBridge(Node):
         plan_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.plan_pub = self.create_publisher(Path, self.plan_topic, plan_qos)
         self.status_pub = self.create_publisher(DiagnosticArray, self.plan_status_topic, 10)
+        self.status_builder = DiagnosticStatusBuilder(DiagnosticStatus, KeyValue)
         self.plan_client = ActionClient(self, ComputePathToPose, self.planner_action_name)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -140,31 +143,33 @@ class GoalPlanBridge(Node):
 
     def publish_status(self) -> None:
         self._planner_ready = bool(self.plan_client.server_is_ready())
-        diag = DiagnosticStatus()
-        diag.name = "goal_plan_bridge"
-        diag.hardware_id = self.get_name()
-
         if self._plan_valid:
-            diag.level = DiagnosticStatus.OK
-            diag.message = "valid_plan"
+            level = DiagnosticStatus.OK
+            message = "valid_plan"
         elif self._planner_ready:
-            diag.level = DiagnosticStatus.WARN
-            diag.message = self._last_error_msg or "waiting_goal_or_plan"
+            level = DiagnosticStatus.WARN
+            message = self._last_error_msg or "waiting_goal_or_plan"
         else:
-            diag.level = DiagnosticStatus.ERROR
-            diag.message = self._last_error_msg or "planner_not_ready"
+            level = DiagnosticStatus.ERROR
+            message = self._last_error_msg or "planner_not_ready"
 
         age_sec = self.plan_age_sec()
-        diag.values = [
-            KeyValue(key="planner_ready", value=str(self._planner_ready).lower()),
-            KeyValue(key="plan_valid", value=str(self._plan_valid).lower()),
-            KeyValue(key="plan_age_sec", value="" if age_sec is None else f"{age_sec:.3f}"),
-            KeyValue(key="goal_frame", value=self.goal_frame),
-            KeyValue(key="last_goal_frame", value=self._last_goal_frame),
-            KeyValue(key="last_plan_frame", value=self._last_plan_frame),
-            KeyValue(key="last_error_code", value=self._last_error_code),
-            KeyValue(key="last_error_msg", value=self._last_error_msg),
-        ]
+        diag = self.status_builder.build(
+            name="goal_plan_bridge",
+            hardware_id=self.get_name(),
+            level=level,
+            message=message,
+            values={
+                "planner_ready": self._planner_ready,
+                "plan_valid": self._plan_valid,
+                "plan_age_sec": None if age_sec is None else f"{age_sec:.3f}",
+                "goal_frame": self.goal_frame,
+                "last_goal_frame": self._last_goal_frame,
+                "last_plan_frame": self._last_plan_frame,
+                "last_error_code": self._last_error_code,
+                "last_error_msg": self._last_error_msg,
+            },
+        )
         msg = DiagnosticArray()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = [diag]

@@ -30,6 +30,7 @@ from .controller_core import (
     should_hold_for_plan,
     should_trigger_recovery,
 )
+from .bridge_base import DiagnosticStatusBuilder
 from .safety_filter import DynamicsSafetyFilter
 
 try:
@@ -219,6 +220,7 @@ class GeoNavNode(Node):
 
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.status_pub = self.create_publisher(DiagnosticArray, self.status_topic, 10)
+        self.status_builder = DiagnosticStatusBuilder(DiagnosticStatus, KeyValue)
         self.create_subscription(LaserScan, self.scan_topic, self.scan_cb, qos_profile_sensor_data)
         self.create_subscription(Odometry, self.odom_topic, self.odom_cb, qos_profile_sensor_data)
         self.create_subscription(PoseStamped, self.goal_topic, self.goal_cb, 10)
@@ -280,34 +282,36 @@ class GeoNavNode(Node):
             logger.info(message)
 
     def publish_status(self) -> None:
-        diag = DiagnosticStatus()
-        diag.name = "geo_nav_node"
-        diag.hardware_id = self.get_name()
         if self.last_status_reason in {"GOAL_REACHED", "IDLE"}:
-            diag.level = DiagnosticStatus.OK
+            level = DiagnosticStatus.OK
         elif self.mode == "HOLD":
-            diag.level = DiagnosticStatus.WARN
+            level = DiagnosticStatus.WARN
         else:
-            diag.level = DiagnosticStatus.OK
-        diag.message = self.last_status_reason
+            level = DiagnosticStatus.OK
         plan_age = self.plan_age_sec()
         progress_delta = self.compute_progress_delta(self.now_sec())
-        diag.values = [
-            KeyValue(key="mode", value=self.mode),
-            KeyValue(key="planner_ready", value=str(self.bridge_planner_ready).lower()),
-            KeyValue(key="plan_valid", value=str(self.is_plan_current()).lower()),
-            KeyValue(key="plan_age_sec", value="" if plan_age is None else f"{plan_age:.3f}"),
-            KeyValue(key="goal_frame", value=self.goal_frame),
-            KeyValue(key="tf_ok", value=str(self.last_tf_ok).lower()),
-            KeyValue(key="front_clearance", value=f"{self.last_front_clearance:.3f}"),
-            KeyValue(key="raw_action_clipped", value=str(self.last_raw_action_clipped).lower()),
-            KeyValue(key="recovery_active", value=str(self.now_sec() < self.recovery_active_until).lower()),
-            KeyValue(key="last_error_code", value=self.bridge_last_error_code),
-            KeyValue(key="last_error_msg", value=self.bridge_last_error_msg),
-            KeyValue(key="progress_delta", value=f"{progress_delta:.3f}"),
-            KeyValue(key="goal_distance", value=f"{self.goal_distance:.3f}"),
-            KeyValue(key="waypoint_heading_deg", value=f"{np.rad2deg(self.waypoint_heading):.2f}"),
-        ]
+        diag = self.status_builder.build(
+            name="geo_nav_node",
+            hardware_id=self.get_name(),
+            level=level,
+            message=self.last_status_reason,
+            values={
+                "mode": self.mode,
+                "planner_ready": self.bridge_planner_ready,
+                "plan_valid": self.is_plan_current(),
+                "plan_age_sec": None if plan_age is None else f"{plan_age:.3f}",
+                "goal_frame": self.goal_frame,
+                "tf_ok": self.last_tf_ok,
+                "front_clearance": f"{self.last_front_clearance:.3f}",
+                "raw_action_clipped": self.last_raw_action_clipped,
+                "recovery_active": self.now_sec() < self.recovery_active_until,
+                "last_error_code": self.bridge_last_error_code,
+                "last_error_msg": self.bridge_last_error_msg,
+                "progress_delta": f"{progress_delta:.3f}",
+                "goal_distance": f"{self.goal_distance:.3f}",
+                "waypoint_heading_deg": f"{np.rad2deg(self.waypoint_heading):.2f}",
+            },
+        )
         msg = DiagnosticArray()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = [diag]

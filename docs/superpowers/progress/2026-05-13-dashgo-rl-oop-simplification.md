@@ -234,6 +234,79 @@ compileall exit 0
 
 Task 5 result: `DashGoTrainingApp` now owns generation/profile derivation, train config flattening and CLI overrides, run layout and metadata, checkpoint resolution, curriculum sidecar save/restore, and lineage append. `train_v2.py` keeps the AppLauncher bootstrap and Isaac runtime loop.
 
+### 2026-05-13 Task 6 RED
+
+Command:
+
+```bash
+PYTHONPATH=workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py
+```
+
+Observed:
+
+```text
+ImportError: cannot import name 'DiagnosticStatusBuilder' from 'dashgo_rl_ros2.bridge_base'
+```
+
+Result: expected RED. The bridge base did not yet own diagnostic status construction.
+
+### 2026-05-13 Task 6 GREEN
+
+Commands:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py
+python3 -m compileall -q workspaces/ros2_ws/src/dashgo_rl_ros2/dashgo_rl_ros2/bridge_base.py workspaces/ros2_ws/src/dashgo_rl_ros2/dashgo_rl_ros2/geo_nav_node.py workspaces/ros2_ws/src/dashgo_rl_ros2/dashgo_rl_ros2/goal_plan_bridge.py
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q workspaces/ros2_ws/src/dashgo_rl_ros2/tests
+```
+
+Observed:
+
+```text
+26 passed
+compileall exit 0
+33 passed, 1 skipped
+```
+
+Task 6 result: `bridge_base` now owns `DiagnosticStatusBuilder` in addition to stale checks and command publishing. `geo_nav_node` and `goal_plan_bridge` use the builder for DiagnosticStatus values while preserving topic names and status payload keys.
+
+ROS2 build check:
+
+```bash
+source /opt/ros/humble/setup.bash && colcon build --packages-select dashgo_rl_ros2
+```
+
+Observed:
+
+```text
+Failed to find ... install/dashgo_driver_ros2/share/dashgo_driver_ros2/package.sh
+Failed to find ... install/lakibeam_driver_ros2/share/lakibeam_driver_ros2/package.sh
+```
+
+Result: blocked before package build by missing sibling package install artifacts in this isolated worktree.
+
+### 2026-05-13 Task 7 Resolution
+
+Tracked launch files in this isolated branch are unchanged. The NavRL/NeuPAN launch files referenced by the original plan are not present in this worktree because they are untracked in the dirty source checkout. No launch helper was extracted to avoid silently porting unrelated user work or changing launch argument contracts without the files under version control.
+
+### 2026-05-13 Final Verification
+
+Command:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests workspaces/ros2_ws/src/dashgo_rl_ros2/tests
+git diff --check
+```
+
+Observed:
+
+```text
+pytest reached 100% and exited 0
+git diff --check exit 0
+```
+
+The full local pytest suite available in this worktree passed. ROS2 colcon build remains environment-blocked by missing sibling package install artifacts recorded in Task 6.
+
 ## Task Status
 
 - [x] Task 1: Add simplification test net
@@ -241,15 +314,15 @@ Task 5 result: `DashGoTrainingApp` now owns generation/profile derivation, train
 - [x] Task 3: Move LiDAR processing into sensors module
 - [x] Task 4: Object boundaries in environment state
 - [x] Task 5: Objectify training app
-- [ ] Task 6: Extract ROS2 bridge base
-- [ ] Task 7: Launch helper follow-up
+- [x] Task 6: Extract ROS2 bridge base
+- [x] Task 7: Launch helper follow-up deferred
 
 ## Blockers And Risks
 
 - The main worktree contains untracked NavRL/NeuPAN bridge and launch files. This isolated worktree does not include them because it starts from committed `main`.
-- Task 7 is deferred unless those files are intentionally ported into this branch.
+- Task 7 is deferred unless the untracked NavRL/NeuPAN launch files are intentionally ported into this branch.
 - `dashgo_env_v2.py` imports Isaac Lab at module import time. Tests for module contracts must avoid importing that file unless running under an Isaac-compatible environment.
 
 ## Next Step
 
-Start Task 6 by checking tracked ROS2 bridge nodes for duplicated stale/shadow/debug publish behavior.
+Run final pytest verification and record any environment-limited checks.
