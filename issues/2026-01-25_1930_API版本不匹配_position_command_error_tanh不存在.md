@@ -181,7 +181,7 @@ print([x for x in dir(mdp.rewards) if 'tanh' in x.lower()])
 ---
 
 **创建时间**: 2026-01-25 19:30:00
-**维护者**: Claude Code AI System
+**维护者**: TNHTH
 **架构师认证**: ✅ 基于架构师Hotfix建议
 **状态**: ✅ 已修复（等待训练验证）
 **下一步**: 启动训练，验证修复效果

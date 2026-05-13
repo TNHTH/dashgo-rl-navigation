@@ -417,7 +417,6 @@ git commit -m "fix: 修复传感器配置不一致 - 替换为RayCaster
 
 原因：对齐实物EAI F4激光雷达规格，解决Sim2Real问题
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -456,6 +455,6 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ---
 
 **创建时间**: 2026-01-25 12:45:00
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **状态**: ✅ 就绪实施
 **下一步**: 等待用户确认后执行修改

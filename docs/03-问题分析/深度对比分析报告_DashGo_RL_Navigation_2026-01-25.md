@@ -3,7 +3,7 @@
 > **创建时间**: 2026-01-25 15:30:00
 > **项目**: DashGo机器人导航（Sim2Real）
 > **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
-> **分析者**: Claude Code AI System (Robot-Nav-Architect Agent)
+> **分析者**: TNHTH (Robot-Nav-Architect Agent)
 > **报告类型**: 技术对比与最佳实践总结
 
 ---
@@ -1728,7 +1728,7 @@ wheel_track = 0.3420   # <0.1%误差
 
 **文档版本**: v1.0
 **创建时间**: 2026-01-25 15:30:00
-**维护者**: Claude Code AI System (Robot-Nav-Architect Agent)
+**维护者**: TNHTH (Robot-Nav-Architect Agent)
 **项目**: DashGo机器人导航（Sim2Real）
 **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
 **状态**: ✅ 完成

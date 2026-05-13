@@ -825,7 +825,7 @@ Geo-Distill V2.2 是一套**完整的Sim2Real导航方案**，包含：
 
 ---
 
-**维护者**: Claude Code AI System (Robot-Nav-Architect Agent)
+**维护者**: TNHTH (Robot-Nav-Architect Agent)
 **项目**: DashGo机器人导航（Sim2Real）
 **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
 **状态**: ✅ 方案完整，待训练验证

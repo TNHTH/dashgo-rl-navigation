@@ -674,6 +674,6 @@ Step 4: 重启仿真（必须！）
 ---
 
 **记录时间**: 2026-01-29 00:55:00
-**记录者**: Claude Code AI Assistant
+**记录者**: TNHTH
 **对话来源**: 用户与Isaac Sim架构师关于RViz盲区诊断和物理穿模修复的对话
 **主题标签**: RViz渲染、Gazebo物理、碰撞检测、Sim2Real部署

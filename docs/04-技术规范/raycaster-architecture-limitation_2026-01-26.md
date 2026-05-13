@@ -244,6 +244,6 @@ mesh_prim_paths=["/World/GroundPlane"]  # 只检测地面
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **文档版本**: v1.0
 **最后更新**: 2026-01-26 14:25:00

@@ -1074,7 +1074,7 @@
     - `logs_backup/`
     - `ros2_ws/build|install|log`
     - `catkin_ws/build|devel`
-    - `.claude-temp/`
+    - `.tmp/`
 
 ## 2026-03-19 12:19 CST
 

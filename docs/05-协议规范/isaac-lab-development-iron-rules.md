@@ -514,7 +514,7 @@ self.track_width = ros_params.wheel_track    # 0.3420
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-24
 **版本**: v1.0
 **来源**: Isaac Sim Architect（基于 RTX 4060 Laptop + DashGo D1 实战经验）

@@ -90,7 +90,6 @@
 
 <body>
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **Type类型**:
@@ -109,7 +108,6 @@ optimize: 优化Actuator配置对齐实物参数
 - effort_limit_sim: 10.0→20.0 Nm (提高转矩限制，留安全裕度)
 - velocity_limit_sim: 8.0→5.0 rad/s ≈ 0.32 m/s (对齐ROS max_vel_x=0.3)
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 ### 4. 文件组织规范
@@ -132,7 +130,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 **禁止操作**:
 - ❌ **修改 `references/dashgo/` 中的文件（只读参考，严禁任何修改）**
 - ❌ 将 `policy.onnx`、`*.pth`、`*.ckpt` 提交到git
-- ❌ 提交敏感配置（`.claude.json`、`.mcp.json`）
+- ❌ 提交敏感配置（`.agent-workspace.json`、`.mcp.json`）
 
 **⚠️ 特别强调：references/dashgo/ 文件夹绝对禁止修改**
 
@@ -250,7 +248,7 @@ def compute_reward(self) -> torch.Tensor:
 
 2. **严禁覆盖 `.gitignore` 规则**
    - 训练产物（`*.pth`、`*.onnx`）不应提交
-   - 敏感配置（`.claude.json`）不应提交
+   - 敏感配置（`.agent-workspace.json`）不应提交
 
 ---
 
@@ -297,7 +295,7 @@ def compute_reward(self) -> torch.Tensor:
 
 **自动执行序列**:
 ```bash
-1. Read .claude/rules/project-specific-rules.md (本文件)
+1. Read docs/05-协议规范/project-specific-rules.md (本文件)
 2. 应用所有开发规范
 3. 检查是否违反禁止模式
 4. 提醒用户Git提交
@@ -456,6 +454,6 @@ find issues/ -name "*训练*.md"
 
 **文档版本**: v1.1
 **生效日期**: 2026-01-24
-**维护者**: Claude Code AI System
+**维护者**: TNHTH
 **自动加载**: ✅ 是（在项目目录下自动应用）
 **更新内容**: 新增问题记录规范

@@ -256,7 +256,7 @@ dashgo_rl_project/                 # 项目根目录
 │   ├── 2026-01-27_1727_lidar_sensor实体不存在.md
 │   └── ... (70+个问题记录)
 │
-├── .claude/                       # Claude AI配置
+├── .agent-workspace/                       # Claude AI配置
 │   ├── rules/                     # 开发规则（核心）
 │   │   ├── isaac-lab-development-iron-rules.md    # Isaac Lab铁律（5条）
 │   │   ├── project-specific-rules.md              # 项目特定规则
@@ -301,7 +301,7 @@ dashgo_rl_project/                 # 项目根目录
 |------|------|--------|
 | **docs/** | 项目文档（技术规范、训练方案、部署指南） | ⭐⭐ |
 | **issues/** | 70+问题记录（按时间排序） | ⭐⭐⭐ |
-| **.claude/rules/** | 开发规则（铁律、禁忌） | ⭐⭐⭐ |
+| **docs/05-协议规范/** | 开发规则（铁律、禁忌） | ⭐⭐⭐ |
 
 ### 关键文件快速定位
 

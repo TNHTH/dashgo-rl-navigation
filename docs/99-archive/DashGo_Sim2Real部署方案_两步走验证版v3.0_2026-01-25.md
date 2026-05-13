@@ -497,7 +497,6 @@ git commit -m "fix: 修复LiDAR观测逻辑错误
 - 观测能力：无感知 → 有LiDAR感知
 - Sim2Real：盲人导航 → 真正的避障导航
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 "
 ```
 
@@ -538,7 +537,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ---
 
 **文档版本**: v3.0 架构师批准版
-**维护者**: Claude Code AI System
+**维护者**: TNHTH
 **架构师批准**: ✅ 已批准（附带警告）
 **状态**: ✅ 立即可执行
 **下一步**: 执行第一步，在Gazebo中验证"盲人"模型行为

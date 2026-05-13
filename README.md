@@ -295,7 +295,7 @@ dashgo_rl_project/
 ├── .github/                               # GitHub治理模板
 ├── issues/                                # 长篇问题档案 / 事故复盘附件库
 ├── tests/                                 # 测试
-└── .claude/                               # 历史Claude配置（保留）
+└── .agent-workspace/                               # 历史Claude配置（保留）
 ```
 
 ---
@@ -590,7 +590,7 @@ wheel_track = ros_params.wheel_track    # 0.342m
 # 在GUI中验证USD文件，确保机器人自然平放
 ```
 
-**完整规则**：[.claude/rules/isaac-lab-development-iron-rules.md](.claude/rules/isaac-lab-development-iron-rules.md)
+**完整规则**：[docs/05-协议规范/isaac-lab-development-iron-rules.md](docs/05-协议规范/isaac-lab-development-iron-rules.md)
 
 ### Git提交规范
 
@@ -600,7 +600,6 @@ wheel_track = ros_params.wheel_track    # 0.342m
 
 <body>
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **Type类型**：
@@ -621,7 +620,6 @@ fix: GeoNavPolicy v3.1 - 添加LayerNorm和Input Clamp修复梯度爆炸
 
 相关问题: issues/2026-01-27_1730_梯度爆炸导致NaN错误_ValueError.md
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 ---

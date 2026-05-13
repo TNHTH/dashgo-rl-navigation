@@ -451,6 +451,6 @@ rosrun tf tf_monitor
 ---
 
 **记录时间**: 2026-01-29 00:35:00
-**记录者**: Claude Code AI Assistant
+**记录者**: TNHTH
 **对话来源**: 用户与Isaac Sim架构师关于Gazebo/RViz可视化问题的对话
 **主题标签**: Gazebo仿真、RViz配置、TF坐标系、Sim2Real部署

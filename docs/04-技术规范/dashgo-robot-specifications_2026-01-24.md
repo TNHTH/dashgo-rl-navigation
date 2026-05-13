@@ -327,6 +327,6 @@ high_speed_threshold: 0.25  # 小于max_lin_vel (0.3)
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-24
 **版本**: v1.0

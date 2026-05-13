@@ -348,12 +348,12 @@ roslaunch dashgo_navigation geo_distill.launch
 ## 相关文档
 
 - **方案来源**：`docs/Geo-Distill-V2.2-方案报告_2026-01-27.md`
-- **对话记录**：`.claude-temp/对话记录_2026-01-27/`
+- **对话记录**：`.tmp/对话记录_2026-01-27/`
 - **Git提交**：commit (待提交)
 
 ---
 
-**维护者**: Claude Code AI System (Robot-Nav-Architect Agent)
+**维护者**: TNHTH (Robot-Nav-Architect Agent)
 **项目**: DashGo机器人导航（Sim2Real）
 **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
 **状态**: ✅ 实施完成，待验证

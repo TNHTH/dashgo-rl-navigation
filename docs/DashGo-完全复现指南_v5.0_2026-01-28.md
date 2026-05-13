@@ -318,7 +318,7 @@ dashgo_rl_project/                 # 项目根目录
 │   ├── 2026-01-27_1727_lidar_sensor实体不存在.md
 │   └── ... (70+个问题记录)
 │
-├── .claude/                       # Claude AI配置
+├── .agent-workspace/                       # Claude AI配置
 │   ├── rules/                     # 开发规则（核心）
 │   │   ├── isaac-lab-development-iron-rules.md    # Isaac Lab铁律（5条）
 │   │   ├── project-specific-rules.md              # 项目特定规则
@@ -363,7 +363,7 @@ dashgo_rl_project/                 # 项目根目录
 |------|------|--------|
 | **docs/** | 项目文档（技术规范、训练方案、部署指南） | ⭐⭐ |
 | **issues/** | 70+问题记录（按时间排序） | ⭐⭐⭐ |
-| **.claude/rules/** | 开发规则（铁律、禁忌） | ⭐⭐⭐ |
+| **docs/05-协议规范/** | 开发规则（铁律、禁忌） | ⭐⭐⭐ |
 
 ### 关键文件快速定位
 
@@ -1095,7 +1095,7 @@ dashgo_rl_project/                         # 项目根目录
 │       └── ...
 │
 ├── 📋 开发规则
-│   └── .claude/
+│   └── .agent-workspace/
 │       └── rules/
 │           ├── isaac-lab-development-iron-rules.md    # ⭐ Isaac Lab 5条铁律
 │           ├── project-specific-rules.md              # ⭐ 项目特定规则
@@ -3790,8 +3790,8 @@ issues/2026-01-28_1430_训练爆炸_Policy_Noise_26.82.md
 
 **项目文档**：
 - [README.md](README.md) - 项目总览
-- [Isaac Lab开发铁律](.claude/rules/isaac-lab-development-iron-rules.md) - 5条铁律
-- [项目特定规则](.claude/rules/project-specific-rules.md) - 开发规范
+- [Isaac Lab开发铁律](docs/05-协议规范/isaac-lab-development-iron-rules.md) - 5条铁律
+- [项目特定规则](docs/05-协议规范/project-specific-rules.md) - 开发规范
 
 ### B. 相关资源
 
@@ -3855,7 +3855,7 @@ issues/2026-01-28_1430_训练爆炸_Policy_Noise_26.82.md
 
 ---
 
-**文档作者**: Claude Code AI Assistant  
+**文档作者**: TNHTH  
 **创建时间**: 2026-01-28 22:35:00  
 **最后更新**: 2026-01-28 22:35:00  
 **版本**: v5.0 Ultimate

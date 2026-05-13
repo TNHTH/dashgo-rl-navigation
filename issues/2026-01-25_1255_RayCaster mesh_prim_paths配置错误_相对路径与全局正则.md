@@ -161,7 +161,7 @@ mesh_prim_paths=["/World/envs/env_.*/.*"],  # 全局正则路径
 - 官方示例：`IsaacLab/scripts/demos/sensors/raycaster_sensor.py`
 
 ### 项目文档
-- 传感器对齐方案：`.claude-temp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
+- 传感器对齐方案：`.tmp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
 - 问题分析：`issues/2026-01-25_1230_传感器配置不一致问题_LiDARvs深度相机.md`
 
 ## 相关提交
@@ -197,6 +197,6 @@ mesh_prim_paths=["/World/envs/env_.*/(Ground|Obstacles).*"]
 ---
 
 **创建时间**: 2026-01-25 12:55:00
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **状态**: ✅ 已解决
 **下次更新**: 测试通过后添加验证结果

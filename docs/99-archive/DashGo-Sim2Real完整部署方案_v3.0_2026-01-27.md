@@ -886,7 +886,7 @@ dashgo/
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **项目**: DashGo RL Navigation
 **版本**: V3.0 (Sim2Real Complete)
 **日期**: 2026-01-27

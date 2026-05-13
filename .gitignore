@@ -27,11 +27,11 @@ nul
 
 # Claude 临时工作文件
 tmpclaude-*/
-.claude-temp/
+.tmp/
 .agent/
 
 # 保留工具和分析结果，但排除临时内容
-!.claude/
+!.agent-workspace/
 
 # 常见忽略文件
 .DS_Store
@@ -44,7 +44,7 @@ node_modules/
 
 # 保留我们需要的文件夹
 !multi-agent-system/
-!.claude/
+!.agent-workspace/
 !Si Yuan/claude/
 
 # ==========================================
@@ -80,9 +80,9 @@ autopilot/runs/
 autopilot/**/__pycache__/
 
 # 本地配置（包含敏感信息）
-.claude.json
+.agent-workspace.json
 .mcp.json
-.claude/settings.local.json
+.agent-workspace/settings.local.json
 
 # 临时目录
 =/
@@ -94,7 +94,7 @@ check_env.py
 check_env_fingerprint.py
 
 # ==========================================
-# Claude Code 智能Agent工作流系统
+# TNHTH 智能Agent工作流系统
 # ==========================================
 
 # Artifacts目录（已通过备份系统管理）

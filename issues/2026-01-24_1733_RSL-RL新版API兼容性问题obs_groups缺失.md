@@ -340,7 +340,7 @@ DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
 ## 📚 相关文档
 
 1. **Isaac Lab 开发铁律**：
-   - `.claude/rules/isaac-lab-development-iron-rules.md`
+   - `docs/05-协议规范/isaac-lab-development-iron-rules.md`
    - 规则一：Python导入顺序
    - 规则二：RSL-RL配置扁平化
 
@@ -373,7 +373,7 @@ DISPLAY= ~/IsaacLab/isaaclab.sh -p train_v2.py --headless --num_envs 80
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-24
 **状态**: ✅ 已修复并验证
 **下一步**: 启动训练并监控

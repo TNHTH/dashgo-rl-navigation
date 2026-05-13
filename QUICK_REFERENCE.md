@@ -1,4 +1,4 @@
-# 🚀 Claude Code 智能Agent工作流系统 - 快速参考
+# 🚀 TNHTH 智能Agent工作流系统 - 快速参考
 
 > **版本**: v4.0 Pro
 > **创建时间**: 2025-01-18
@@ -169,7 +169,7 @@ Verify      → 验证修复（测试通过）
 │       ├── backup-phase.sh
 │       ├── rollback.sh
 │       └── list-backups.sh
-├── .claude/
+├── .agent-workspace/
 │   └── instructions.md    # 系统配置（v4.0 Pro）
 ├── QUICK_REFERENCE.md     # 本文件
 └── README.md
@@ -184,7 +184,7 @@ Verify      → 验证修复（测试通过）
 # 1. 初始化项目
 ./tools/maintenance/init-project.sh "我的项目名"
 
-# 2. 启动Claude Code
+# 2. 启动TNHTH
 claude
 
 # 3. 在Claude中描述需求
@@ -278,11 +278,11 @@ Claude: 自动识别architect-agent
 
 ## 📚 更多信息
 
-- **完整配置**: `.claude/instructions.md`
+- **完整配置**: `.agent-workspace/instructions.md`
 - **项目索引**: `docs/INDEX.md`
 - **项目说明**: `README.md`
 
 ---
 
 **最后更新**: 2025-01-18
-**维护者**: Claude Code AI Agent System
+**维护者**: TNHTH

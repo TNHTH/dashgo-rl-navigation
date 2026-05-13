@@ -354,7 +354,7 @@ scan_front = d_front.squeeze(1)
 
 ---
 
-**维护者**: Claude Code AI System (Robot-Nav-Architect Agent)
+**维护者**: TNHTH (Robot-Nav-Architect Agent)
 **项目**: DashGo机器人导航（Sim2Real）
 **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
 **状态**: ✅ 已解决，待用户验证

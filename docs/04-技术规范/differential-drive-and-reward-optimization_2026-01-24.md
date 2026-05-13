@@ -215,6 +215,6 @@ normalize_advantage: true  # Isaac Lab 4.5 保持收敛平滑的关键
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-24
 **版本**: v1.0

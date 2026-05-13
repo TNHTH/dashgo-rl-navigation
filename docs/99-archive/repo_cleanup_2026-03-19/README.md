@@ -14,7 +14,7 @@
 - `ros2_ws/log`
 - `catkin_ws/build`
 - `catkin_ws/devel`
-- `.claude-temp/`
+- `.tmp/`
 
 ## 保留原因
 

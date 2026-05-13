@@ -4,7 +4,7 @@
 
 ## 目标
 
-将本仓库分散在 `CLAUDE.md`、`.claude/rules/*.md` 与新增 `agent.md` 中的长期代理规则收敛到单一来源，减少冲突、失效路径和历史残留。
+将本仓库分散在 `AGENTS.md`、`docs/05-协议规范/*.md` 与新增 `agent.md` 中的长期代理规则收敛到单一来源，减少冲突、失效路径和历史残留。
 
 ## 工作目录与输入
 
@@ -12,24 +12,24 @@
 - 扫描文件：
   - `AGENTS.md`
   - `agent.md`
-  - `CLAUDE.md`
-  - `.claude/rules/project-specific-rules.md`
-  - `.claude/rules/isaac-lab-development-iron-rules.md`
-  - `.claude/rules/file-organization.md`
+  - `AGENTS.md`
+  - `docs/05-协议规范/project-specific-rules.md`
+  - `docs/05-协议规范/isaac-lab-development-iron-rules.md`
+  - `docs/05-协议规范/file-organization.md`
 
 ## 执行步骤
 
 ### 步骤 1
 - 目标：确认现有规则入口与冲突来源。
 - 方法：
-  - 检查仓库中是否已有 `AGENTS.md`、`agent.md`、`CLAUDE.md`
-  - 搜索 `CLAUDE.md` 在仓库中的引用
+  - 检查仓库中是否已有 `AGENTS.md`、`agent.md`、`AGENTS.md`
+  - 搜索 `AGENTS.md` 在仓库中的引用
 - 反馈：
   - 仓库原先没有本地 `AGENTS.md` 与 `agent.md`
-  - `CLAUDE.md` 体量较大，混合了动态规则、旧 trigger、历史路径和项目规则
-  - 多个旧文档仍引用 `CLAUDE.md`
+  - `AGENTS.md` 体量较大，混合了动态规则、旧 trigger、历史路径和项目规则
+  - 多个旧文档仍引用 `AGENTS.md`
 - 判断：
-  - 需要保留 `CLAUDE.md` 作为兼容入口，但不适合继续作为长期规则正文
+  - 需要保留 `AGENTS.md` 作为兼容入口，但不适合继续作为长期规则正文
 - 结果：
   - 确定 `AGENTS.md` 作为唯一长期规则源
 - 下一步：
@@ -40,7 +40,7 @@
 - 方法：
   - 核对历史路径是否仍存在
   - 核对当前仓库结构与关键训练入口
-  - 对比 `CLAUDE.md` 与 `.claude/rules/*.md` 的重叠和冲突
+  - 对比 `AGENTS.md` 与 `docs/05-协议规范/*.md` 的重叠和冲突
 - 反馈：
   - 历史路径 `dashgo/`、`multi-agent-system/` 已不存在
   - 当前结构以 `apps/isaac/`、`src/dashgo_rl/`、`configs/`、`drivers/`、`references/dashgo/`、`workspaces/` 为准
@@ -58,10 +58,10 @@
 - 方法：
   - 重写 `AGENTS.md`
   - 收缩 `agent.md`
-  - 重写 `CLAUDE.md`
+  - 重写 `AGENTS.md`
 - 反馈：
   - `AGENTS.md` 现在承载唯一长期规则正文
-  - `agent.md` 与 `CLAUDE.md` 仅保留兼容说明
+  - `agent.md` 与 `AGENTS.md` 仅保留兼容说明
 - 判断：
   - 规则入口已经统一，后续新增长期规则只需维护一处
 - 结果：
@@ -90,22 +90,22 @@
 - 手写 Auto-Load Trigger 表
 - `dashgo/`、`multi-agent-system/` 等失效路径假设
 - 过度僵化的“任何方案、优化、改进都必须先确认”
-- 把 `CLAUDE.md` 继续当作主规则入口的工作方式
+- 把 `AGENTS.md` 继续当作主规则入口的工作方式
 
 ## 交付文件
 
 - `/home/gwh/dashgo_rl_project/AGENTS.md`
 - `/home/gwh/dashgo_rl_project/agent.md`
-- `/home/gwh/dashgo_rl_project/CLAUDE.md`
+- `/home/gwh/dashgo_rl_project/AGENTS.md`
 - `/home/gwh/dashgo_rl_project/docs/plans/2026-03-20_14-14-agent-rules-consolidation.md`
 
 ## 验证方法
 
-- 重新读取 `AGENTS.md`、`agent.md`、`CLAUDE.md`，确认规则层级与入口关系清晰。
+- 重新读取 `AGENTS.md`、`agent.md`、`AGENTS.md`，确认规则层级与入口关系清晰。
 - 检查当前仓库关键路径是否与规则中的路径一致。
 - 用 `git status --short -- <files>` 确认仅记录到本次变更文件。
 
 ## 风险与后续
 
-- 仓库内旧笔记、旧技能说明和历史 issue 仍可能继续提到 `CLAUDE.md`；这些引用暂不批量改写，以避免扩大本次改动范围。
-- 若后续需要进一步去冗余，可再做一轮“将 `.claude/rules/*.md` 中仍有效的技术协议整理到 `docs/05-协议规范/`，并在文头统一标记为参考资料”的清理。
+- 仓库内旧笔记、旧技能说明和历史 issue 仍可能继续提到 `AGENTS.md`；这些引用暂不批量改写，以避免扩大本次改动范围。
+- 若后续需要进一步去冗余，可再做一轮“将 `docs/05-协议规范/*.md` 中仍有效的技术协议整理到 `docs/05-协议规范/`，并在文头统一标记为参考资料”的清理。

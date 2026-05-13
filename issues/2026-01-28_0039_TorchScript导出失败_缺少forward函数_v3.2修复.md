@@ -251,7 +251,7 @@ except Exception as e:
    - 问题：助手方案77维 vs 架构师246维
    - 解决：使用架构师完整方案
 
-3. **[2026-01-28_0039] CLAUDE.md文件丢失**
+3. **[2026-01-28_0039] AGENTS.md文件丢失**
    - 问题：commit 1d0e2b9误删除
    - 解决：从git历史恢复
 
@@ -315,6 +315,6 @@ print(f"   输出shape: {output.shape}")
 
 ---
 
-**记录者**: Claude Code AI Assistant
+**记录者**: TNHTH
 **日期**: 2026-01-28 00:39
 **状态**: ✅ 已解决并验证

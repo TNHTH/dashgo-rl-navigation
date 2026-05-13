@@ -276,7 +276,7 @@ camera_right = CameraCfg(..., rot=(-0.707, 0.0, 0.0, 0.707)) # Right: -90°
 
 ---
 
-**维护者**: Claude Code AI System (Robot-Nav-Architect Agent)
+**维护者**: TNHTH (Robot-Nav-Architect Agent)
 **项目**: DashGo机器人导航（Sim2Real）
 **开发基准**: Isaac Sim 4.5 + Ubuntu 20.04
 **状态**: 🟡 待验证

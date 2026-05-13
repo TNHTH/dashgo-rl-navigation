@@ -113,7 +113,7 @@ progress:
 ---
 
 **最后更新**: $(date)
-**维护者**: Claude Code AI Agent System
+**维护者**: TNHTH
 EOF
 
 echo "✅ INDEX.md已创建"
@@ -155,7 +155,7 @@ cat > README.md <<EOF
 
 ## 项目概述
 
-本项目使用 **Claude Code 智能Agent工作流系统** 开发。
+本项目使用 **TNHTH 智能Agent工作流系统** 开发。
 
 ## 开发阶段
 
@@ -196,7 +196,7 @@ cat > README.md <<EOF
 
 ## 快速开始
 
-1. **启动Claude Code**
+1. **启动TNHTH**
    \`\`\`bash
    claude
    \`\`\`
@@ -239,7 +239,7 @@ $PROJECT_NAME/
 ---
 
 **创建时间**: $(date)
-**工具系统**: Claude Code 智能Agent工作流 v3.0
+**工具系统**: TNHTH 智能Agent工作流 v3.0
 EOF
 
 echo "✅ README.md已创建"
@@ -256,10 +256,10 @@ echo "📂 项目位置: $(pwd)"
 echo "📝 项目名称: $PROJECT_NAME"
 echo ""
 echo "🎯 下一步操作："
-echo "1. 启动Claude Code:"
+echo "1. 启动TNHTH:"
 echo "   claude"
 echo ""
-echo "2. 在Claude Code中描述项目需求，例如："
+echo "2. 在TNHTH中描述项目需求，例如："
 echo ""
 echo "   我要开发一个$PROJECT_NAME，核心功能是..."
 echo ""

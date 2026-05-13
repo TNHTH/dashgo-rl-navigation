@@ -331,12 +331,11 @@ fix: 修复SceneEntityCfg不支持正则表达式问题
 
 相关文档: issues/2026-01-24_2120_SceneEntityCfg正则支持问题.md
 
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-24 21:20:00
 **状态**: ✅ 已修复并验证
 **Commit**: `cde8958`

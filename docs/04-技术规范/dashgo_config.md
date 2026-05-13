@@ -583,6 +583,6 @@ class DashGoEnv:
 
 ---
 
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **最后更新**: 2026-01-26
 **版本**: v2.0

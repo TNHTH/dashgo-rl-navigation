@@ -416,5 +416,5 @@ jest.mock('./database');
 ---
 
 **文档状态**: 活跃
-**维护者**: Claude Code AI System
+**维护者**: TNHTH
 **下次更新**: 根据实际使用反馈优化

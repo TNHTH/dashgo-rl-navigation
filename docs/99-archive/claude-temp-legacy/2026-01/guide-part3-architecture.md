@@ -51,7 +51,7 @@ dashgo_rl_project/                         # 项目根目录
 │       └── ...
 │
 ├── 📋 开发规则
-│   └── .claude/
+│   └── .agent-workspace/
 │       └── rules/
 │           ├── isaac-lab-development-iron-rules.md    # ⭐ Isaac Lab 5条铁律
 │           ├── project-specific-rules.md              # ⭐ 项目特定规则

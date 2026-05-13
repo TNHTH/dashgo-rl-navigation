@@ -181,7 +181,7 @@ depths = sensor.data.ranges  # 简单直接
 - `issues/2026-01-25_1230_传感器配置不一致问题_LiDARvs深度相机.md`
 
 ### 架构师方案
-- 传感器对齐方案: `.claude-temp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
+- 传感器对齐方案: `.tmp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
 
 ## 相关提交
 
@@ -219,7 +219,7 @@ depths = depths * correction_factor  # 不需要矫正
 ---
 
 **创建时间**: 2026-01-25 13:12:00
-**维护者**: Claude Code AI Assistant
-**架构师认证**: ✅ Claude Sonnet 4.5
+**维护者**: TNHTH
+**架构师认证**: ✅ TNHTH
 **状态**: ✅ 已解决
 **下一步**: 测试训练是否正常启动

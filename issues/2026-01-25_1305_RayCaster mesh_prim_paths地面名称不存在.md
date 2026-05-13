@@ -110,7 +110,7 @@ mesh_prim_paths=["/World/GroundPlane"],  # ✅ 使用真实地面名称（第786
 - 前序问题2: `issues/2026-01-25_1230_传感器配置不一致问题_LiDARvs深度相机.md`
 
 ### 实施方案
-- 传感器替换方案: `.claude-temp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
+- 传感器替换方案: `.tmp/docs/传感器对齐实施方案_RayCaster替换_2026-01-25.md`
 
 ## 相关提交
 
@@ -145,6 +145,6 @@ mesh_prim_paths=["/World/GroundPlane"]  # 必须与步骤2一致
 ---
 
 **创建时间**: 2026-01-25 13:05:00
-**维护者**: Claude Code AI Assistant
+**维护者**: TNHTH
 **状态**: ✅ 已解决
 **下次更新**: 测试通过后添加验证结果

@@ -220,4 +220,4 @@ range_max: 12.0  # 最大距离12米
 
 ---
 
-**维护者**: Claude Code AI Assistant (基于Isaac Sim架构师诊断)
+**维护者**: TNHTH (基于Isaac Sim架构师诊断)

@@ -182,7 +182,7 @@ super().__init__(value1, value2, **kwargs)
 1. **DR-022**: 所有错误和修复必须记录到文档
 2. **DR-023**: 继承父类 `__init__` 时必须使用关键字参数
 
-**规则位置**：`.claude/rules/dynamic_rules.md`
+**规则位置**：`docs/05-协议规范/dynamic_rules.md`
 
 ---
 

@@ -240,7 +240,7 @@ ManagerBasedRLEnv
 ### 相关文档
 - `Isaac Lab 官方文档 - Python Environment Setup`
 - `Isaac Lab 官方文档 - Running Scripts`
-- `Isaac Lab 规则一`（见 `.claude/rules/isaac-lab-development-iron-rules.md`）
+- `Isaac Lab 规则一`（见 `docs/05-协议规范/isaac-lab-development-iron-rules.md`）
 
 ---
 

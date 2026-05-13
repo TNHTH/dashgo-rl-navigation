@@ -280,8 +280,8 @@ roslaunch dashgo_rl sim2real_golden.launch \
 
 1. **安装指南**: `deploy/host/方案C安装指南_2026-01-29.md`
 2. **安装脚本**: `deploy/host/install_navigation_aptitude.sh`
-3. **方案对比**: `.claude-temp/deployment_analysis/方案C_架构师新建议_纯主机aptitude_2026-01-29.md`
-4. **架构分析**: `.claude-temp/deployment_analysis/方案对比分析_原方案vs混合架构_2026-01-29.md`
+3. **方案对比**: `.tmp/deployment_analysis/方案C_架构师新建议_纯主机aptitude_2026-01-29.md`
+4. **架构分析**: `.tmp/deployment_analysis/方案对比分析_原方案vs混合架构_2026-01-29.md`
 
 ---
 
@@ -306,6 +306,6 @@ roslaunch dashgo_rl sim2real_golden.launch \
 ---
 
 **问题记录创建时间**: 2026-01-29 14:00:00
-**记录者**: Claude Code AI Assistant
+**记录者**: TNHTH
 **验证状态**: 待执行rospack验证
 **下一步**: Gazebo仿真测试
