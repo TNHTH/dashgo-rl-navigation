@@ -1,0 +1,100 @@
+# DashGo RL OOP Simplification Progress
+
+创建时间: 2026-05-13
+
+## Current State
+
+- Worktree: `/home/gwh/.config/superpowers/worktrees/dashgo_rl_project/dashgo-rl-oop-simplify`
+- Branch: `dashgo-rl-oop-simplify`
+- Base: `main` at `a652514`
+- Mode: Superpowers workflow with TDD, subagent review checkpoints, and evidence-before-completion.
+
+## First-Principle Contracts
+
+- DashGo RL is a local planner, not an end-to-end global navigation system.
+- Keep differential-drive limits and 2D action semantics unchanged.
+- Keep front-180 LiDAR, 72 policy LiDAR bins, 3-frame history, and 246-dimensional policy observation unchanged.
+- Keep Isaac `AppLauncher` and delayed import order unchanged.
+- Keep ROS2 topic boundaries unchanged.
+- Keep defense at external boundaries; remove only unnecessary blanket compatibility in core paths.
+
+## Evidence Log
+
+### 2026-05-13 Baseline
+
+Command:
+
+```bash
+PYTHONPATH=/home/gwh/.config/superpowers/worktrees/dashgo_rl_project/dashgo-rl-oop-simplify/src:/home/gwh/.config/superpowers/worktrees/dashgo_rl_project/dashgo-rl-oop-simplify/workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+37 passed
+```
+
+### 2026-05-13 Task 1 RED
+
+Command:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_policy_io.py tests/test_env_module_contracts.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py
+```
+
+Observed:
+
+```text
+ModuleNotFoundError: No module named 'dashgo_rl.deployment.policy_io'
+ModuleNotFoundError: No module named 'dashgo_rl_ros2.bridge_base'
+```
+
+Result: expected RED. Tests failed because the planned modules did not exist.
+
+### 2026-05-13 Task 1 GREEN
+
+Command:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_policy_io.py tests/test_env_module_contracts.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py
+```
+
+Observed:
+
+```text
+7 passed
+```
+
+Baseline re-check:
+
+```bash
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+37 passed
+```
+
+Task 1 result: created the initial simplification test net and minimal pure-Python shells for policy I/O, env module imports, and ROS2 bridge command publishing.
+
+## Task Status
+
+- [x] Task 1: Add simplification test net
+- [ ] Task 2: Extract policy checkpoint I/O
+- [ ] Task 3: Move LiDAR processing into sensors module
+- [ ] Task 4: Object boundaries in environment state
+- [ ] Task 5: Objectify training app
+- [ ] Task 6: Extract ROS2 bridge base
+- [ ] Task 7: Launch helper follow-up
+
+## Blockers And Risks
+
+- The main worktree contains untracked NavRL/NeuPAN bridge and launch files. This isolated worktree does not include them because it starts from committed `main`.
+- Task 7 is deferred unless those files are intentionally ported into this branch.
+- `dashgo_env_v2.py` imports Isaac Lab at module import time. Tests for module contracts must avoid importing that file unless running under an Isaac-compatible environment.
+
+## Next Step
+
+Start Task 1 with failing tests for `policy_io`, `envs` import contracts, and ROS2 `bridge_base`.
