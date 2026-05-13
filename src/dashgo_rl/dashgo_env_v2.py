@@ -27,6 +27,13 @@ TERRAIN_GEN_AVAILABLE = True
 from .dashgo_assets import DASHGO_D1_CFG
 from .dashgo_config import DashGoROSParams  # 新增: 导入ROS参数配置类
 from .control.differential_drive import DifferentialDriveLimits, project_cmd_vel_to_feasible_set
+from .envs.sensors import (
+    ForwardLidarProcessor,
+    SIM_LIDAR_MAX_RANGE,
+    SIM_LIDAR_POLICY_DIM,
+    min_pool_resample_tensor,
+    sanitize_scan_tensor,
+)
 
 def _get_env_float(name: str, default: float) -> float:
     """读取环境变量浮点配置，解析失败时回退默认值。"""
@@ -164,10 +171,6 @@ RECOVERY_SCENARIO_CONFIG = {
     "front_blocker_y": 0.32,
     "front_cap_x": 1.12,
 }
-
-SIM_LIDAR_MAX_RANGE = 12.0
-SIM_LIDAR_POLICY_DIM = 72
-
 
 def append_curriculum_trace(payload: dict) -> None:
     """按需写入课程学习追踪，默认关闭。"""
@@ -789,25 +792,20 @@ def process_lidar_ranges(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> 
 
 def _sanitize_scan_tensor(scan: torch.Tensor, max_range: float = SIM_LIDAR_MAX_RANGE) -> torch.Tensor:
     """统一清洗深度扫描数据，确保训练和部署使用同一量纲边界。"""
-    scan = torch.nan_to_num(scan, posinf=max_range, neginf=0.0)
-    return torch.clamp(scan, min=0.0, max=max_range)
+    return sanitize_scan_tensor(scan, max_range=max_range)
 
 
 def _min_pool_resample_torch(scan: torch.Tensor, target_dim: int) -> torch.Tensor:
     """按等角度分桶做最小池化，避免 180→72 时直接截断尾部。"""
-    batch_size, input_len = scan.shape
-    edges = torch.round(torch.linspace(0, input_len, target_dim + 1, device=scan.device)).to(torch.long)
-    edges[0] = 0
-    edges[-1] = input_len
-    pooled = []
-    for index in range(target_dim):
-        start = int(edges[index].item())
-        end = int(edges[index + 1].item())
-        if end <= start:
-            start = min(start, input_len - 1)
-            end = min(start + 1, input_len)
-        pooled.append(torch.min(scan[:, start:end], dim=1).values)
-    return torch.stack(pooled, dim=1).reshape(batch_size, target_dim)
+    return min_pool_resample_tensor(scan, target_dim=target_dim)
+
+
+_FORWARD_LIDAR_PROCESSOR = ForwardLidarProcessor(
+    policy_dim=SIM_LIDAR_POLICY_DIM,
+    max_range=SIM_LIDAR_MAX_RANGE,
+    distance_reader=_compute_raycaster_distance,
+    scene_entity_factory=SceneEntityCfg,
+)
 
 
 def _get_forward_sector_scan(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -818,20 +816,7 @@ def _get_forward_sector_scan(env: ManagerBasedRLEnv) -> torch.Tensor:
     - 先构造 [-90°, +90°] 的前向扇区
     - 再在 `process_forward_lidar()` 内重排为 front-centered 顺序
     """
-    step_key = getattr(env, "common_step_counter", None)
-    cache = getattr(env, "_dashgo_forward_scan_cache", None)
-    if cache is not None and cache.get("step_key") == step_key:
-        return cache["scan"]
-
-    d_front_right = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_right"))
-    d_front_left = _compute_raycaster_distance(env, SceneEntityCfg(name="camera_front_left"))
-
-    # Camera 图像默认按像素从左到右排列；这里显式翻转，使拼接后的角度顺序稳定为 [-90°, +90°]。
-    scan_right = torch.flip(d_front_right, dims=[1])
-    scan_left = torch.flip(d_front_left, dims=[1])
-    scan = _sanitize_scan_tensor(torch.cat([scan_right, scan_left], dim=1), max_range=SIM_LIDAR_MAX_RANGE)
-    env._dashgo_forward_scan_cache = {"step_key": step_key, "scan": scan}
-    return scan
+    return _FORWARD_LIDAR_PROCESSOR.get_forward_scan(env)
 
 
 def process_forward_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -843,10 +828,7 @@ def process_forward_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:
         2. 保持策略输入维度 72 不变
         3. 与 ROS2 部署端 `process_lidar_ranges()` 的 front-centered 语义一致
     """
-    forward_scan = _get_forward_sector_scan(env)
-    front_centered_scan = torch.roll(forward_scan, shifts=-(forward_scan.shape[1] // 2), dims=1)
-    downsampled = _min_pool_resample_torch(front_centered_scan, SIM_LIDAR_POLICY_DIM)
-    return downsampled / SIM_LIDAR_MAX_RANGE
+    return _FORWARD_LIDAR_PROCESSOR.process_env(env)
 
 
 def process_stitched_lidar(env: ManagerBasedRLEnv) -> torch.Tensor:

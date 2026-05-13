@@ -26,7 +26,7 @@
 - Create: `tests/test_env_module_contracts.py`
 - Create: `workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `test_policy_io.py` verifies:
     - `split_policy_and_normalizer_state()` strips `actor_obs_normalizer.*` and `critic_obs_normalizer.*`.
     - `find_model_checkpoints()` sorts `model_*.pt` by iteration descending.
@@ -37,15 +37,15 @@
     - `is_stale(now, stamp, timeout)` contract.
     - `BridgeCommandPublisher.publish_cmd()` publishes debug and respects `shadow_mode`.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
   Run:
   `PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_policy_io.py tests/test_env_module_contracts.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_bridge_base.py`
   Expected: fail because new modules/classes do not exist yet.
 
-- [ ] **Step 3: Implement minimal public shells**
+- [x] **Step 3: Implement minimal public shells**
   Create minimal implementations for `policy_io`, `ForwardLidarProcessor`, and `bridge_base`; fix broken `envs.rewards` import without changing reward semantics.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
   Run the same command and expect all new tests to pass.
 
 ## Task 2: Extract Policy Checkpoint I/O
@@ -56,10 +56,10 @@
 - Modify: `apps/isaac/play.py`
 - Test: `tests/test_policy_io.py`
 
-- [ ] Add `PolicyNormalizerBundle`, `PolicyCheckpointLoader`, `GeoNavPolicyFactory`, and `find_model_checkpoints()`.
-- [ ] Move duplicated checkpoint iteration parsing, normalizer state splitting, and normalizer build behavior into `policy_io`.
-- [ ] Keep `torch` imports in Isaac entrypoints after `simulation_app` assignment; do not break `tests/test_isaac_entrypoints.py`.
-- [ ] Verify:
+- [x] Add `PolicyNormalizerBundle`, `PolicyCheckpointLoader`, `GeoNavPolicyFactory`, and `find_model_checkpoints()`.
+- [x] Move duplicated checkpoint iteration parsing, normalizer state splitting, and normalizer build behavior into `policy_io`.
+- [x] Keep `torch` imports in Isaac entrypoints after `simulation_app` assignment; do not break `tests/test_isaac_entrypoints.py`.
+- [x] Verify:
   `PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_policy_io.py tests/test_geo_nav_policy.py tests/test_isaac_entrypoints.py`
 
 ## Task 3: Move LiDAR Processing Into Sensors Module
@@ -69,10 +69,10 @@
 - Modify: `src/dashgo_rl/dashgo_env_v2.py`
 - Test: `tests/test_env_module_contracts.py`
 
-- [ ] Add `ForwardLidarProcessor` with `sanitize()`, `min_pool_resample()`, `get_forward_scan()`, and `process()`.
-- [ ] Keep `SIM_LIDAR_MAX_RANGE=12.0`, `SIM_LIDAR_POLICY_DIM=72`, front-centered order, and step-key cache behavior.
-- [ ] Make `dashgo_env_v2.py` call the processor through thin compatibility functions.
-- [ ] Verify:
+- [x] Add `ForwardLidarProcessor` with `sanitize()`, `min_pool_resample()`, `get_forward_scan()`, and `process()`.
+- [x] Keep `SIM_LIDAR_MAX_RANGE=12.0`, `SIM_LIDAR_POLICY_DIM=72`, front-centered order, and step-key cache behavior.
+- [x] Make `dashgo_env_v2.py` call the processor through thin compatibility functions.
+- [x] Verify:
   `PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_module_contracts.py tests/test_deployment_contracts.py`
 
 ## Task 4: Object Boundaries In Environment State

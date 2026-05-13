@@ -125,11 +125,45 @@ Observed:
 
 Task 2 result: `policy_io` now owns checkpoint iteration parsing, checkpoint discovery, manual checkpoint prioritization, legacy normalizer splitting, bundle construction, and policy/normalizer loading. `play.py` and `export_torchscript.py` reuse the shared loader while preserving Isaac `AppLauncher`/`torch` import order.
 
+### 2026-05-13 Task 3 RED
+
+Command:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_module_contracts.py
+```
+
+Observed:
+
+```text
+TypeError: ForwardLidarProcessor.__init__() got an unexpected keyword argument 'distance_reader'
+```
+
+Result: expected RED. The `ForwardLidarProcessor` did not yet own Isaac Tensor reading or step-cache behavior.
+
+### 2026-05-13 Task 3 GREEN
+
+Commands:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_env_module_contracts.py tests/test_deployment_contracts.py
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+5 passed
+37 passed
+```
+
+Task 3 result: `ForwardLidarProcessor` now owns numpy scan processing, Torch scan sanitization/min-pool resampling, Isaac front-camera scan stitching, and step-key caching. `dashgo_env_v2.py` keeps compatibility functions but delegates the LiDAR path to the processor.
+
 ## Task Status
 
 - [x] Task 1: Add simplification test net
 - [x] Task 2: Extract policy checkpoint I/O
-- [ ] Task 3: Move LiDAR processing into sensors module
+- [x] Task 3: Move LiDAR processing into sensors module
 - [ ] Task 4: Object boundaries in environment state
 - [ ] Task 5: Objectify training app
 - [ ] Task 6: Extract ROS2 bridge base
@@ -143,4 +177,4 @@ Task 2 result: `policy_io` now owns checkpoint iteration parsing, checkpoint dis
 
 ## Next Step
 
-Start Task 1 with failing tests for `policy_io`, `envs` import contracts, and ROS2 `bridge_base`.
+Start Task 4 by adding failing tests for small environment-state objects before moving dynamic-obstacle, recovery, or reference-path code.
