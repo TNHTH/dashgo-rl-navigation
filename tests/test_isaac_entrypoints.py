@@ -22,6 +22,7 @@ def test_torch_imports_after_app_launcher_start_for_isaac_entrypoints() -> None:
     for relative_path in (
         "apps/isaac/play.py",
         "apps/isaac/export_torchscript.py",
+        "apps/isaac/train_v2.py",
         "apps/isaac/verify_ultimate_v5.py",
     ):
         tree = ast.parse((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))

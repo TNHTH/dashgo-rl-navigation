@@ -95,10 +95,10 @@
 - Modify: `apps/isaac/train_v2.py`
 - Test: `tests/test_training_config.py`
 
-- [ ] Move pure training orchestration helpers into `DashGoTrainingApp` and small helper classes.
-- [ ] Preserve `AppLauncher` order and delayed Isaac imports in `train_v2.py`.
-- [ ] Preserve CLI flags, RSL-RL config flattening, checkpoint resume, run metadata, and curriculum sidecar behavior.
-- [ ] Verify:
+- [x] Move pure training orchestration helpers into `DashGoTrainingApp` and small helper classes.
+- [x] Preserve `AppLauncher` order and delayed Isaac imports in `train_v2.py`.
+- [x] Preserve CLI flags, RSL-RL config flattening, checkpoint resume, run metadata, and curriculum sidecar behavior.
+- [x] Verify:
   `PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_training_config.py tests/test_isaac_entrypoints.py`
 
 ## Task 6: Extract ROS2 Bridge Base

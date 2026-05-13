@@ -198,13 +198,49 @@ compileall exit 0
 
 Task 4 result: dynamic obstacle state, recovery scenario state, stop-go motion, and reference-path tracking now live in small object modules. Isaac Lab event functions and command callbacks remain stable thin entrypoints in `dashgo_env_v2.py`.
 
+### 2026-05-13 Task 5 RED
+
+Command:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_training_app.py
+```
+
+Observed:
+
+```text
+ModuleNotFoundError: No module named 'dashgo_rl.training_app'
+```
+
+Result: expected RED. The pure training orchestration object did not exist yet.
+
+### 2026-05-13 Task 5 GREEN
+
+Commands:
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m pytest -q tests/test_training_app.py tests/test_training_config.py tests/test_isaac_entrypoints.py
+python3 -m compileall -q src/dashgo_rl/training_app.py apps/isaac/train_v2.py
+PYTHONPATH=src:workspaces/ros2_ws/src/dashgo_rl_ros2 /usr/bin/python3 -m pytest -q tests/test_geo_nav_policy.py tests/test_deployment_contracts.py tests/test_differential_drive.py tests/test_training_config.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_controller_core.py workspaces/ros2_ws/src/dashgo_rl_ros2/tests/test_safety_filter.py
+```
+
+Observed:
+
+```text
+7 passed
+compileall exit 0
+37 passed
+```
+
+Task 5 result: `DashGoTrainingApp` now owns generation/profile derivation, train config flattening and CLI overrides, run layout and metadata, checkpoint resolution, curriculum sidecar save/restore, and lineage append. `train_v2.py` keeps the AppLauncher bootstrap and Isaac runtime loop.
+
 ## Task Status
 
 - [x] Task 1: Add simplification test net
 - [x] Task 2: Extract policy checkpoint I/O
 - [x] Task 3: Move LiDAR processing into sensors module
 - [x] Task 4: Object boundaries in environment state
-- [ ] Task 5: Objectify training app
+- [x] Task 5: Objectify training app
 - [ ] Task 6: Extract ROS2 bridge base
 - [ ] Task 7: Launch helper follow-up
 
@@ -216,4 +252,4 @@ Task 4 result: dynamic obstacle state, recovery scenario state, stop-go motion, 
 
 ## Next Step
 
-Start Task 5 by adding failing tests for pure training app orchestration before editing `apps/isaac/train_v2.py`.
+Start Task 6 by checking tracked ROS2 bridge nodes for duplicated stale/shadow/debug publish behavior.
