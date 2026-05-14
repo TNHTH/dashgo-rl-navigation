@@ -1,0 +1,11 @@
+{
+  "idea_id": "reward.progress_stall_weight.up_4_5",
+  "family": "reward",
+  "seed": 142,
+  "change_scope": "parameter",
+  "env": {
+    "DASHGO_PROGRESS_STALL_WEIGHT": "4.5"
+  },
+  "config": {},
+  "hypothesis": "提高 progress stall 惩罚，降低原地停滞。"
+}

@@ -1,0 +1,325 @@
+<?xml version="1.0"?>
+<!--
+  DashGo D1 简化URDF模型 - 用于Sim2Real测试
+
+  创建时间: 2026-01-28 23:10:00
+  基于: dashgo_config.py参数对齐
+
+  机器人参数:
+  - 轮距: 0.3420 m
+  - 轮径: 0.1264 m (半径: 0.0632 m)
+  - 体型: 简化圆形底盘
+
+  坐标系:
+  - base_link: 机器人中心
+  - odom: 里程计坐标系
+  - laser_link: 雷达坐标系（前上方）
+-->
+<robot name="dashgo_d1" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- =========================================================
+       机器人参数定义
+    ========================================================== -->
+  <xacro:property name="wheel_radius" value="0.0632"/>  <!-- 轮子半径 (m) -->
+  <xacro:property name="wheel_length" value="0.04"/>     <!-- 轮子宽度 (m) -->
+  <xacro:property name="wheel_base" value="0.3420"/>     <!-- 轮距 (m) -->
+
+  <xacro:property name="base_radius" value="0.20"/>       <!-- 底盘半径 (m) -->
+  <xacro:property name="base_height" value="0.15"/>       <!-- 底盘高度 (m) -->
+  <xacro:property name="base_mass" value="5.0"/>          <!-- 底盘质量 (kg) -->
+
+  <xacro:property name="laser_radius" value="0.05"/>      <!-- 雷达半径 (m) -->
+  <xacro:property name="laser_height" value="0.10"/>      <!-- 雷达高度 (m) -->
+  <xacro:property name="laser_mass" value="0.2"/>         <!-- 雷达质量 (kg) -->
+
+  <!-- 雷达安装位置 -->
+  <xacro:property name="laser_x" value="0.10"/>           <!-- 前方距离 (m) -->
+  <xacro:property name="laser_y" value="0.0"/>            <!-- 左右偏移 (m) -->
+  <xacro:property name="laser_z" value="0.20"/>           <!-- 高度 (m) -->
+
+  <!-- 材料属性 -->
+  <xacro:property name="wheel_mass" value="0.2"/>         <!-- 单个轮子质量 (kg) -->
+
+  <!-- =========================================================
+       基础链接（base_link）
+    ========================================================== -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder radius="${base_radius}" length="${base_height}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="blue">
+        <color rgba="0.0 0.0 1.0 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="0.10" radius="0.10"/>  <!-- 抬高5cm避免拖底，厚度减半，半径保持0.10避免水平碰撞 -->
+      </geometry>
+    </collision>
+
+    <inertial>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>  <!-- 🔥 修复：重心跟随碰撞体 -->
+      <mass value="${base_mass}"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.08"/>
+    </inertial>
+  </link>
+
+  <!-- =========================================================
+       万向轮定义（Caster Wheels）- Dashgo D1实机参数
+       布局：1+2+1（前万向 + 中驱动 + 后万向）
+    ========================================================== -->
+  <xacro:property name="caster_radius" value="0.0127"/>   <!-- 1寸万向轮半径=12.7mm -->
+  <xacro:property name="caster_mass" value="0.1"/>           <!-- 万向轮质量 -->
+
+  <!-- 前万向轮 -->
+  <link name="front_caster_link">
+    <visual>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+
+    <inertial>
+      <mass value="${caster_mass}"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="front_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_caster_link"/>
+    <!-- 前万向轮位置：底盘前方（假设1+2+1布局，前后对称） -->
+    <origin xyz="0.15 0 -0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 后万向轮 -->
+  <link name="rear_caster_link">
+    <visual>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+
+    <inertial>
+      <mass value="${caster_mass}"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="rear_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_caster_link"/>
+    <!-- 后万向轮位置：底盘后方 -->
+    <origin xyz="-0.15 0 -0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- =========================================================
+       驱动轮定义
+    ========================================================== -->
+  <xacro:macro name="wheel" params="prefix x_reflect y_reflect">
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
+        </geometry>
+        <origin rpy="${pi/2} 0 0" xyz="0 0 0"/>
+        <material name="black">
+          <color rgba="0.0 0.0 0.0 1.0"/>
+        </material>
+      </visual>
+
+      <collision>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
+        </geometry>
+        <origin rpy="${pi/2} 0 0" xyz="0 0 0"/>
+      </collision>
+
+      <inertial>
+        <mass value="${wheel_mass}"/>
+        <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      </inertial>
+    </link>
+
+    <!-- 轮子关节 -->
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="0 ${y_reflect * wheel_base/2} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- 左右轮子 -->
+  <xacro:wheel prefix="left" x_reflect="1" y_reflect="1"/>
+  <xacro:wheel prefix="right" x_reflect="1" y_reflect="-1"/>
+
+  <!-- =========================================================
+       雷达链接
+    ========================================================== -->
+  <link name="laser_link">
+    <visual>
+      <geometry>
+        <cylinder radius="${laser_radius}" length="${laser_height}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <material name="red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <geometry>
+        <cylinder radius="${laser_radius}" length="${laser_height}"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </collision>
+
+    <inertial>
+      <mass value="${laser_mass}"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <!-- 雷达关节 -->
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser_link"/>
+    <origin xyz="${laser_x} ${laser_y} ${laser_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- =========================================================
+       Gazebo仿真插件（修复TF和控制）
+    ========================================================== -->
+
+  <!-- 差速驱动控制器（关键！修复odom→base_link TF） -->
+  <gazebo>
+    <plugin name="differential_drive_controller" filename="libgazebo_ros_diff_drive.so">
+      <ros>
+        <remapping>cmd_vel:=cmd_vel</remapping>
+        <remapping>odom:=odom</remapping>
+      </ros>
+      <update_rate>50</update_rate>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_base}</wheel_separation>
+      <wheel_diameter>${2 * wheel_radius}</wheel_diameter>
+      <max_wheel_acceleration>1.0</max_wheel_acceleration>
+      <max_wheel_torque>20</max_wheel_torque>
+      <command_topic>cmd_vel</command_topic>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>true</publish_wheel_tf>
+      <publish_wheel_joint_state>true</publish_wheel_joint_state>
+      <odometry_topic>odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odometry_source>world</odometry_source>
+      <covariance_x>0.0001</covariance_x>
+      <covariance_y>0.0001</covariance_y>
+      <covariance_yaw>0.01</covariance_yaw>
+    </plugin>
+  </gazebo>
+
+  <!-- 雷达传感器插件（发布/scan数据） -->
+  <gazebo reference="laser_link">
+    <sensor type="ray" name="laser_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="laser_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>laser_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- 轮子摩擦力属性（防止打滑和穿模） -->
+  <gazebo reference="left_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <gazebo reference="right_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <!-- 万向轮摩擦力属性（低摩擦，便于转向） -->
+  <gazebo reference="front_caster_link">
+    <mu1>0.0</mu1>  <!-- 万向轮低摩擦 -->
+    <mu2>0.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+  <gazebo reference="rear_caster_link">
+    <mu1>0.0</mu1>  <!-- 万向轮低摩擦 -->
+    <mu2>0.0</mu2>
+    <kp>1000000.0</kp>
+    <kd>100.0</kd>
+    <minDepth>0.001</minDepth>
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
+</robot>

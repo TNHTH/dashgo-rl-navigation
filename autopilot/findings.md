@@ -1,0 +1,503 @@
+# DashGo Isaac 自主值守训练发现记录
+
+## 2026-03-19 auto_round_exhausted 新结论
+
+- 当前 `research_job(auto_round_exhausted)` 的首要归类应为 `supervisor 误判`，不是传感器问题，也不是训练代码回归：
+  - `wave94_gen2_model704_frontblock085_seed44` 的 runtime doctor 为 `ok`
+  - 同一 checkpoint 的 `quick eval` 明确失败，且 `sensor_health_score=1.0`
+  - 失败主因不是相机缺失、NaN 或 shape mismatch，而是行为 gate 否决:
+    - `success_rate<0.75`
+    - `orbit_score>0.10`
+    - `progress_stall_rate>0.25`
+- 根因进一步收敛为：
+  - auto follow-up 的候选选择函数 `build_auto_followup_round()` 只按训练末尾标量排序
+  - 没有读取 `suspect_policy_regression` 事件中已经产出的 gate 结论
+  - 也没有从事件流恢复历史 auto-round family，导致重启后可能重复搜索已失败 family
+- 因此这次不应把问题口径写成“frontblock 是新的训练主线”：
+  - `frontblock085` 只能说明训练分布里曾出现表面成功窗口
+  - 不能说明它通过了行为级升格门
+  - 继续围绕它自动细化，只会把 supervisor 的搜索预算浪费在同一类 reward-hacking / orbit / stall 假阳性附近
+- 本轮安全修复应优先落在 `autopilot/continuous_gen2_supervisor.py`，而不是直接再改训练合同：
+  - 先修 `auto follow-up` 的选族依据
+  - 再决定下一轮研究是否要改 `progress_threshold / ang_penalty` 或更换新的 family
+
+## 已确认事实
+
+- 当前项目根目录的 `task_plan.md` / `findings.md` / `progress.md` 属于 ROS2 迁移任务，不能直接覆盖。
+- 训练端原先 `waypoint_vector` 与 `goal_vector` 来自同一 `target_pose`，语义重叠；现已拆分为真实 waypoint / goal 双向量，并接入速度缩放前瞻。
+- 当前长期 `logs/` run 已累积到 `model_8999.pt`，但没有实验分代，不适合直接作为新合同的主续训源。
+- Isaac Lab Python 环境具备 `tensorboard`，默认 shell Python 不具备。
+- ROS2 部署链已经具备路径消费与速度缩放、safety filter 基础能力，可作为训练合同对照。
+- `GeoNavPolicy` 原实现只兼容 `obs Tensor/TensorDict` 构造，不兼容 `OnPolicyRunner(num_obs, num_privileged_obs, num_actions)`；这是训练链的遗产契约错位，已修复为双模式兼容。
+- `train_v2.py` 原实现不会自动打开 `--enable_cameras`，四向深度相机环境会在 Isaac 初始化阶段直接崩溃；已修复为自动启用并完成 smoke 验证。
+- 自主值守训练目录已实际生效，首个 smoke run 已写入 `autopilot/runs/gen1/20260317_013156_smoke_train_camfix/`，并成功产出 TensorBoard 与 checkpoint。
+- `RelativeRandomTargetCommand` 已支持真正的参考路径、waypoint 游标和速度缩放前瞻；训练平地 profile 下已关闭 terrain generator 干扰和 `push_robot` 扰动。
+- `wave1_short` 与 `wave2_resume` 证据表明：旧 checkpoint 续训链会稳定滑向 `time_out=1.0`，不应再作为 Gen1 主线。
+- `curriculum_adaptive_distance()` 原实现不会真正修改当前自定义命令项的采样范围；现已改为直接更新 `RelativeRandomTargetCommand.max_dist`。
+- 将 Gen1 冷启动目标上限从 `1.5m` 降到 `1.0m` 后，冷启动链在 `iter 8-11` 已出现非零 `reach_goal` 样本，说明课程修正有效。
+- 在同样课程修正下，`wave3_resume_currfix` 仍几乎全程 `reach_goal=0.0 / time_out=1.0`，而 `wave3_cold_currfix` 至少出现了短暂成功样本；当前 best direction 是 `currfix + cold start`。
+- 传感器主因已坐实：
+  - 四向相机原先沿用 `CameraCfg.OffsetCfg` 默认 `convention="ros"`，但 quaternion 按 world yaw 编写，导致朝向错位。
+  - 相机安装高度 `0.13m` 过低，会把底盘/轮组误判成近障。
+  - 修复为 `convention="world"` 且高度提升到 `0.22m` 后，活体诊断 `step1 min_obstacle_distance mean` 恢复到约 `1.0m`，`obstacle_proximity mean` 归零。
+- 奖励主因已坐实：
+  - `log_distance_to_goal()` 返回正距离，但旧配置给了 `weight=+1.0`，实际在奖励越远离目标。
+  - 现已将 `log_distance` 权重改为 `0.0`，保留日志语义而不进入总奖励。
+- `curriculum_adaptive_distance()` 的第二个根因已坐实：
+  - `CurriculumManager.compute()` 会在第一次 `env.reset()` 时就执行一次课程函数。
+  - 原实现把这次“初始化 reset”记成整批失败样本，直接污染 `success_history`，导致 `Curriculum/target_adaptive` 长期卡在 `1.0`。
+  - 现已用 `episode_length_buf > 0` 过滤预回合 reset，只统计真正结束的 episode。
+- 课程直连诊断现已闭环：
+  - `inspect_curriculum.py` 支持 JSON 落盘，并在模拟已完成回合后手动喂 `reach_goal=True/False`。
+  - 诊断结果证明：过滤初始化 reset 后，课程项会从 `1.0 -> 1.5`，且 `Curriculum/target_adaptive` 能正确写入 reset 日志。
+- `wave6_cold_aclresetfix` 证明 ACL 修复后训练链能真实升级：
+  - `Curriculum/target_adaptive` 在 `iter 8-10` 从 `1.0` 升到 `2.0`。
+  - 但在 `2.0m` 难度下迅速从 `reach_goal=1.0` 滑到 `object_collision=1.0`，说明 ACL 升级节奏过快。
+- 当前最优单变量改动是降低 ACL `step_size`：
+  - 将 `step_size` 从 `0.5` 改为 `0.25` 后，`wave7_resume_step025` 从 `model_16.pt` 续训可稳定在 `1.5m`。
+  - 在 `iter 28-39` 区间保持 `reach_goal=1.0 / object_collision=0.0 / position_error≈0.152`，显著优于 `wave6` 的 `2.0m` 崩溃轨迹。
+- `wave8_resume_step025_long` 证明当前主线可以继续向上推进，但仍存在“高难度粘住”的课程问题：
+  - 从 `wave7/model_39.pt` 出发，课程可稳定爬到 `2.25m`，随后达到 `2.5m`。
+  - 在 `2.25m` 区间，`reach_goal` 仍维持 `1.0`，但 `obstacle_proximity`、`unsafe_speed_penalty` 和 `collision` 负奖励显著增大，说明成功开始依赖擦障/近障高速。
+  - 在 `2.5m` 区间，trace 记录的真实成功率降到约 `0.57`，并出现持续 `time_out`；但由于 `downgrade_threshold=0.4`，课程没有及时降级，导致 run 末段塌回 timeout 主导。
+- 当前更稳的自动升级策略是：
+  - 使用“较小 step_size + 从稳定中间 checkpoint 续训”，而不是每次都从冷启动顶到更高距离。
+  - 在 `wave8` 中，`model_60.pt` 是到达 `2.0m` 且还未出现大规模超时坍缩的更干净起点。
+- `wave9_resume_step025_down060` 证明“更快降级”是有效方向：
+  - 把 `downgrade_threshold` 提高到 `0.6` 后，主线不再卡死在 `2.5m`，而是继续推进到 `4.5m`。
+  - 过程中虽然在 `4.25m` 附近出现过阶段性碰撞和成功率波动，但能够恢复到 `4.5m`、`reach_goal=1.0`。
+- `wave10_resume_down060_long` 进一步证明当前课程框架已经基本成立：
+  - 从 `wave9/model_139.pt` 继续训练后，主线稳定推进到 `5.0m`。
+  - 末段训练指标为：`Curriculum/target_adaptive=5.0`、`reach_goal=1.0`、`time_out=0.0`、`object_collision=0.0`、`position_error≈0.214`。
+  - 与早期 run 相比，当前瓶颈已经从“学不会到达”转成“高难度下 reward 仍偏负、路径质量还可继续优化”。
+- 监控遗产已修复：
+  - [monitor_training.py](/home/gwh/dashgo_rl_project/monitor_training.py) 现在在系统 Python 下也会自动回退到 `~/IsaacLab/_isaac_sim/python.sh` 读取 TensorBoard。
+  - 自主值守不再需要手工切换 IsaacLab Python 才能拿到最新标量。
+- `Gen2` 第一版脚本化动态障碍已接入真实训练链：
+  - 通过 `DASHGO_AUTOPILOT_PROFILE=gen2` 启用独立分支，新增 `configure_dynamic_obstacles(reset)` 和 `drive_dynamic_obstacles(interval)` 两个事件项。
+  - 复用现有 `obs_inner_1 / obs_inner_3 / obs_inner_5` 作为运动学动态障碍载体，不新建资产类型。
+  - 当前模板族为 `crossing / head_on / stop_go`，每个环境每回合随机激活其中一种，且对局部布局 yaw 做随机旋转。
+- `Gen2` 课程起点已与静态主线解耦：
+  - 命令采样上限与 ACL `initial_dist` 在 `gen2` 下都改为 `3.0m`，不再从 `1.0m` 重学基本到达。
+  - 这使得静态最优模型 [model_198.pt](/home/gwh/dashgo_rl_project/autopilot/runs/gen1/20260317_022303_wave10_resume_down060_long/checkpoints/model_198.pt) 可以直接作为动态阶段 warm start。
+- `Gen2` 接线已经过两层验证：
+  - 烟测 run [run_meta.json](/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_092127_smoke_gen2_dynamic/run_meta.json) 成功完成，事件管理器中确实注册了 `configure_dynamic_obstacles` 与 `drive_dynamic_obstacles`。
+  - 活体位姿检查 `/tmp/gen2_dynamic_motion.json` 证明至少一类动态障碍会按 interval 真实移动，且更新频率与 `0.1s interval / 0.0667s env.step` 一致，呈现“每两步更新一次”的预期行为。
+- `Gen2` 资源瓶颈已定位：
+  - `num_envs=16` 会在仿真启动阶段触发 `Unable to allocate descriptor sets / Failed to allocate ParameterBlock resources`，run 长时间停在 `initialized`，不属于策略退化。
+  - 将 `num_envs` 单变量降到 `8` 后，动态阶段训练即可稳定进入学习循环。
+- `wave13_gen2_env8_long` 证明当前 Gen2 配置具备恢复能力，而不是纯崩溃：
+  - 中段曾出现 `object_collision=1.0`、`mean_reward≈-200.6`、`position_error≈2.14` 的阶段性坍缩。
+  - 同一 run 末段又恢复到 `reach_goal=1.0`、`object_collision=0.0`、`position_error≈0.252`、`mean_episode_length≈1050`。
+  - 这说明静态 best checkpoint 直接进入动态阶段时会先经历适应震荡，但并非必须立刻改奖励或改模板。
+- 当前 Gen2 的真正瓶颈已从“能否恢复成功率”转成“课程什么时候再次升级”：
+  - 即使 `wave13` 末段已经回到 `reach_goal=1.0`，`Curriculum/target_adaptive` 仍停在 `3.0m`。
+  - 推断是 run 前半段的碰撞样本仍在 ACL 窗口里，暂时压住了升级阈值。
+- `wave14_gen2_env8_continue` 证明 Gen2 已经具备再次升级能力，但 latest checkpoint 不能直接等同于 best checkpoint：
+  - 运行中段曾出现 `Curriculum/target_adaptive=3.25m`、`reach_goal=1.0`、`object_collision=0.0`、`position_error≈0.253`。
+  - run 末段又回落到 `Curriculum/target_adaptive=3.0m`、`reach_goal≈0.8333`、`time_out≈0.1667`、`position_error≈0.483`。
+  - 这说明当前动态主线的主要问题不是“无法升级”，而是“升级后在窗口尾部不够稳”，因此 `model_320.pt` 比 latest `model_375.pt` 更像当前 best checkpoint。
+- Gen2 当前最合理的下一步单变量不是改奖励或改模板，而是继续收紧课程回退：
+  - 静态阶段已经证明 `downgrade_threshold: 0.4 -> 0.6` 是有效方向。
+  - 动态阶段既然已经证明能升到 `3.25m`，下一步更合理的是从 `model_320.pt` 起跑，把 `downgrade_threshold` 再提高到 `0.65`，验证能否减少高难度窗口尾部的超时回落。
+- `wave15_gen2_model320_down065` 已否定“继续把 Gen2 `downgrade_threshold` 提到 `0.65`”这条假设：
+  - 从 `wave14/model_320.pt` 起跑后，直到第一批完整 episode 出现前都没有异常，但在 `iter 387+` 开始的完整窗口里直接表现为 `time_out=8`、`reach_goal=0.0`、`collision=0.0`、`position_error≈1.196`。
+  - 这说明更激进的降级阈值并没有保住 `3.25m` 的稳定性，反而让该 checkpoint 在 `3.0m` 就失去到达能力。
+  - 因此当前应回滚到 `downgrade_threshold=0.6`，并把 `wave15` 视为已丢弃实验，而不是新的主线。
+- `wave16_gen2_model320_baseline060` 与 `wave15` 一起反证了另一层根因：
+  - 即使把阈值回滚到 `0.6`，单独从 `wave14/model_320.pt` 续训也仍然无法复现 `3.25m` 成绩。
+  - 这证明问题不只是阈值，而是 checkpoint 恢复链没有保存课程状态；中途 checkpoint 只保存了权重，没有保存 `curriculum_stats/current_dist/success_history`。
+- `train_v2.py` 已补上 curriculum sidecar 保存/恢复：
+  - 每次 checkpoint 保存时，同时写出 `model_xxx.curriculum.json`，包含 `current_dist`、`success_history` 和 `command max_dist`。
+  - 恢复时会先加载权重，再恢复课程状态并重置环境。
+- `wave17_gen2_model350_sidecar` 已验证 sidecar 修复有效：
+  - 从人工补齐 sidecar 的 `wave14/model_350.pt` 续训后，训练启动即恢复到课程高位，而不是退回 `3.0m`。
+  - 课程在同一 run 中从 `3.25+` 推进到 `4.0` 并长时间保持 `reach_goal=1.0 / collision=0.0 / time_out=0.0`。
+  - 当前最干净的高难度 checkpoint 是 `wave17/model_370.pt`，对应 `target_adaptive=4.0`、`reach_goal=1.0`、`collision=0.0`、`position_error≈0.250`。
+  - `4.0 -> 4.25` 之间出现新的断崖：`step 380` 开始 reach/collision 急剧恶化，说明 Gen2 现在的瓶颈从“恢复链失忆”转成了“高难度升级步长过大”。
+- `wave18_gen2_model370_step0125` 证明“更细的 Gen2 step_size”方向成立：
+  - 将 `step_size` 从 `0.25` 降到 `0.125` 后，课程不再从 `4.0` 直接跳到 `4.25`，而是先经过 `4.125` 再稳定到 `4.25`。
+  - `step 405-411` 期间可保持 `target_adaptive=4.25`、`reach_goal=1.0`、`collision=0.0`、`position_error≈0.244`。
+  - 新断崖被推迟到 `4.375`：`step 412+` 开始 collision 激增，随后演化为 timeout 主导。
+  - 当前新的最佳 checkpoint 是 `wave18/model_410.pt`，它是最后一个仍保持 `4.25m + reach_goal=1.0 + collision=0.0` 的自动 sidecar checkpoint。
+- `wave19_gen2_model410_step00625` 已否定“继续细化到 `step_size=0.0625` 就能跨过 `4.3125m`”这条假设：
+  - 从 `wave18/model_410.pt` 起跑并恢复 sidecar 后，课程全程停在 `4.25m`，没有升到 `4.3125m`。
+  - `step 431-439` 先出现 `object_collision=1.0 / reach_goal=0.0 / position_error≈1.903` 的内部塌缩。
+  - `step 441-447` 虽然短暂恢复到 `reach_goal=1.0 / collision=0.0 / position_error≈0.223`，但 `step 449-466` 又重新滑回 `collision=1.0`，随后转成 `time_out≈5.0` 主导。
+  - 这说明 `0.0625` 没有继续推迟断崖，只是在 `4.25m` 内部制造了更长的波动区间，因此不能接受为新的默认课程步长。
+- `wave19` 的附加诊断把 Gen2 的主瓶颈从“课程粒度不够细”收窄成了“高难度 fine-tune 更新过猛”：
+  - `wave19/model_410.curriculum.json` 到 `model_440.curriculum.json` 的 `success_history mean` 只有 `0.75~0.76`，说明 run 在 `4.25m` 难度内部就已经被更新破坏，而不是卡在“明明稳定成功却升不上去”。
+  - 当前默认 `train_cfg_v2.yaml` 仍使用 `learning_rate=3.0e-4`、`entropy_coef=0.01`；结合 `wave19` 的“同难度内部遗忘”轨迹，下一条更合理的单变量应转向优化器稳定性，而不是继续细分 ACL 步长。
+- 当前 Gen2 的最新主假设是：
+  - 回到 `step_size=0.125` 这条已验证的最佳 ACL 基线。
+  - 只把 `learning_rate` 从 `3.0e-4` 降到 `1.5e-4`，验证是否能在 `4.25m` 保持稳定、减少内部遗忘，并再次逼近 `4.375m`。
+- `wave20_gen2_model410_lr015e4_step0125` 证明“降低学习率”是部分正向改动：
+  - `4.25m` 的纯成功窗口被明显拉长：`step 443-465` 与 `step 479-484` 都出现 `reach_goal=1.0 / collision=0.0`。
+  - 但课程始终没有升到 `4.375m`，最终仍会在同一 `4.25m` 难度内部先 timeout 再 collision。
+  - 当前更干净的稳定 checkpoint 是 `wave20/model_450.pt`，它位于长成功窗口内部，后续实验已改从它继续。
+- `wave21_gen2_model450_up075_lr015e4` 已否定“放宽升级阈值到 `0.75` 就能把稳定窗口转成课程升级”：
+  - 即使在 `wave20/model_450.pt` 起跑后，课程也始终停在 `4.25m`，没有进入 `4.375m`。
+  - `step 500-505` 虽然短暂保持 `reach_goal=1.0 / collision=0.0`，但随后直接转为长时间 `time_out=5.0` 主导。
+  - 这说明当前瓶颈不是 `upgrade_threshold` 本身，ACL 门槛路线暂时不再是主攻方向。
+- `wave22_gen2_model450_entropy0005_lr015e4` 说明“降低熵系数”也是部分正向改动，但仍不足以跨难度：
+  - `Mean action noise std` 首次从 `0.99` 稳定降到 `0.98` 左右。
+  - `step 509-525` 出现更长的 `4.25m` 纯成功窗口：`reach_goal=1.0 / collision=0.0 / position_error≈0.252`。
+  - 但 `success_history mean` 在 sidecar 中仍只有 `0.62~0.68`，课程没有升到 `4.375m`，run 末段又回到 collision。
+  - 这说明“低学习率 + 低熵”已经能保住高难度局部策略一段时间，但还不足以形成稳定的高成功率历史。
+- 新发现的代码遗产已经坐实：
+  - [train_cfg_v2.yaml](/home/gwh/dashgo_rl_project/train_cfg_v2.yaml) 中的 `runner.num_steps_per_env=24` 注释明确写着“配合 4096 环境的大批量梯度更新”。
+  - 但当前 Gen2 主线固定只有 `8` 个环境，意味着单次 PPO rollout 只有 `192` 步，总 batch 对高难度动态场景过短，更新噪声显著偏大。
+  - 当前最合理的新主假设是：在保留 `learning_rate=1.5e-4` 与 `entropy_coef=0.005` 的前提下，把 `num_steps_per_env` 提升到 `96`，验证更长 rollout 能否把 `4.25m` 的稳定窗口转化为真正可持续的策略改进。
+- `wave23_gen2_model520_steps96_entropy0005_lr015e4` 已否定“直接拉长 rollout 就能守住 4.25m 高难度窗口”这条假设：
+  - 从 `wave22/model_520.pt` 起跑后，课程并没有继续逼近 `4.375m`，反而先从 `4.25 -> 4.125 -> 4.0625 -> 3.75`，最终被打回 `3.0m`。
+  - run 末段 latest 指标为 `reach_goal=0.0 / collision≈0.469 / time_out≈0.531 / position_error≈1.200 / mean_reward≈-242.63`。
+  - 这说明在当前 ACL 设计下，更长 rollout 会更快累计整段失败样本，副作用大于“降低 PPO 更新噪声”的理论收益。
+  - 因此 `num_steps_per_env=96` 判定为负向改动，Gen2 主线应回滚到 `24`，并把下一轮单变量切换为 `num_learning_epochs: 5 -> 3`，优先验证“同一小 batch 上的过度重复优化”是否才是高难度内部遗忘的主因。
+- `wave24_gen2_model450_epochs3_entropy0005_lr015e4` 证明“降低 `num_learning_epochs`”是部分正向改动：
+  - 在 `num_steps_per_env=24` 回滚后，只把 `num_learning_epochs: 5 -> 3`，课程全程稳在 `4.25m`，没有重演 `wave23` 那种回落到 `3.0m` 的崩坏。
+  - 纯成功窗口明显拉长：在 `4.25m` 上形成了 `step 476-505` 连续 `30` 个 iteration 的 `reach_goal=1.0 / collision=0.0 / time_out=0.0`，优于 `wave20` 和 `wave22` 的 `23` 步窗口。
+  - run 末段仍会在 `step 506+` 突然转为 `time_out=7.0 / collision=0.0 / position_error≈1.520`，说明“减小重复优化次数”方向是对的，但当前 `192` 样本 rollout 仍被 `4` 个 mini-batch 切得过碎。
+  - 因此当前最佳 checkpoint 更新为 `wave24/model_500.pt`，下一轮单变量应切到 `num_mini_batches: 4 -> 2`，继续沿“减少小 batch 过拟合 / 提高单次梯度估计稳定性”这条线推进。
+- `wave25_gen2_model500_epochs3_minib2_entropy0005_lr015e4` 已否定“继续把 `num_mini_batches` 从 `4` 降到 `2`”这条假设：
+  - 从 `wave24/model_500.pt` 起跑后，并没有形成新的成功窗口，`model_540 ~ model_550` 的 `success_history mean` 已掉到 `0.60`。
+  - `model_560+` 起课程被打回 `4.0m`，并稳定表现为 `reach_goal=0.0 / collision=1.0 / time_out=0.0 / position_error≈2.772`。
+  - 这说明在当前高难度动态阶段，`num_mini_batches=2` 会让训练更早碰撞坍缩，不能作为 Gen2 默认配置。
+  - 因此主线必须回滚到 `num_mini_batches=4`，下一轮更合理的单变量是从 `wave24/model_500.pt` 出发，把 `learning_rate: 1.5e-4 -> 1.0e-4`，验证是否能在保留 `30` 步成功窗口的同时压住后段 timeout 漂移。
+- `wave26_gen2_model500_epochs3_lr010e4_entropy0005` 已否定“继续把固定学习率从 `1.5e-4` 降到 `1.0e-4`”这条假设：
+  - 从 `wave24/model_500.pt` 起跑后，`model_560+` 同样把课程压回 `4.0m`，并稳定表现为 `reach_goal=0.0 / collision=1.0 / time_out=0.0 / position_error≈2.576`。
+  - 这说明问题不只是“固定学习率太大”，因为把基准学习率再压低，反而复制了更早的碰撞坍缩。
+  - 当前更可能需要的是“保留 `1.5e-4` 的基础学习能力，但更早触发自适应收敛刹车”。
+  - 因此下一轮单变量应切到 `desired_kl: 0.01 -> 0.005`，利用 PPO 的自适应 learning-rate schedule 在高难度窗口后段更快降速，而不是继续盲降固定学习率。
+
+- 用户实机式可视化复核已经补充了一个与 TensorBoard 一致的新症状：
+  - 当前模型已学会倒车，但避障与导航能力仍弱，存在明显的“前蹭”行为。
+  - 这说明问题已经不再是“不会恢复/不会倒车”，而是“局部导航目标与 dense reward 仍不足以稳定驱动绕障行为”。
+- `wave28_gen2_model500_waypointreward_stallfix` 证明“修掉前蹭奖励”是必要但不充分的：
+  - 把 `progress_velocity / target_speed / facing_goal` 对齐到 `waypoint`，并引入 `progress_stall` 后，run 中段能够恢复出 `reach_goal=1.0 / collision=0.0 / time_out=0.0` 的窗口。
+  - 但 same run 末段仍会回落到 `time_out=6.0 / collision=0.0 / target_adaptive=3.75`，说明只修速度奖励链并不足以解决局部导航。
+  - 当前更合理的结论是：`wave28` 可以作为“修正前蹭激励”的证据链，但 latest checkpoint 不能直接作为续训主线。
+- `wave29_gen2_model600_waypoint_detour` 已否定“naive 当前障碍 detour waypoint”这条路线：
+  - 在 `get_waypoint_pose_w()` 中直接对 nominal waypoint 做侧向 detour，会把第一批完整 episode 推成 `time_out=8.0`，随后又出现 `collision=1.0`。
+  - 这说明“线性 reference path 上再叠一个局部横移”不是可靠的 obstacle-aware path 语义，至少当前实现不能作为默认路径生成器。
+- `wave30_gen2_model600_waypoint_shaping` 证明“把 dense 距离奖励从 goal 改成 waypoint”是当前最值得保留的正向改动：
+  - `step 652-655` 出现 `reach_goal=1.0 / collision=0.0 / time_out=0.0 / position_error≈0.251 / target_adaptive=3.75`。
+  - 后段虽然仍会退化成 `time_out` 主导，但没有像 `wave29` 那样很快演化成 collision 主导。
+  - 因此 `wave30/model_640.pt` 目前是比 `wave24/model_500.pt` 更合适的“训练续接锚点”，因为它保留了 `waypoint shaping` 这一条已验证有效的改动。
+- `wave31_gen2_model640_waypoint_shaping_stalltuned` 已否定“继续加重 stall penalty 就能解决 timeout”：
+  - 通过提升 `progress_stall` 权重和触发灵敏度，确实把 `progress_stall` 打到了约 `-0.029`。
+  - 但第一批完整 episode 仍是 `time_out=8.0 / collision=0.0 / target_adaptive=3.625`，没有重现 `wave30` 的短成功窗口。
+  - 这说明当前主要矛盾不是“惩罚前蹭不够狠”，而是“reference path / local waypoint 的语义本身还不够强”。
+- 经过 `wave28 ~ wave31` 这轮迭代，Gen2 当前瓶颈已经进一步收敛为：
+  - `reward_target_speed` 与 `progress_stall` 只能修表层行为，无法替代真正的局部路径语义。
+  - 现有 `RelativeRandomTargetCommand._build_linear_reference_path()` 仍是训练侧的深层代码遗产。
+  - 下一轮最合理的单变量应是：从 `wave30/model_640.pt` 起跑，尝试更可靠的 obstacle-aware reference path 生成，而不是继续堆 reward 惩罚。
+- `wave32_gen2_model640_obstaclepath` 已否定“首阻挡障碍双折线路径”这条大改路线：
+  - 该改动能通过环境构建和整轮训练，说明合同兼容性没有问题。
+  - 但整轮表现是“先 `3.625m` timeout，再短暂恢复到 `3.5m` 纯成功窗口，末段又塌到 `3.25m` collision 主导”。
+  - 这说明对当前策略来说，这类 obstacle-aware path 语义变化太大，不适合作为继续从 `wave30/model_640.pt` 续训的下一步单变量。
+  - 因此当前仍不触发重训，而是回到更保守的兼容改动：只缩短前进 lookahead，让策略更贴线性 reference path。
+- `wave33_gen2_model640_shortlookahead` 已被明确淘汰：
+  - latest 指标退化为 `target_adaptive=3.25 / object_collision=1.0 / reach_goal=0.0 / position_error≈2.03`。
+  - 说明“单纯缩短前进 lookahead”会把问题从 timeout 主导推向 collision 主导，不适合作为 `wave30/model_640.pt` 的后续单变量。
+- 采样吞吐路线已完成排除：
+  - 从 `wave30/model_640.pt` 出发，`12 / 10 / 9 envs` smoke 都在仿真启动阶段复现 `Unable to allocate descriptor sets / Failed to allocate ParameterBlock resources / HydraEngine::render failed`。
+  - 这把当前 `4 向深度相机 + headless rendering + RTX` 组合下的环境数上限收敛为 `8 envs`。
+  - 因此当前不再继续试更高 `num_envs`，除非后续主动做渲染链路减载。
+- `wave30` latest 的主要退化模式已更清晰：
+  - `time_out=7.0 / object_collision=0.0 / position_error≈1.86 / orientation_error≈1.44rad`
+  - 这说明在 `wave30` 锚点上，主要矛盾不是“过快撞上去”，而是“局部路径朝向约束不足，导致推进奖励拿不到，最后拖成超时”。
+- 当前主线判断更新为：
+  - 不触发重训。
+  - 继续从 `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_131351_wave30_gen2_model600_waypoint_shaping/checkpoints/model_640.pt` 续训。
+  - 下一类更合理的单变量是“提高对 waypoint 的朝向约束”，而不是继续改 lookahead、继续堆 stall penalty，或继续加环境数。
+- `wave35` 说明“单纯加重 waypoint 朝向奖励”不是当前最优单变量：
+  - 虽然 latest `position_error` 从 `wave30` 的 `≈1.86` 降到 `≈1.20`，但并没有形成新的 `reach_goal=1.0` 纯成功窗口。
+  - 因此这条线不能直接作为新主线，只能说明“朝向增强会改变轨迹，但不足以单独解开 timeout 主导”。
+- `wave36` 说明“加密保存频率”不能稳定复刻 `wave30` 的成功窗口：
+  - 从同一 `model_640.pt` 起跑、保持相同 seed 和训练语义，仅把 `save_interval` 改成 `5`，却没有重现 `646-655` 那段成功窗口。
+  - 这说明那段窗口具有明显的随机性或轨迹依赖，不能把它当成“必然可重放的 resume 点”。
+- 因此当前“从哪里开始训练”的判断再次收紧为：
+  - 仍不重训。
+  - 主 anchor 仍保留 `wave30/model_640.pt`。
+  - 但要通过短波次 seed sweep 去寻找更干净的成功窗口，而不是假设 `640` 一定能按原轨迹再现。
+- `wave37` 进一步证实了 `wave30/model_640.pt` 的“前沿脆弱性”：
+  - 仅把 seed 从 `42` 改到 `43`，确实改变了初始误差分布，但 run 全程仍没有生成纯成功窗口。
+  - 这说明问题不只是随机起跑，而是 `640` 本身已经太靠近脆弱边界，不适合作为长期主 anchor 反复续训。
+- 因此当前“从哪里开始训练”的策略已改为：
+  - 仍不重训。
+  - 从更早、更稳的上游锚点 `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_125448_wave28_gen2_model500_waypointreward_stallfix/checkpoints/model_600.pt` 重建 `wave30` 这条正向分支。
+  - 保留 waypoint shaping 这一条已验证有效的改动，不回退合同，只回退续训锚点。
+- `wave38` 已给出当前最关键的新证据：
+  - 在保持当前合同和 `wave30` waypoint shaping 不变的前提下，只把续训锚点回退到 `wave28/model_600.pt`，就重新产出了 `reach_goal=1.0 / collision=0.0 / time_out=0.0 / position_error≈0.251` 的纯成功窗口。
+  - 这说明当前更合理的策略不是“重训”或“继续改奖励”，而是“用更早、更稳的上游 checkpoint 重建正向分支”。
+- `wave38` 进一步把“从哪里开始训练”的判断具体化了：
+  - 最好的可保存窗口不是 latest，而是 `/home/gwh/dashgo_rl_project/autopilot/runs/gen2/20260317_145303_wave38_gen2_model600_seed43_waypointshaping_rebuild/checkpoints/model_655.pt`
+  - 原因是它处于 `3.75m` 的 `24` 步纯成功窗口末端，而 `675/679` 虽然也是纯成功，但课程已经降到 `3.5m`
+  - 因此新的主续训锚点已经从 `wave30/model_640.pt` 转移到 `wave38/model_655.pt`
+- `wave39` 暴露了一个新的 ACL 恢复遗产：
+  - 直接从 `wave38/model_655.pt` 恢复时，课程会立刻从 `3.75` 降到 `3.625`
+  - 根因不是策略坏掉，而是 `model_655.curriculum.json` 中的 `success_history` 仍混有旧失败历史，均值只有 `0.44`
+  - 这说明对于“位于成功窗口内部的 checkpoint”，原 sidecar 可能不适合作为恢复历史直接沿用
+- 当前已验证的修复方向：
+  - 保持模型权重不变，只清洁 curriculum sidecar，把 `success_history` 调整到中性稳定区间（均值 `0.7`）
+  - `wave40` 已证明这样可以避免恢复即降级，课程在恢复后仍保持 `3.75`
+- `wave40` 给出的进一步结论是：
+  - “清洁 curriculum history”已经足以修复 ACL 恢复链，但还没有自动带来新的终止事件或成功窗口
+  - 因此下一步的正确动作不是再改 reward/合同，而是从 `wave40/model_694.pt` 继续拉长同一恢复链，观察更长时间尺度下的 episode 终止分布
+- 当前“是否需要重训”的判断已进一步收紧：
+  - 如果改动不改变观测维度、动作语义、网络结构，但连续两轮都把 `wave30/model_640.pt` 从 `3.75m` 直接压回 `<=3.25m`，则继续判定为“不重训，回到 wave30 锚点换更小单变量”。
+  - 只有当改动会改变观测/动作合同，或 `wave30/model_640.pt` 在完全回滚到基线后也无法恢复 `3.5m+` 成功窗口时，才触发真正重训。
+
+## 流程与值守新结论
+
+- 自主值守训练里，`final` 回复不能再被视为后台守护仍会继续运行；只有活动训练进程和 `run_meta.json` 才能证明训练仍在推进。
+- 有限波次 (`max_iterations`) 正常完成后，若没有立刻起下一波，就必须把状态写成 `completed` 或 `paused`；不能口径上仍说“继续在推进中”。
+- `STATE.md` 是恢复提示，不是事实来源；其中的 `latest_training_run`、`best_checkpoint` 路径在每次接续前都必须做存在性校验。
+- 自动接续脚本必须同时返回：
+  - 活动训练进程
+  - run 生命周期状态
+  - state 路径是否有效
+  - stale references
+  否则无法可靠区分“仍在跑”“正常跑完”“初始化挂死”“状态文件过期”。
+- 当前真正的流程缺口不是 `train_v2.py` 不会写 `completed`，而是缺少“有限波次完成后自动接续下一波”的 supervisor。
+- 因此这次修复不再只停留在复盘文本，而是落地了 `/home/gwh/dashgo_rl_project/autopilot/continuous_gen2_supervisor.py`：
+  - 从固定 baseline anchor `/home/gwh/dashgo_rl_project/autopilot/anchors/wave44_model704_stablehistory_seed44/model_704_stablehistory.pt` 起跑
+  - 串行尝试 `reversecontext025 / 040 / 055`
+  - 如果出现正向窗口，则自动构造 stablehistory anchor 并再延长一波
+  - 运行状态写入 `/home/gwh/dashgo_rl_project/autopilot/metrics/continuous_supervisor_state.json`
+
+## 2026-03-19 reverse-context 主线新结论
+
+- `wave47 ~ wave50` 已形成一致证据：把 escape scenario 注入当作主线变量，即使把概率压到 `0.05` 并放软几何，也仍会把训练拖回 `collision` 或 `time_out` 主导。
+- 外部参考映射后的更合理方向是“上下文恢复语义”而不是“更重的课程注入”：
+  - Nav2 的恢复树把 `backup / spin / wait` 放在明确上下文里，而不是全局提高倒车倾向。
+  - 机器人导航 reward shaping 论文指出局部极小值需要额外的几何恢复线索，仅靠局部避障或随机探索容易在未见场景中卡住。
+- 因此当前主线合同已切到：
+  - `RECOVERY_SCENARIO_CONFIG["probability"]` 默认由环境变量控制，并回退为 `0.0`
+  - 新增 `reward_contextual_reverse_escape()`，只在“前方堵塞、后方通畅、推进停滞”时奖励受控倒车
+  - 奖励强度和阈值全部可由环境变量覆盖，便于 supervisor 做单变量 trial queue
+- `smoke_gen2_reversecontext_contract` 已验证新合同兼容：
+  - 能从 `wave44_model704_stablehistory` 成功恢复
+  - `Reward Manager` 已出现 `reverse_escape` 项，权重为 `0.25`
+
+## 2026-03-19 后台模型路由新结论
+
+- 当前本机 `~/.codex/models_cache.json` 已确认存在并支持：
+  - `gpt-5.4`
+  - `gpt-5.4-mini`
+  - `gpt-5.3-codex`
+  - `gpt-5.2`
+- 当前本机 `gpt-5.4 / gpt-5.4-mini / gpt-5.3-codex / gpt-5.2` 均支持：
+  - `low / medium / high / xhigh`
+- 后台自动化不能再只记录“想用哪个模型”，必须同时记录：
+  - 请求模型
+  - 实际使用模型
+  - 请求推理强度
+  - 实际推理强度
+- 诊断档位的最新回退策略已经固定为：
+  - 首选 `gpt-5.3-codex / high`
+  - 若不可用，唯一允许回退到 `gpt-5.4-mini / high`
+  - 不再迁移到 `gpt-5.4`
+- `~/.codex/config.toml` 中先前的 `gpt-5.3-codex -> gpt-5.4` 迁移提示已移除，避免后台自动化展示与实际行为不一致。
+- supervisor 现已支持读取 `desired_state=pause_after_current_run`：
+  - 发现活动训练时进入 `draining_for_pause`
+  - 当前波次结束后写入 `paused_drained`
+  - 不再续跑下一波
+  - run 正常完成并写出 checkpoint，不存在环境初始化回归
+- `wave51_gen2_model704_reversecontext025_seed44` 给出了 reverse-context 主线的第一条真实训练证据：
+  - 把 `DASHGO_REVERSE_ESCAPE_WEIGHT` 设为 `0.25` 后，latest 不再是 collision 主导，而是 `time_out=1.0 / collision=0.0`
+  - `position_error≈0.922 / orientation_error≈0.466` 明显优于 `wave50` 的 `position_error≈1.995 / orientation_error≈1.767`
+  - 这说明“上下文倒车脱困语义”比 escape scenario 注入更接近正向方向，但 `0.25` 仍不足以形成成功窗口
+- 因此当前更合理的下一档单变量是继续提高 `reverse_escape` 权重，而不是重新打开 recovery scenario 注入：
+  - `wave52` 已由 supervisor 自动切到 `DASHGO_REVERSE_ESCAPE_WEIGHT=0.40`
+- 第二次值守事故也已坐实主因：
+  - 即使训练本身能自动接续，若 assistant 在“持续值守任务”里再次用 `final` 收口，用户侧仍会把这视为任务被自动结束。
+  - 因此“不要发送 `final`”必须被视为持续值守契约的一部分，而不是临时聊天策略。
+- 旧 `run_meta.status=running` 遗留会直接破坏自动恢复：
+  - `wave31`
+  - `wave47`
+  - 这两份历史文件已被修正为事实状态 `completed`
+  - 后续 supervisor 恢复链不再允许优先相信历史 `run_meta.status=running`
+- `wave51 ~ wave53` 已形成新的序列证据：
+  - `reversecontext025` 是当前 reverse-context 主线里最好的第一档试验，明显优于 `wave50`
+  - 但 `0.25 / 0.40 / 0.55` 的纯权重 sweep 都没打出 `reach_goal=1.0`
+  - 因此下一轮更合理的 focused change 不再是继续拉高权重，而是改“何时判定 front blocked”，让恢复语义更早触发
+
+## 2026-03-19 Gazebo / ROS2 验证新结论
+
+- 当前部署验证暴露出的第一组硬错误不是策略退化，而是节点存活性问题：
+  - `geo_nav_node` 原先会在 `throttle_log()` 同一调用点切换日志级别时触发 `rclpy` 异常退出。
+  - 该问题表现为 `2D Goal` 后红路径已生成，但 `/cmd_vel` 没有发布者、车辆完全不动。
+- 在修复节点崩溃后，部署链的新主问题进一步收敛为“策略大夹角动作失真”：
+  - 原始策略会在局部目标夹角接近 `90°` 时仍输出饱和前进与饱和单侧转向。
+  - 这会形成“前进 + 大角速度”的圆周轨迹，而不是原地转向后再推进。
+- 局部路径消费链又暴露出一个比动作保护更深的部署根因：
+  - `goal_plan_bridge` 默认只在下目标时规划一次全局路径。
+  - `geo_nav_node` 旧实现却从整条路径起点开始找第一个满足前瞻距离的点。
+  - 当机器人已经沿路径前进后，早期路径点会落到车后方，节点就可能重新追逐身后的旧路径点，表现为“朝目标方向徘徊、不真正收敛”。
+  - 当前更合理的部署语义已经改成：先选当前最近的前向路径点，再沿路径向前取 lookahead。
+- Gazebo / ROS2 视觉链还暴露出独立的调试误导：
+  - RViz 原默认配置是 `Fixed Frame=odom`、`Orbit`、`Target Frame=base_link`。
+  - 即使控制链部分正常，用户主观上也会感受到“地图围着车转”，不利于判断是否真正朝 `map` 目标收敛。
+- 全局规划语义与训练证据链之间存在合同偏差：
+  - 训练侧已经通过 `wave29 / wave32` 否定了复杂 `obstacle-aware path` 语义。
+  - 部署侧若继续把 live `obstacle_layer` 直接送进全局路径规划，就容易生成与训练 reference path 偏差很大的绕路路径。
+  - 因此当前部署修正方向是：把全局规划退回静态地图主导，把即时避障留给局部控制和 safety filter。
+- 倒车能力不能再假设由策略自然给出：
+  - 虽然动作空间允许倒车，但当前策略在碰障或顶死时几乎不会主动给出稳定负线速度。
+  - 部署侧必须显式提供 `front-blocked` 倒车脱困恢复，而不能把“会倒车”当成默认已具备能力。
+
+## 2026-03-19 训练恢复链新结论
+
+- `wave43_gen2_model655_stablehistory_reverse50` 已明确否定“直接提高 reverse goal sampling”这条路线：
+  - 从 `wave38_model655_stablehistory` 起跑，把后向目标采样比例从 `0.35` 提到 `0.50` 后，虽然课程仍守住 `3.75`，但末段退化成 `time_out=8.0 / reach_goal=0.0`。
+  - 这说明部署里观察到的“不会主动倒车/大夹角绕圈”不能简单靠堆更多后向采样来修复。
+  - 因此当前不再沿这条合同改动继续加码，主线已回滚到 `0.35`。
+- `wave44_gen2_model655_stablehistory_seed44_capture` 说明当前更有效的动作不是继续改合同，而是在稳定恢复链上重新做 seed capture：
+  - 从同一个 `wave38_model655_stablehistory` anchor 出发，仅改 `seed=44`，就重新打出了 `3.75m / reach_goal=1.0 / collision=0.0 / time_out=0.0` 的纯成功窗口。
+  - latest `model_704.pt` 的 `position_error≈0.165 / orientation_error≈0.922`，已优于旧主线 `wave38/model_655.pt`。
+  - 因此当前 best 候选已从 `wave38/model_655.pt` 上移到 `wave44/model_704.pt`。
+- `wave45_gen2_model704_stablehistory_extend375` 进一步证明新的 seed44 恢复链是可延长的：
+  - 从 `wave44/model_704` 的 clean-sidecar anchor 起跑，40 iter 后 latest `model_743.pt` 仍保持 `3.75m / reach_goal=1.0 / collision=0.0 / time_out=0.0`。
+  - 这说明 `wave44/model_704` 不是一次性的随机窗口，而是已经能支撑新的稳定恢复链。
+  - 当前更合理的口径是：
+    - `wave44/model_704.pt` 是当前误差更低的 best checkpoint 候选
+    - `wave45/model_743.pt` 是当前最新的成功延长点
+- 当前训练策略再次收紧为：
+  - 先在已验证的 stablehistory 恢复链上做 seed / length 级单变量延长。
+  - 不把未验证的 reward、lookahead、reverse 采样或路径语义改动混入主线。
+  - 后续若继续训练，优先为 `wave45/model_743.pt` 构造新的 clean-sidecar anchor，再决定是否继续延长。
+
+## 待验证项
+
+- 在课程修正后，冷启动链为什么会在 `iter 8-11` 出现成功样本后重新退回 `time_out` 主导。
+- 当前奖励、终止、前瞻和动作链里，哪一项是导致 Gen1 冷启动后续不稳定的主因。
+- `eval_checkpoint.py` 需要从骨架升级为真正的 quick/main eval harness，才能让自主值守从“看 TensorBoard”进入“看场景评测”。
+- 训练端内置轻量 Hybrid-A* / Reeds-Shepp 路径源的复杂度是否可接受。
+- 在 `step_size=0.25` 下继续长训后，课程是否会稳定推进到 `1.75m / 2.0m` 而不重演碰撞坍缩。
+- 将 `downgrade_threshold` 提高到 `0.6` 后，课程在 `2.25m / 2.5m` 吃力时是否会自动回落到更稳难度，而不是继续卡死在高难度。
+- 在 `5.0m` 静态随机化场景下，是否还需要进一步降低擦障型负奖励，或者通过额外评测来筛选更干净的 checkpoint。
+- `eval_checkpoint.py` 仍是骨架，后续若要正式进入动态阶段，最好补上真实 quick/main eval harness。
+- `Gen2` 首轮短波次训练里，动态模板是否会立即诱发碰撞率或 timeout 上升，需要用真实训练日志确认。
+- 在 `wave13` 已恢复成功率后，继续沿同配置长训，ACL 是否会从 `3.0m` 重新爬升到 `3.25m / 3.5m`。
+- 将 Gen2 的 `downgrade_threshold` 从 `0.6` 提高到 `0.65` 后，`3.25m` 窗口是否会更早退出坏样本并稳定保住升级结果。
+- 在回滚到 `downgrade_threshold=0.6` 后，从同一 `model_320.pt` 续训是否还能恢复出 `wave14` 中段那样的 `3.25m / reach_goal=1.0` 表现。
+- 将 Gen2 的 `step_size` 从 `0.25` 细化到 `0.125` 后，从 `wave17/model_370.pt` 续训是否能跨过 `4.0 -> 4.25` 的断崖而不立即塌成 collision/time_out。
+- 将 Gen2 的 `step_size` 再从 `0.125` 降到 `0.0625` 后，是否能把断崖从 `4.375` 继续推迟，至少稳定经过 `4.3125`。
+- 回到 `step_size=0.125` 后，把 `learning_rate` 从 `3.0e-4` 降到 `1.5e-4`，是否能减少 `4.25m` 内部遗忘并重新逼近 `4.375m`。
+- 在保留 `num_steps_per_env=24 / num_learning_epochs=3 / num_mini_batches=4 / learning_rate=1.5e-4` 的前提下，把 `desired_kl` 从 `0.01` 降到 `0.005`，是否能让自适应 schedule 更早降速，并保住 `wave24` 的 `30` 步成功窗口。
+- 在保留 `wave30` 的 `waypoint shaping` 前提下，把 `reference_path` 从线性插值升级为 obstacle-aware 路径语义后，是否能把当前的 timeout 主导回落进一步压低。
+- 在保留 `wave30/model_640.pt` 作为续训锚点的前提下，仅收紧前进 lookahead，是否能减少切角和近障贴边，并稳定守住 `3.5m+` 成功窗口。
+
+## 已拒绝路线
+
+- 继续向项目根目录 `logs/` 直接写入新 run。
+- 在 Gen1 中保留 `maze/random_obstacles` terrain generator。
+- 将 Nav2 planner_server 直接纳入训练内环。
+- 把 `model_19.pt` 或更老旧 checkpoint 直接当作新合同下的默认主续训源。
+- 在动态课程已经发生回落后，盲目继续 latest checkpoint，而不先比对 run 中段更干净的中间 checkpoint。
+- 在没有对照 run 之前，直接把 `downgrade_threshold` 从 `0.6` 进一步提高到 `0.65` 并当作新默认值。
+- 在 `wave19` 已证明无效后，继续把 Gen2 `step_size=0.0625` 当成默认基线。
+- 在 `wave21` 已证明无效后，继续把 `upgrade_threshold=0.75` 当成 Gen2 默认门槛。
+- 在 `wave23` 已证明负向后，继续把 `num_steps_per_env=96` 当成 Gen2 默认 rollout 长度。
+- 在 `wave25` 已证明负向后，继续把 `num_mini_batches=2` 当成 Gen2 默认配置。
+- 在 `wave26` 已证明负向后，继续把 `learning_rate=1.0e-4` 当成 Gen2 默认基线。
+- 在 `wave29` 已证明负向后，继续把“当前障碍物侧向 detour waypoint”当成默认局部路径生成方式。
+- 在 `wave31` 已证明负向后，继续把“仅靠加重 stall penalty”当成解决 Gen2 timeout 主导问题的主路线。
+
+## 2026-03-19 外部参考研究新结论
+
+- 新的合同改动前，必须先做一次外部参考研究，不能再只依赖历史对话和本地直觉。
+- 本轮参考的一手来源给出的共同结论是：
+  - Nav2 官方行为服务器把 `backup / spin / drive_on_heading / wait` 作为明确恢复语义，而不是把“倒车”当成全局随机探索。
+  - Arena-Rosnav 的核心优势在 `Task Generator` 与 benchmark scenario，说明高价值改动通常来自“场景分布设计”，不是单独堆 reward。
+  - TurtleBot3 DRL Navigation 把 `backward motion` 与 `frame stacking` 作为可控能力开关，说明这些能力要用在合适场景里，而不是默认无限加码。
+- 映射到 DashGo 当前代码后已确认：
+  - `history_length=3` 已存在，`last_action` 已存在，动态障碍模板已存在。
+  - 当前更缺的是“脱困场景分布”和“恢复语义强度控制”，不是网络结构记忆力。
+- 因此当前主线判断更新为：
+  - 避障与脱困同权。
+  - 改动前先执行 [reference_research_protocol.md](/home/gwh/dashgo_rl_project/autopilot/reference_research_protocol.md)。
+  - 新波次优先测试“轻量 scenario mix”，而不是再次全局提高 reverse 目标采样。
+
+## 2026-03-19 自动运行 supervisor 新发现
+
+- `wave58` 之后暴露的问题不再是“训练没继续”，而是“continuation 的可观测性做得太差”：
+  - 旧 supervisor 会停在 `research_gate_required_keepalive`
+  - 但没有 stdout 心跳
+  - 没有事件流文件
+  - 没有明确 `next_trial`
+  - 用户从界面上只能看到一个空白 Background terminal，主观上和“自动暂停”没有区别
+- 参考 GitHub 上成熟 agent 项目后，当前更合理的 supervisor 基线已收敛为：
+  - OpenHands 的自动化 RFC 强调异步队列之外还要有 `AutomationRun.status` 和可见 dashboard conversation
+  - SWE-agent 把 `trajectory / config / log / inspector / quick-stats` 作为默认输出物，而不是只保留一个后台进程
+  - 映射到 DashGo 当前流程，至少需要：
+    - 周期性 stdout 心跳
+    - append-only 事件流
+    - state 文件中的 `last_heartbeat` / `active_train_process_count` / `next_trial`
+- `wave56 ~ wave58` 的 round-2 结论已经足够清晰：
+  - 仅调 `front_blocked_threshold` 不足以把 reverse-context 主线推过正向 gate
+  - `frontblock065` 是 round-2 里相对最好的档位，latest `position_error≈0.963`
+  - 因此 round-3 应固定 `front_blocked_threshold=0.65`，继续改“何时判定 stalled / 何时允许后退 / 后退时如何抑制转圈”
+- 当前自动续跑新预案已收敛成三组 focused sweeps：
+  - `progress_threshold`：更早触发脱困
+  - `rear_clear_threshold`：放宽倒车可用空间门槛
+  - `angular_penalty`：抑制倒车时原地转圈
+
+## 2026-03-19 自动优化能力新结论
+
+- 到 `wave67` 为止，旧 supervisor 已经证明自己具备：
+  - 自动跑完整个预定义 trial queue
+  - 自动判定正负
+  - 自动接续下一波
+- 但它还不是真正的“自主优化训练”：
+  - 一旦预定义 queue 耗尽，就会退回 `research_gate_required_keepalive`
+  - 即使心跳还在，也没有新的假设生成与下一轮设计
+- 本轮已把这个能力缺口补到“受控局部自优化”层级：
+  - 自动从最近 supervised runs 中选出当前最优参数家族
+  - 自动围绕该家族做一轮局部搜索 `autotune`
+  - 当前第一次自动 follow-up 的选择结果是：
+    - 家族: `rearclear`
+    - 基线来源: `wave64_gen2_model704_rearclear085_seed44`
+    - 新 round: `rearclear077 / 080 / 082`
+- 因此当前口径应调整为：
+  - 现在已经可以做“自动判断 + 自动续训 + 受控局部自优化”
+  - 但还不能宣称已经具备“开放式、无限制、自主研究后自动改合同”的完全体能力
+
+## 2026-03-19 wave46 / wave47 / wave48 新发现
+
+- `wave46` 从 `wave45/model_743 stablehistory anchor` 继续盲拉长后，已经退化成 `3.75m / time_out=7.0`，说明同一恢复链继续延长的收益已经耗尽。
+- `wave47` 第一次把“前堵后退 escape curriculum”注入比例设到 `25%`：
+  - 环境创建成功，说明合同兼容。
+  - 但首批完整 episode 很快退化为 `time_out` 主导，latest 收口在 `reach_goal=0.0 / time_out=1.0 / collision=0.0 / position_error≈0.752`。
+  - 这说明该方向即使可能正确，当前强度也过大。
+- `wave48` 把同一课程的注入比例从 `0.25` 收窄到 `0.10` 后，前段重新打出 `reach_goal=1.0 / time_out=0.0 / collision=0.0` 的窗口。
+- 但 `wave48` 在更长 episode 出现后再次转向 `time_out + collision 奖励恶化`，说明：
+  - 方向可能比 `wave47` 更接近可用区间；
+  - 但仅靠“降低注入比例”还不足以稳定兼顾避障和脱困；
+  - 下一轮更合理的是继续缩课程侵入性，或把 escape scenario 改成更轻、更稀疏的 mix，而不是继续加大几何强度。
+
+## 2026-03-19 判官层与误判修复新发现
+
+- 旧 supervisor 的误判已被证实不是假设，而是事实：
+  - `wave70` 最终 latest scalars 已经退化到 `reach_goal≈0.417 / time_out≈0.583 / position_error≈1.206`
+  - 事件流却仍写成了 `extension_completed`
+  - 这说明“前一轮命中过正向窗口”与“当前 extension 仍然有效”在旧逻辑里被混淆了
+- 因此新的升格逻辑必须固定为：
+  - `training scalars` 只能做 prefilter
+  - `doctor + quick eval` 必须在 candidate checkpoint 上再次执行
+  - `extension_completed` 只能在 extension 本身通过 gate 后写出
+- 真实 smoke eval 已提供第一份行为级证据：
+  - 对 `wave44/model_704_stablehistory.pt` 跑 `quick(2 episodes)` 时，结构化指标直接显示：
+    - `orbit_score=1.0`
+    - `progress_stall_rate=1.0`
+    - `timeout_rate=1.0`
+    - `high_clip_ratio≈0.999`
+  - 这证明：
+    - 训练侧的“偶发 reach_goal 窗口”不能代表实际导航能力
+    - 需要把“无意义运动 veto”纳入正式 gate
+- 日志异常检测也已落地，但当前 wave70 log 没有明显 traceback / KeyError / camera 缺失等硬错误模式：
+  - 因此 wave70 更像“策略/升格判定错误”，而不是“训练代码直接炸掉”
+  - 这正符合新的分诊思路：
+    - `doctor` 负责抓代码/传感器/合同异常
+    - `behavior gate` 负责抓绕圈、停滞、贴障磨蹭这类 reward hacking / 行为退化

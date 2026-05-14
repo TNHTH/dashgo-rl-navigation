@@ -1,0 +1,127 @@
+<?xml version="1.0"?>
+<launch>
+    <!--
+    ========================================================================
+    DashGo RL导航 - AMCL定位版本（修复TF跳动问题）
+
+    版本: v2.0
+    更新: 2026-01-29
+    修复:
+    - 使用AMCL替代GMapping（TF稳定）
+    - 修复P控制器旋转问题
+    - 改进到达判定逻辑
+
+    使用方法:
+    roslaunch dashgo_rl sim2real_amcl.launch
+    ========================================================================
+    -->
+
+    <!-- 模型路径 -->
+    <arg name="model_path" default="$(find dashgo_rl)/models/policy_torchscript.pt"/>
+
+    <!-- 速度限制参数 -->
+    <arg name="max_lin_vel" default="0.3"/>
+    <arg name="max_ang_vel" default="1.0"/>
+    <arg name="max_lin_acc" default="1.0"/>
+    <arg name="max_ang_acc" default="0.6"/>
+    <arg name="control_rate" default="20"/>
+
+    <!-- 功能开关 -->
+    <arg name="enable_gazebo" default="true"/>
+    <arg name="enable_rviz" default="true"/>
+    <arg name="enable_move_base" default="false"/>  <!-- 暂时禁用move_base -->
+
+    <!-- ========================================================================
+         Gazebo仿真
+    ======================================================================== -->
+    <group if="$(arg enable_gazebo)">
+        <include file="$(find gazebo_ros)/launch/empty_world.launch">
+            <arg name="world_name" value="$(find dashgo_rl)/worlds/navigation_env.world"/>
+            <arg name="paused" value="false"/>
+            <arg name="use_sim_time" value="true"/>
+            <arg name="gui" value="true"/>
+        </include>
+
+        <!-- Spawn机器人模型 -->
+        <node name="spawn_dashgo" pkg="gazebo_ros" type="spawn_model"
+              args="-urdf -param robot_description -model dashgo -x 0 -y 0 -z 0.0632"
+              output="screen"/>
+    </group>
+
+    <!-- ========================================================================
+         机器人描述
+    ======================================================================== -->
+    <param name="robot_description"
+           command="$(find xacro)/xacro $(find dashgo_rl)/urdf/dashgo_d1_sim.urdf.xacro" />
+
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+    <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+        <param name="use_gui" value="false"/>
+        <rosparam param="source_list">[/joint_states]</rosparam>
+    </node>
+
+    <!-- ========================================================================
+         AMCL定位（使用你创建的地图，TF稳定）
+    ======================================================================== -->
+    <!-- 使用你之前创建的有障碍物的地图 -->
+    <node pkg="map_server" type="map_server" name="map_server" args="$(find dashgo_rl)/maps/nav.yaml">
+        <param name="frame_id" value="map"/>
+    </node>
+
+    <!-- AMCL定位节点 -->
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+        <!-- ROS话题 -->
+        <remap from="scan" to="scan"/>
+        <remap from="initialpose" to="initialpose"/>
+
+        <!-- 坐标系配置 -->
+        <param name="global_frame_id" value="map"/>
+        <param name="odom_frame_id" value="odom"/>
+        <param name="base_frame_id" value="base_link"/>
+
+        <!-- 粒子数量（增加精度） -->
+        <param name="min_particles" value="100"/>
+        <param name="max_particles" value="5000"/>
+
+        <!-- 初始位姿 -->
+        <param name="init_pose_x" value="0.0"/>
+        <param name="init_pose_y" value="0.0"/>
+        <param name="init_pose_a" value="0.0"/>
+
+        <!-- 传感器模型 -->
+        <param name="laser_max_range" value="12.0"/>
+        <param name="laser_max_beams" value="360"/>
+        <param name="laser_z_hit" value="0.05"/>
+
+        <!-- 运动模型 -->
+        <param name="odom_model_type" value="diff-corrected"/>
+        <param name="alpha1" value="0.2"/>
+        <param name="alpha2" value="0.2"/>
+        <param name="alpha3" value="0.2"/>
+        <param name="alpha4" value="0.2"/>
+        <param name="alpha5" value="0.2"/>
+
+        <!-- 更新频率 -->
+        <param name="transform_tolerance" value="0.2"/>
+        <param name="update_min_d" value="0.2"/>
+        <param name="update_min_a" value="0.2"/>
+        <param name="resample_interval" value="1"/>
+    </node>
+
+    <!-- ========================================================================
+         RViz可视化
+    ======================================================================== -->
+    <group if="$(arg enable_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find dashgo_rl)/rviz/nav.rviz"/>
+    </group>
+
+    <!-- ========================================================================
+         架构师的P控制器验证节点（带安全层）
+    ======================================================================== -->
+    <node pkg="dashgo_rl" type="geo_nav_verify.py" name="geo_nav_verify" output="screen">
+        <!-- 速度参数 -->
+        <param name="max_v" value="$(arg max_lin_vel)"/>
+        <param name="max_w" value="$(arg max_ang_vel)"/>
+    </node>
+
+</launch>

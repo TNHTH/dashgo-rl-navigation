@@ -1,0 +1,212 @@
+<?xml version="1.0"?>
+<launch>
+    <!--
+    ========================================================================
+    DashGo RL导航 - Gazebo仿真Launch文件
+
+    版本: v1.0
+    更新: 2026-01-28
+    作者: Based on Architect's recommendation
+
+    说明:
+    - 包含简化的Gazebo仿真环境（不依赖dashgo_gazebo包）
+    - 包含机器人状态发布
+    - 包含SLAM建图（Gmapping）
+    - 包含Rviz可视化
+    - 包含RL导航节点
+
+    Fallback策略:
+    - 如果没有dashgo官方包，使用简单的empty_world
+    - 可以通过Rviz的"2D Nav Goal"发送目标点进行测试
+
+    使用方法:
+    roslaunch dashgo_rl sim2real_golden.launch
+    ========================================================================
+    -->
+
+    <arg name="model_path" default="$(find dashgo_rl)/models/policy_torchscript.pt"
+         doc="TorchScript模型路径"/>
+
+    <arg name="max_lin_vel" default="0.3"
+         doc="最大线速度 (m/s)"/>
+
+    <arg name="max_ang_vel" default="1.0"
+         doc="最大角速度 (rad/s)"/>
+
+    <arg name="max_lin_acc" default="1.0"
+         doc="最大线加速度 (m/s²)"/>
+
+    <arg name="max_ang_acc" default="0.6"
+         doc="最大角加速度 (rad/s²)"/>
+
+    <arg name="control_rate" default="20"
+         doc="控制频率 (Hz)"/>
+
+    <arg name="enable_gazebo" default="true"
+         doc="是否启动Gazebo仿真（如果已有Gazebo在运行，设为false）"/>
+
+    <arg name="enable_gmapping" default="true"
+         doc="是否启动SLAM建图"/>
+
+    <arg name="enable_rviz" default="true"
+         doc="是否启动Rviz可视化"/>
+
+    <arg name="enable_move_base" default="true"
+         doc="是否启用MoveBase导航（方案A验证）"/>
+
+    <!-- ========================================================================
+         Gazebo仿真（简化版Fallback）
+    ======================================================================== -->
+    <group if="$(arg enable_gazebo)">
+        <!-- 方案A：如果存在dashgo_gazebo包，使用官方launch -->
+        <!--
+        <include file="$(find dashgo_gazebo)/launch/dashgo_d1_gazebo.launch" if="$(exists dashgo_gazebo)">
+            <arg name="gui" value="true"/>
+        </include>
+        -->
+
+        <!-- 方案B：Fallback - 使用简单空世界（当前使用） -->
+        <include file="$(find gazebo_ros)/launch/empty_world.launch">
+            <arg name="world_name" value="worlds/empty.world"/>
+            <arg name="paused" value="false"/>
+            <arg name="use_sim_time" value="true"/>
+            <arg name="gui" value="true"/>
+            <arg name="headless" value="false"/>
+            <arg name="debug" value="false"/>
+        </include>
+
+        <!-- 注意：此简化版本需要单独spawn机器人模型 -->
+        <!-- 如果需要完整机器人模型，请安装dashgo_description包 -->
+
+        <!-- ========================================================================
+             在Gazebo中spawn机器人模型
+        ======================================================================== -->
+        <node name="spawn_dashgo" pkg="gazebo_ros" type="spawn_model"
+              args="-urdf -param robot_description -model dashgo -x 0 -y 0 -z 0.0632"
+              output="screen"/>
+    </group>
+
+    <!-- ========================================================================
+         机器人描述（URDF） - 必须在robot_state_publisher之前加载
+    ======================================================================== -->
+    <param name="robot_description"
+           command="$(find xacro)/xacro $(find dashgo_rl)/urdf/dashgo_d1_sim.urdf.xacro" />
+
+    <!-- ========================================================================
+         机器人状态发布
+    ======================================================================== -->
+    <node name="robot_state_publisher" pkg="robot_state_publisher"
+          type="robot_state_publisher" />
+
+    <node name="joint_state_publisher" pkg="joint_state_publisher"
+          type="joint_state_publisher">
+      <param name="use_gui" value="false"/>
+      <rosparam param="source_list">[/joint_states]</rosparam>
+    </node>
+
+    <!-- ========================================================================
+         SLAM建图（Gmapping）
+    ======================================================================== -->
+    <group if="$(arg enable_gmapping)">
+        <node pkg="gmapping" type="slam_gmapping" name="slam_gmapping"
+              output="screen">
+
+            <!-- 坐标系配置 -->
+            <param name="base_frame" value="base_link"/>
+            <param name="odom_frame" value="odom"/>
+            <param name="map_frame" value="map"/>
+
+            <!-- 🔥 [修复] 添加激光雷达topic参数 -->
+            <param name="scan_topic" value="/scan"/>
+
+            <!-- 🔥 [修复] 添加显式话题remap -->
+            <remap from="scan" to="scan"/>
+
+            <!-- 🔥 [调试] 启用调试输出 -->
+            <param name="debug" value="true"/>
+
+            <!-- 雷达参数 -->
+            <param name="map_update_interval" value="1.0"/>
+            <param name="maxUrange" value="10.0"/>  <!-- 最大有效距离 -->
+            <param name="maxRange" value="12.0"/>   <!-- 雷达最大距离 -->
+            <param name="sigma" value="0.05"/>
+            <param name="kernelSize" value="1"/>
+            <param name="lstep" value="0.05"/>
+            <param name="astep" value="0.05"/>
+            <param name="iterations" value="5"/>
+            <param name="lsigma" value="0.075"/>
+            <param name="ogain" value="3.0"/>
+            <param name="lskip" value="0"/>
+            <param name="srr" value="0.1"/>
+            <param name="srt" value="0.2"/>
+            <param name="str" value="0.1"/>
+            <param name="stt" value="0.2"/>
+            <param name="linearUpdate" value="1.0"/>
+            <param name="angularUpdate" value="0.5"/>
+            <param name="temporalUpdate" value="3.0"/>
+            <param name="resampleThreshold" value="0.5"/>
+            <param name="particles" value="30"/>
+
+            <!-- 地图尺寸 -->
+            <param name="xmin" value="-50.0"/>
+            <param name="ymin" value="-50.0"/>
+            <param name="xmax" value="50.0"/>
+            <param name="ymax" value="50.0"/>
+            <param name="delta" value="0.05"/>
+
+            <!-- 其他参数 -->
+            <param name="llsamplerange" value="0.01"/>
+            <param name="llsamplestep" value="0.01"/>
+            <param name="lasamplerange" value="0.005"/>
+            <param name="lasamplestep" value="0.005"/>
+        </node>
+    </group>
+
+    <!-- ========================================================================
+         Rviz可视化
+    ======================================================================== -->
+    <group if="$(arg enable_rviz)">
+        <node name="rviz" pkg="rviz" type="rviz" args="-d $(find dashgo_rl)/rviz/nav.rviz" />
+    </group>
+
+    <!-- ========================================================================
+         MoveBase导航（传统导航栈）- 🔴 [方案A] 强制启动
+    ======================================================================== -->
+    <!-- 🔴 [修复] 移除if条件，确保move_base总是启动 -->
+    <group>
+        <!-- move_base节点 -->
+        <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen" clear_params="true">
+
+            <!-- Costmap配置 -->
+            <rosparam file="$(find dashgo_rl)/param/costmap_common_params.yaml" command="load" ns="global_costmap" />
+            <rosparam file="$(find dashgo_rl)/param/costmap_common_params.yaml" command="load" ns="local_costmap" />
+            <rosparam file="$(find dashgo_rl)/param/local_costmap_params.yaml" command="load" />
+            <rosparam file="$(find dashgo_rl)/param/global_costmap_params.yaml" command="load" />
+
+            <!-- 局部规划器：使用DWA（架构师推荐，稳定可靠） -->
+            <rosparam file="$(find dashgo_rl)/param/base_local_planner_dwa_params.yaml" command="load" />
+        </node>
+    </group>
+
+    <!-- ========================================================================
+         RL导航节点（核心）- 🔴 [方案A] 暂时禁用，验证传统导航
+    ======================================================================== -->
+    <!-- <node pkg="dashgo_rl" type="geo_nav_node.py" name="geo_nav_node"
+          output="screen" required="true">
+
+        # 模型路径
+        <param name="model_path" value="$(arg model_path)" />
+
+        # 速度限制（与dashgo_config.py一致）
+        <param name="max_lin_vel" value="$(arg max_lin_vel)" />
+        <param name="max_ang_vel" value="$(arg max_ang_vel)" />
+
+        # 🔥 [新增] 加速度限制参数（安全关键）
+        <param name="max_lin_acc" value="$(arg max_lin_acc)" />
+        <param name="max_ang_acc" value="$(arg max_ang_acc)" />
+
+        # 🔥 [修正] 控制频率（动态计算dt）
+        <param name="control_rate" value="$(arg control_rate)" />
+    </node> -->
+
+</launch>

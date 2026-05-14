@@ -1,0 +1,68 @@
+# train_cfg_v2.yaml
+# [DashGo v5.0 Ultimate - 2026-01-25]
+# 策略：低学习率(1.5e-4) + 自动课程(Auto-Curriculum) + 混合奖励(Hybrid Rewards)
+# 说明：
+# - 训练主配置以本文件为唯一来源
+# - 终点奖励与阈值请以 `src/dashgo_rl/dashgo_env_v2.py` 中 REWARD_CONFIG 为准
+# - 观测归一化会在导出阶段由 `export_torchscript.py` 一并打包进 TorchScript
+
+seed: 42
+device: 'cuda:0'
+
+# 1. 运行环境设置
+runner:
+  policy_class_name: "ActorCritic"
+  algorithm_class_name: "PPO"
+  num_steps_per_env: 24       # ✅ [Gen2 回滚 2026-03-17] 96 步 rollout 会把课程从 4.25m 打回 3.0m，先回到已验证基线
+  max_iterations: 9000        # ✅ 8000轮：给足时间让策略充分收敛（用户要求）
+  empirical_normalization: True # ✅ 保留运行期归一化状态，并在导出阶段一起打包
+  save_interval: 100          # ✅ 每100轮保存，安全第一
+  experiment_name: "dashgo_v5_auto"
+  run_name: "v5_ultimate_auto"
+  resume: False
+  load_run: -1                # -1 表示加载最新的 checkpoint (如果 resume=True)
+  checkpoint: -1
+
+# 2. 策略网络 (Policy Network) - [方案2] 轻量化部署架构
+# [架构师决策 2026-01-27] 直接训练1D-CNN+MLP，一步到位Sim2Real
+policy:
+  class_name: "GeoNavPolicy"  # ✅ 使用注入的轻量网络（替代ActorCritic）
+  init_noise_std: 1.0
+
+  # 这些参数会传给 GeoNavPolicy 的 __init__
+  # CNN的参数已经在代码里写死了，这里主要控制全连接层
+  actor_hidden_dims: [128, 64]   # ✅ 轻量级 Head（替代512,256,128）
+  critic_hidden_dims: [512, 256, 128]  # ✅ [架构师建议] Critic保持强网络（不对称架构）
+  activation: 'elu'
+
+  # [架构师修复 2026-01-27] 移除GRU，改用MLP
+  # 原因：GRU隐状态未传递导致"失忆"Bug，MLP更稳定
+  # 优势：3帧历史堆叠已提供短时记忆，CNN+MLP足够
+  # 参数量约300K（vs MLP 500K），适配Jetson Nano 4GB显存
+
+# 3. 算法超参数 (PPO Algorithm)
+algorithm:
+  class_name: "PPO"
+  # 价值函数系数
+  value_loss_coef: 1.0
+  use_clipped_value_loss: True
+  clip_param: 0.2
+
+  # 熵系数 (Entropy) - 控制探索欲望
+  # [架构师修正 2026-01-27] 修复感知后，适当提高熵系数加快探索
+  # 修改历史：0.02 → 0.01 → 0.005 → 0.01（回退到标准值）
+  # 原理：感知已修复，需要更多探索避免局部最优
+  entropy_coef: 0.005  # ✅ [Gen2 高难度微调 2026-03-17] 降低随机抽搐，优先保住 4.25m 以上的已学策略
+
+  # 学习参数
+  num_learning_epochs: 3      # ✅ [Gen2 单变量 2026-03-17] 降低同一小 batch 的重复优化次数，验证是否能减少高难度内部遗忘
+  num_mini_batches: 4         # ✅ [Gen2 回滚 2026-03-17] 2 个 mini-batch 会更早碰撞坍缩，回到 wave24 的已验证基线
+  learning_rate: 1.5e-4      # ✅ [Gen2 回滚 2026-03-17] 1.0e-4 会更早碰撞坍缩，回到 wave24 的已验证基线
+  schedule: "adaptive"        # ✅ [保险丝] 自适应调整学习率
+  gamma: 0.99                 # 折扣因子 (关注长远利益)
+  lam: 0.95
+  desired_kl: 0.005           # ✅ [Gen2 单变量 2026-03-17] 更早触发自适应降速，验证能否压住 wave24 后段漂移
+  max_grad_norm: 1.0          # 梯度裁剪，防止梯度爆炸
+
+# 4. 辅助设置
+num_envs: 32                 # ✅ [v6.0修复] 统一配置（实际运行环境数，与命令行参数一致）
