@@ -33,6 +33,9 @@ setup(
         "console_scripts": [
             "geo_nav_node = dashgo_rl_ros2.geo_nav_node:main",
             "goal_plan_bridge = dashgo_rl_ros2.goal_plan_bridge:main",
+            "simple_path_bridge = dashgo_rl_ros2.simple_path_bridge:main",
+            "navrl_bridge = dashgo_rl_ros2.navrl_bridge:main",
+            "neupan_bridge = dashgo_rl_ros2.neupan_bridge:main",
         ],
     },
 )
