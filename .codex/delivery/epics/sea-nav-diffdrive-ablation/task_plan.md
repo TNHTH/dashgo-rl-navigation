@@ -31,7 +31,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 | Worktree | Commit | Owner | Owned paths | Dependency | Status |
 |---|---|---|---|---|---|
 | primary `work/dashgo-rl-navigation` | moving `test`, coordination successor of `10023c294f34dc32a97005103bc30e6aa0f09bf5` | controller | coordination, integration and final verification | recovery tags | re-check local/remote equality before every integration |
-| `work/dashgo-rl-navigation-sea-adapter` | detached `10023c294f34dc32a97005103bc30e6aa0f09bf5` | pending single implementation owner after read-only audit | `src/dashgo_rl/sea_nav/**`, focused tests, experiment config/tooling, and only the necessary training/env/export/eval callers | independently accepted SEA core API | moved cleanly to the current base; no source edit until API and exact caller inventory are fixed |
+| `work/dashgo-rl-navigation-sea-adapter` | detached `78023cb41984a6af98b9b31b383aed2609beb47e` | pending single implementation owner after read-only audit | `src/dashgo_rl/sea_nav/**`, focused tests, experiment config/tooling, and only the necessary training/env/export/eval callers | independently accepted SEA core API | clean on the latest published D0 coordination base; no source edit until the core API is independently accepted |
 | primary read-only DashGo adapter audit | source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only these three planning ledgers | current source plus fixed upstream API references | caller/architecture inventory complete; core `70f2304e` rereview FAIL with one P1 and two P2 findings |
 
 ## Locked decisions

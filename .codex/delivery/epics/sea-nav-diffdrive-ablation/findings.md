@@ -4,7 +4,7 @@ Created: 2026-09-08 Asia/Shanghai
 
 | Field | Current value | Evidence | Limit |
 |---|---|---|---|
-| Repository identity | `TNHTH/dashgo-rl-navigation`; local/remote `main=stable=ad9cf5a1b021687862a8abb9a9ab315ca54e72c2`; `test` contains coordination successors beginning at `10023c294f34dc32a97005103bc30e6aa0f09bf5` | resolve the moving `test` head with Git before each integration | algorithm implementation not yet integrated |
+| Repository identity | `TNHTH/dashgo-rl-navigation`; local/remote `main=stable=ad9cf5a1b021687862a8abb9a9ab315ca54e72c2`; local/remote `test=78023cb41984a6af98b9b31b383aed2609beb47e` | remote readback after D0 review publication; resolve the moving `test` head again before each integration | algorithm implementation not yet integrated |
 | Recovery | four remote annotated archive tags peel to old main, test, OOP and autoresearch commits | `git ls-remote origin refs/tags/archive/pre-recovery-*-20260908^{}` | tags are recovery, not active branches |
 | Baseline tests | 43 CPU tests passed with no pytest cache/bytecode | local Python 3.10/Torch CPU run | no Isaac runtime evidence |
 | Observation | 246 = 72 LiDAR × 3 history + remaining terms; term-major; front 180 degrees | deployment contract and environment config | policy history must not be reshaped as Go2 570-D history |
@@ -13,7 +13,7 @@ Created: 2026-09-08 Asia/Shanghai
 | Scientific identity | `dashgo_diffdrive_transfer_v1`, `cross_platform_method_adaptation` | user decision and SEA paper | never report as original paper/Go2 metric |
 | Formal ablations | full / without ACSI / without Shield / without Lreg | SEA paper Table I | same robot, scene, sensor, reward, limits and budget |
 | Budget | 100k smoke; 5M seed 42 pilot; 20M seeds 42/43/44; 100 eval episodes per difficulty | user-selected default | execution blocked on this host by absent GPU/Isaac |
-| Unpublished work | no DashGo functional source edit; adapter worktree remains detached at `10023c2`; the exact caller audit is complete | adapter worktree and audit inventory | SEA Task 7 is accepted/published through `ed9e566`; the public-core fix above `bf409c65` still requires a frozen commit and independent acceptance |
+| Unpublished work | no DashGo functional source edit; adapter worktree is clean and detached at `78023cb41984a6af98b9b31b383aed2609beb47e`; the exact caller audit is complete | adapter worktree and audit inventory | SEA Task 7 is accepted/published through `ed9e566`; the public-core successor to failed candidate `70f2304e` still requires a frozen commit and independent acceptance |
 
 ## Key implementation facts
 
