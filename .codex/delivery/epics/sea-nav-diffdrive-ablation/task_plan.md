@@ -42,7 +42,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 - Pilot promotion is a data-quality gate, not a performance cherry-pick: require complete manifests, finite observations/actions/losses, nonzero completed episodes, all four switches proven effective, checkpoint reload success and no unexplained worker failure. It does not require SEA to beat the baseline.
 - `stable` promotion requires simulator import/startup, reset/step/close, a bounded 100k smoke for all four groups, checkpoint resume, and completed quick evaluation. CPU success alone is insufficient.
 
-## Executable implementation specification (coord_rev 2)
+## Executable implementation specification (coord_rev 3)
 
 Updated: 2026-09-08 Asia/Shanghai
 
@@ -58,7 +58,7 @@ Updated: 2026-09-08 Asia/Shanghai
 | Slice | Required paths | Contract and exit gate | Depends on |
 |---|---|---|---|
 | D0 public core receipt | pinned `sea_nav_core` wheel/sdist plus license/API review record | MIT metadata; exact full commit and artifact SHA; strict import/state-dict/TorchScript identity; fixed counterexample plus randomized tests prove final body-speed, body-acceleration and wheel-speed constraints simultaneously | current accepted SEA Task 7 |
-| D1 experiment/profile contracts | `src/dashgo_rl/sea_nav/{__init__,profile,contracts,manifests}.py`, `configs/experiments/sea_nav_diffdrive.yaml`, focused tests | one resolver emits only the four registered profiles; profile/config/platform/sensor identities are canonicalized and hashed; undeclared switch drift fails closed | D0 |
+| D1 experiment/profile contracts | `src/dashgo_rl/sea_nav/{__init__,profile,contracts,manifests}.py`, `configs/experiments/sea_nav_diffdrive.yaml`, `requirements/sea-nav-core.lock`, focused tests | one exact-schema resolver emits only the four registered profiles; full core/artifact/install provenance is pinned; profile/config/platform/action/policy-observation/sensor-source identities are canonicalized and hashed; undeclared switch drift fails closed | D0 |
 | D2 sensor geometry and safety ABI | `src/dashgo_rl/sea_nav/safety.py`, observation additions in `src/dashgo_rl/dashgo_env_v2.py`, focused CPU geometry tests | preserve 246-D policy observation; expose versioned raw `safety_ranges[216]`, `safety_angles[216]`, `safety_validity[216]`, `safety_age[1]`; derive angles from camera intrinsics/extrinsics; no-return at max range is valid, bad/non-finite/stale data is not | D1 |
 | D3 Isaac/RSL compatibility | `src/dashgo_rl/sea_nav/rsl_rl_compat.py`, `apps/isaac/train_v2.py`, fake-env tests | reset/get-observations/step always return a batch-sized TensorDict; preserve every observation group, episode extras and `time_outs`; construct RSL-RL 3.0.1 `OnPolicyRunner` and complete one CPU fake rollout without importing Isaac runtime | D2 |
 | D4 policy and action identity | `src/dashgo_rl/sea_nav/policy.py`, narrow compatibility edits to `src/dashgo_rl/geo_nav_policy.py`, focused policy tests | independent actor/critic normalizers; raw safety is never normalized; latent Gaussian remains the KL identity; Jacobian-corrected bounded sampled action remains the PPO likelihood object; CBF changes distribution mean only; `policy_mean_for`, `value_for`, `alpha_for` are side-effect-free | D3 |
@@ -77,6 +77,7 @@ The mandatory order is `D0 -> D1 -> D2 -> D3 -> D4 -> D5 -> D6 -> D7 -> D8 -> D9
 - The two simulated cameras stay at 108 horizontal pixels each, but with focal length 24 the horizontal aperture must be approximately 48 to obtain approximately 90 degrees per camera. Use `distance_to_camera`, set `depth_clipping_behavior="max"`, and derive ordered per-pixel azimuth from `sensor.data.intrinsic_matrices` plus the fixed camera extrinsic; a hard-coded `linspace(-90,+90)` is forbidden.
 - Capture validity before sanitization. `+inf`/declared no return mapped by the configured clip behavior to `range_max` is a valid free ray; NaN, non-positive values, missing frames and sensor age beyond the registered bound are invalid. Missing private timestamp fields on the fixed Isaac version fail closed.
 - Camera period 0.1 s, policy/control period 0.05 s, intrinsics, extrinsics, range limits, angle ordering and freshness bound are manifest fields. CPU tests cover all-no-return, partial NaN, stale frame, actual FOV, monotonic angles and gap-free left/right stitching.
+- D1 fixes the simulated freshness bound at `max_sensor_age_s=0.10` inclusive but records only sensor-source identity. D2 creates the final raw-safety identity from measured runtime geometry. Simulation uses `range_min_m=0.10`; real LaserScan uses `range_min_m=0.15`, so they never share a raw-safety hash.
 
 ### ACSI reset transaction receipt
 
@@ -99,6 +100,9 @@ For each replayed environment, snapshot and restore robot root pose/velocity, wh
 | `without_lreg` | on | on | off |
 
 - All non-ablated robot, sensor, scene, reward, normalization, PPO, seed, frame budget, controller and evaluation fields must hash identically across the four profiles. The resolver writes both declared and effective switches and rejects any extra difference.
+- `without_acsi` sets all of `acsi_collision_capture`, `acsi_reservation_selection`, `acsi_curriculum_level_update`, and `acsi_replay_reset` false. Ordinary collision termination remains enabled in all four task definitions; formal evaluation disables replay for every profile.
+- `ablation_profile` is independent of the existing `runtime_profile`/generation axis. All four formal groups use the same runtime profile. Platform capability records 0.15 m/s reverse, while the formal forward-sensor command envelope records `v_min=0`; the final joint projection must enforce both the effective envelope and wheel/acceleration bounds before recomputing the residual.
+- The cross-platform lookahead is preregistered as `lookahead_distance_m=0.20`. It is an engineering transfer choice close to the 0.203 m footprint radius, not a paper-original parameter.
 - Run progression is all four profiles at 100k frames, then all four at 5M frames on seed 42, then all four at 20M frames on seeds 42/43/44. Promotion checks data integrity and switch effectiveness, not whether a preferred method wins.
 - Formal evaluation is 100 complete episodes for each Easy/Medium/Hard identity for every seed/profile (3,600 episodes total). Scene lists, seed expansion, timeout and success definitions are immutable before the first formal run; the current reverse-only scenarios are not reused while reverse motion is disabled.
 - Report success/collision/timeout with denominators, path efficiency, time/path length, minimum metric clearance, intervention magnitude/rate, alpha distribution/minimum, each residual stage, command saturation and invalid/stale-sensor rates. Aggregate across seeds with per-seed values and confidence intervals; do not pool transitions as independent trials.
@@ -131,8 +135,12 @@ review recorded in SEA as
 3. The raw-safety manifest hashes `range_max_m` but not the selected minimum
    measurable range, even though fixed DashGo simulation and real LiDAR use
    distinct lower limits (`0.1 m` and `0.15 m`).
+4. The public projection currently binds reverse capability but cannot separately
+   bind the formal experiment's effective `v_min=0` envelope. A successor must
+   expose that envelope in the same body/acceleration/wheel projection; a later
+   independent clamp is not acceptable.
 
 D1 must not start from this OID. Accept only a successor fixed commit that closes
-all three findings and repeats the fixed float32 two-step, different/same identity,
-range-minimum, package/artifact and combined CPU gates. This does not invalidate
+all four findings and repeats the fixed float32 two-step, different/same identity,
+range-minimum/envelope, package/artifact and combined CPU gates. This does not invalidate
 the already verified float64 wheel-segment mathematics or packaging evidence.
