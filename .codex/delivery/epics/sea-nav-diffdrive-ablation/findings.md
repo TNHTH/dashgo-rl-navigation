@@ -78,3 +78,42 @@ or top-level training/autopilot orchestration.
 ```
 
 The public core remains robot-neutral. Camera extraction, TensorDict wrapping, Isaac reset state, DashGo action decoding, experiment manifests and ROS message conversion stay in this repository because they are platform/integration responsibilities.
+
+## Environment-constructor migration checklist
+
+The custom terminal/replay-aware environment must replace direct `ManagerBasedRLEnv` construction at every active DashGo caller, not only training:
+
+- `apps/isaac/train_v2.py:591`
+- `apps/isaac/export_torchscript.py:294`
+- `apps/isaac/verify_ultimate_v5.py:123`
+- `apps/isaac/play.py:190`
+- `autopilot/isaac_eval_worker.py:297`
+- `tools/diagnostics/inspect_curriculum.py:53`
+- `tools/diagnostics/inspect_live_env.py:76`
+
+Static tests must enumerate this list and reject a newly added direct constructor. The exact ROS paths abbreviated in the table above are `workspaces/ros2_ws/src/dashgo_rl_ros2/dashgo_rl_ros2/geo_nav_node.py:330-339,636-663,668-830`, `workspaces/ros2_ws/src/dashgo_rl_ros2/dashgo_rl_ros2/controller_core.py:202-250`, `workspaces/ros2_ws/src/dashgo_rl_ros2/launch/minimal_model.launch.py:11-42`, and `workspaces/ros2_ws/src/dashgo_rl_ros2/launch/real_model_nav.launch.py:11-167`.
+
+One additional storage ABI check is mandatory: fixed RSL-RL `rollout_storage.py:48-52` allocates every observation key with default floating dtype instead of `value.dtype`. A boolean `safety_validity` key would therefore be silently cast in stock storage. The repository-owned next-observation storage must either preserve every TensorDict leaf dtype/device/shape exactly or deliberately version validity as finite `{0,1}` float data throughout; mixing the two representations is rejected by contract tests.
+
+## SEA public-core fixed-commit rereview
+
+Frozen candidate `70f2304e8c6c0acac1ba0ea943fedb76bada247c` is **not accepted**.
+Independent positive evidence is substantial: package 249 passed, combined SEA
+CPU 591 passed, extracted sdist 249 passed, isolated wheel 246 passed, artifact
+license/metadata and TorchScript identity smoke passed, and the corrected common
+wheel-segment construction satisfies the supplied nonzero-previous witness.
+
+The green suite misses one runtime-breaking recurrence. With float32
+`previous=[-0.1484761536,0.7431957722]`,
+`target=[-1.3809571266,-0.6146192551]`, `dt=.05`, the core returns
+`[-0.1500000209,0.7131958604]`; the next call rejects that exact prior output as
+outside the declared body limit. A seeded probe found this rounding crossing in
+179/12,960 feasible rows. A successor must make its own output admissible on the
+next control tick without breaking wheel or acceleration bounds.
+
+Two additional contract findings remain: `.float()` rounds floating identity
+buffers and makes a same-manifest strict state restore fail, and the raw-safety
+hash omits `range_min_m`. The latter matters because this pinned DashGo snapshot
+declares real LiDAR minimum `0.15 m` while the current simulated camera clips at
+`0.1 m`; consumers with different validity domains must not share one safety ABI
+hash. Full evidence and exact source lines are in the SEA rereview report.

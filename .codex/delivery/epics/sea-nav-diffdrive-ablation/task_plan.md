@@ -32,7 +32,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 |---|---|---|---|---|---|
 | primary `work/dashgo-rl-navigation` | moving `test`, coordination successor of `10023c294f34dc32a97005103bc30e6aa0f09bf5` | controller | coordination, integration and final verification | recovery tags | re-check local/remote equality before every integration |
 | `work/dashgo-rl-navigation-sea-adapter` | detached `10023c294f34dc32a97005103bc30e6aa0f09bf5` | pending single implementation owner after read-only audit | `src/dashgo_rl/sea_nav/**`, focused tests, experiment config/tooling, and only the necessary training/env/export/eval callers | independently accepted SEA core API | moved cleanly to the current base; no source edit until API and exact caller inventory are fixed |
-| primary read-only DashGo adapter audit | source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only these three planning ledgers | current source plus fixed upstream API references | caller/architecture inventory complete; core fixed-commit rereview pending |
+| primary read-only DashGo adapter audit | source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only these three planning ledgers | current source plus fixed upstream API references | caller/architecture inventory complete; core `70f2304e` rereview FAIL with one P1 and two P2 findings |
 
 ## Locked decisions
 
@@ -114,3 +114,25 @@ For each replayed environment, snapshot and restore robot root pose/velocity, wh
 7. Hardware gate: separate later authorization, e-stop and bounded-motion protocol; no result in D0-D10 implies this rung.
 
 At any blocked rung, save a non-destructive recovery commit containing only accepted code/evidence, run the sensitive-file scan, push only `test`, read back the exact remote SHA, and record the blocker. This recovery behavior does not authorize force-push, branch deletion, fabricated simulator results, or advancement of `main`/`stable`.
+
+### Current D0 gate status
+
+`sea_nav_core@70f2304e8c6c0acac1ba0ea943fedb76bada247c` was independently
+reviewed from a fixed `git archive`. Package, combined CPU, sdist, isolated wheel,
+metadata/license and TorchScript checks passed, but D0 remains **blocked** by the
+review recorded in SEA as
+`.codex/delivery/epics/paper-reproduction-80pct/diffdrive-core-rereview-1.md`:
+
+1. A float32 `platform_projected_command` can round one ULP outside a body bound
+   and is then rejected as `previous_executed_command` on the next tick. The
+   projection must be closed under this two-step recurrence before it is pinned.
+2. `nn.Module.float()` converts floating identity buffers, causing strict restore
+   between two otherwise identical configurations to fail.
+3. The raw-safety manifest hashes `range_max_m` but not the selected minimum
+   measurable range, even though fixed DashGo simulation and real LiDAR use
+   distinct lower limits (`0.1 m` and `0.15 m`).
+
+D1 must not start from this OID. Accept only a successor fixed commit that closes
+all three findings and repeats the fixed float32 two-step, different/same identity,
+range-minimum, package/artifact and combined CPU gates. This does not invalidate
+the already verified float64 wheel-segment mathematics or packaging evidence.
