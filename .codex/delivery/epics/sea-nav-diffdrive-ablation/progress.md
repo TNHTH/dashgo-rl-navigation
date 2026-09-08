@@ -2,6 +2,10 @@
 
 ## 2026-09-08
 
+- Rechecked primary and remote identity at `test@10023c294f34dc32a97005103bc30e6aa0f09bf5`; moved the clean detached adapter worktree from `d93a2ba` to that exact current base without creating a branch or changing source.
+- A naive repository-default pytest invocation in the detached adapter failed during collection before tests ran: the root `pytest.ini` includes ROS2 package tests, while the task CPU venv neither has the package installed on `PYTHONPATH` nor provides Humble `geometry_msgs`. This is an environment/selection failure, not a product-test verdict. Retry must separate ordinary CPU tests from a correctly sourced ROS2 Humble install-space gate.
+- The corrected ordinary CPU baseline on exact detached `10023c2` used `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/src:$PWD" ../sea-nav-cpu-venv/bin/python -m pytest -q -p no:cacheprovider tests` and passed all 43 tests. ROS2 build/install/runtime evidence remains a separate Humble gate.
+
 - Cloned the authoritative repository at `main@ad9cf5a1b021687862a8abb9a9ab315ca54e72c2`; ordinary working tree was clean and author attribution was set to `TNHTH <174231229+TNHTH@users.noreply.github.com>` at repository scope.
 - Published and read back annotated recovery tags for old main `ad9cf5a…`, old test `71bc2a6…`, OOP branch `3f079d7…`, and autoresearch branch `5a72cc6…`.
 - Created local/remote `stable@ad9cf5a…`, replaced remote `test@71bc2a6…` with clean `main@ad9cf5a…` using the exact old lease, then deleted only the two archived extra heads using their exact leases.
@@ -12,3 +16,9 @@
 - Read official immutable upstream identities over GitHub: Isaac Lab `v2.0.2@b5fa0eb031a2413c182eeb54fa3a9295e8fd867c` (README badge: Isaac Sim 4.5.0) and RSL-RL `v3.0.1@2fc1f78bc1d796ffa8f07ce6b09898227db284bb`. RSL-RL's release is later, and its stock rollout storage has no `next_observation`; both facts are now explicit implementation/test inputs rather than inferred compatibility.
 - Verified upstream license boundaries without importing code: Isaac Lab and RSL-RL are BSD-family; NeuPAN is GPL-3.0 and remains an external fixed baseline. No external source or new dependency was copied into this repository.
 - Read-only caller audit found a P1 version-surface mismatch before source work: the fixed Isaac Lab wrapper does not natively provide the TensorDict observation contract required by RSL-RL 3.0.1, while the current training entrypoint already configures new-style observation groups. Added an explicit compatibility/test gate; no claim that the current training entrypoint can construct the runner.
+- Re-read the full installed `code-review`, `git-guru`, `planning-with-files`, `robotics-router` and routed ROS 2 guidance before continuing. ROS work is locked to static/pure/offline package validation; no ROS graph, simulator, real controller or `/cmd_vel` publisher was started.
+- Completed a read-only exact caller inventory for training, policy, observations, camera geometry, differential-drive execution, reset state, evaluator, exporter, manifest and ROS 2 consumer paths at `test@10023c294f34dc32a97005103bc30e6aa0f09bf5`.
+- Confirmed the simulated camera comment is inconsistent with the configured optics: each camera is 47.1686° wide, leaving an approximately 42.83° central gap. Recorded the required intrinsic/extrinsic-derived angle and raw 216-ray safety ABI gate before policy/PPO implementation.
+- Converted the broad adapter phases into a strict D0-D10 executable DAG. Central compatibility/policy/PPO/environment/training callers are sequential single-owner slices; the plan now includes exact test and promotion gates, ACSI reset receipt, formal 3,600-episode matrix and offline ROS 2 stop boundary.
+- Added the fixed wheel-projection counterexample and an independent-review requirement that final body-speed, body-acceleration and wheel-speed constraints all hold for fixed and randomized boundary cases.
+- Only the three registered planning ledgers were appended in the DashGo primary worktree. No DashGo functional source, SEA source, branch, tag, commit or remote ref was changed by this audit stage.
