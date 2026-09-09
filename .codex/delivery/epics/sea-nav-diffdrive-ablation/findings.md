@@ -4,7 +4,7 @@ Created: 2026-09-08 Asia/Shanghai
 
 | Field | Current value | Evidence | Limit |
 |---|---|---|---|
-| Repository identity | `TNHTH/dashgo-rl-navigation`; local/remote `main=stable=ad9cf5a1b021687862a8abb9a9ab315ca54e72c2`; local/remote `test=78023cb41984a6af98b9b31b383aed2609beb47e` | remote readback after D0 review publication; resolve the moving `test` head again before each integration | algorithm implementation not yet integrated |
+| Repository identity | `TNHTH/dashgo-rl-navigation`; local/remote `main=stable=ad9cf5a1b021687862a8abb9a9ab315ca54e72c2`; local/remote `test=53bd0f0ab0100e295aed1f726c2c3c9f4ffb3b06` before this coordination diff | remote readback after D1 preflight publication; resolve the moving `test` head again before each integration | algorithm implementation not yet integrated |
 | Recovery | four remote annotated archive tags peel to old main, test, OOP and autoresearch commits | `git ls-remote origin refs/tags/archive/pre-recovery-*-20260908^{}` | tags are recovery, not active branches |
 | Baseline tests | 43 CPU tests passed with no pytest cache/bytecode | local Python 3.10/Torch CPU run | no Isaac runtime evidence |
 | Observation | 246 = 72 LiDAR × 3 history + remaining terms; term-major; front 180 degrees | deployment contract and environment config | policy history must not be reshaped as Go2 570-D history |
@@ -13,7 +13,7 @@ Created: 2026-09-08 Asia/Shanghai
 | Scientific identity | `dashgo_diffdrive_transfer_v1`, `cross_platform_method_adaptation` | user decision and SEA paper | never report as original paper/Go2 metric |
 | Formal ablations | full / without ACSI / without Shield / without Lreg | SEA paper Table I | same robot, scene, sensor, reward, limits and budget |
 | Budget | 100k smoke; 5M seed 42 pilot; 20M seeds 42/43/44; 100 eval episodes per difficulty | user-selected default | execution blocked on this host by absent GPU/Isaac |
-| Unpublished work | no DashGo functional source edit; adapter worktree is clean and detached at `78023cb41984a6af98b9b31b383aed2609beb47e`; the exact caller audit is complete | adapter worktree and audit inventory | SEA Task 7 is accepted/published through `ed9e566`; the public-core successor to failed candidate `70f2304e` still requires a frozen commit and independent acceptance |
+| Unpublished work | no DashGo functional source edit; adapter worktree is clean and detached at `78023cb41984a6af98b9b31b383aed2609beb47e`; D1 implementation remains pending | adapter worktree, audit inventory and D1 preflight | SEA public core is accepted at source checkpoint `83041a3`; align the worktree to this coordination successor before D1 edits |
 
 ## Key implementation facts
 
@@ -97,7 +97,20 @@ Static tests must enumerate this list and reject a newly added direct constructo
 
 One additional storage ABI check is mandatory: fixed RSL-RL `rollout_storage.py:48-52` allocates every observation key with default floating dtype instead of `value.dtype`. A boolean `safety_validity` key would therefore be silently cast in stock storage. The repository-owned next-observation storage must either preserve every TensorDict leaf dtype/device/shape exactly or deliberately version validity as finite `{0,1}` float data throughout; mixing the two representations is rejected by contract tests.
 
-## SEA public-core fixed-commit rereview
+## SEA public-core acceptance
+
+The consumable source identity is
+`TNHTH/SEA-Nav-Code@83041a34a8efe1f824f0421fe2dc4845930d6900`,
+package version `0.3.0`, with `packages/sea_nav_core` tree
+`96d65fd80de0db9455822e13f1b6492c913226e8`. That tree is identical to
+independently reviewed candidate `2cd810569008fa923bda088f0f0988292e0c809c`.
+Source/CPU and artifact reviews are PASS with no P0-P3 issue; exact hashes and
+excluded runtime claims are recorded in `d0-core-acceptance.md`.
+
+This unblocks only D1 contracts and provenance. It does not unblock CUDA,
+Isaac, ROS 2 runtime, simulator/plant, formal metrics or real hardware.
+
+## Historical SEA public-core rereview (superseded)
 
 Frozen candidate `70f2304e8c6c0acac1ba0ea943fedb76bada247c` is **not accepted**.
 Independent positive evidence is substantial: package 249 passed, combined SEA

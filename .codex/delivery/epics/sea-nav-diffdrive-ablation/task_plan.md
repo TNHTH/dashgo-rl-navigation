@@ -20,7 +20,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 ## Execution DAG
 
 1. **Git recovery and baseline** — complete: four old heads have immutable remote archive tags; remote branches are exactly `main`, `stable`, and `test`; the first two remain at `ad9cf5a…`, while `test` contains the accepted coordination history beginning at `d93a2ba…`; baseline CPU suite is 43 passed.
-2. **SEA public core dependency** — wait for an independently accepted `sea_nav_core` commit and pin its full SHA.
+2. **SEA public core dependency** — complete: D0 source checkpoint `83041a34a8efe1f824f0421fe2dc4845930d6900` and package tree `96d65fd80de0db9455822e13f1b6492c913226e8` passed independent source/CPU/artifact review; D1 owns the exact VCS/install receipt pin.
 3. **DashGo runtime compatibility, contracts and policy** — add the narrow Isaac Lab 2.0.2 wrapper-to-RSL-RL 3.0.1 TensorDict compatibility boundary, the separate safety observation group, action codec/trace, alpha head, pure auxiliary queries and CBF mean-stage integration without changing sampled-action/log-prob identity.
 4. **PPO and ACSI** — add next-observation rollout storage, paper-v1 auxiliary losses, collision replay transaction, and explicit per-environment reset reconstruction.
 5. **Experiment and evidence tooling** — one resolver and matrix runner for 100k smoke, 5M seed-42 pilot, then 20M seeds 42/43/44; one evaluation schema with Easy/Medium/Hard, 100 episodes each.
@@ -30,9 +30,9 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 
 | Worktree | Commit | Owner | Owned paths | Dependency | Status |
 |---|---|---|---|---|---|
-| primary `work/dashgo-rl-navigation` | moving `test`, coordination successor of `10023c294f34dc32a97005103bc30e6aa0f09bf5` | controller | coordination, integration and final verification | recovery tags | re-check local/remote equality before every integration |
-| `work/dashgo-rl-navigation-sea-adapter` | detached `78023cb41984a6af98b9b31b383aed2609beb47e` | pending single implementation owner after read-only audit | `src/dashgo_rl/sea_nav/**`, focused tests, experiment config/tooling, and only the necessary training/env/export/eval callers | independently accepted SEA core API | clean on the latest published D0 coordination base; no source edit until the core API is independently accepted |
-| primary read-only DashGo adapter audit | source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only these three planning ledgers | current source plus fixed upstream API references | caller/architecture inventory complete; core `70f2304e` rereview FAIL with one P1 and two P2 findings |
+| primary `work/dashgo-rl-navigation` | `test@53bd0f0ab0100e295aed1f726c2c3c9f4ffb3b06` plus current D0 coordination diff | controller | coordination, integration and final verification | recovery tags | clean before this diff; local/remote equality rechecked |
+| `work/dashgo-rl-navigation-sea-adapter` | detached `78023cb41984a6af98b9b31b383aed2609beb47e` | pending sole D1 implementation owner | exact D1 scope in `d1-preflight-review.md`; no D2+ callers | accepted SEA source `83041a3` and this coordination successor | clean; align to the pushed coordination successor before any source edit |
+| primary read-only DashGo adapter audit | historical source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only the three planning ledgers | fixed upstream API references | caller/architecture inventory complete; failed `70f2304e` finding set superseded by accepted `2cd8105`/integrated `83041a3` |
 
 ## Locked decisions
 
@@ -42,7 +42,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 - Pilot promotion is a data-quality gate, not a performance cherry-pick: require complete manifests, finite observations/actions/losses, nonzero completed episodes, all four switches proven effective, checkpoint reload success and no unexplained worker failure. It does not require SEA to beat the baseline.
 - `stable` promotion requires simulator import/startup, reset/step/close, a bounded 100k smoke for all four groups, checkpoint resume, and completed quick evaluation. CPU success alone is insufficient.
 
-## Executable implementation specification (coord_rev 3)
+## Executable implementation specification (coord_rev 4)
 
 Updated: 2026-09-08 Asia/Shanghai
 
@@ -121,26 +121,21 @@ At any blocked rung, save a non-destructive recovery commit containing only acce
 
 ### Current D0 gate status
 
-`sea_nav_core@70f2304e8c6c0acac1ba0ea943fedb76bada247c` was independently
-reviewed from a fixed `git archive`. Package, combined CPU, sdist, isolated wheel,
-metadata/license and TorchScript checks passed, but D0 remains **blocked** by the
-review recorded in SEA as
-`.codex/delivery/epics/paper-reproduction-80pct/diffdrive-core-rereview-1.md`:
+`sea_nav_core==0.3.0` at accepted SEA source commit
+`83041a34a8efe1f824f0421fe2dc4845930d6900` is **accepted for D0**. Its
+`packages/sea_nav_core` tree is identical to independently reviewed candidate
+`2cd810569008fa923bda088f0f0988292e0c809c`. The successor closes the float32
+two-step recurrence, cross-dtype identity, `range_min_m`, effective command
+envelope and post-projection diagnostic gaps from rejected `70f2304e`.
 
-1. A float32 `platform_projected_command` can round one ULP outside a body bound
-   and is then rejected as `previous_executed_command` on the next tick. The
-   projection must be closed under this two-step recurrence before it is pinned.
-2. `nn.Module.float()` converts floating identity buffers, causing strict restore
-   between two otherwise identical configurations to fail.
-3. The raw-safety manifest hashes `range_max_m` but not the selected minimum
-   measurable range, even though fixed DashGo simulation and real LiDAR use
-   distinct lower limits (`0.1 m` and `0.15 m`).
-4. The public projection currently binds reverse capability but cannot separately
-   bind the formal experiment's effective `v_min=0` envelope. A successor must
-   expose that envelope in the same body/acceleration/wheel projection; a later
-   independent clamp is not acceptable.
+The fixed source/CPU and artifact reviews found no P0-P3 issue. Integrated SEA
+verification passed 284 package tests and 863 complete CPU/static tests with
+two real-CUDA skips; Gate A recorded five passes and four explicit Isaac
+blockers. Exact commit, tree, license and artifact identities are frozen in
+`d0-core-acceptance.md`.
 
-D1 must not start from this OID. Accept only a successor fixed commit that closes
-all four findings and repeats the fixed float32 two-step, different/same identity,
-range-minimum/envelope, package/artifact and combined CPU gates. This does not invalidate
-the already verified float64 wheel-segment mathematics or packaging evidence.
+D1 is now unblocked only at the source/CPU/package layer. It must pin the full
+accepted source commit, validate the installed provenance, and preserve every
+D0 scope exclusion. CUDA, Isaac runtime, ROS 2 runtime, simulator/plant,
+real-time, formal-metric, hard-safety and hardware claims remain blocked or
+pending.

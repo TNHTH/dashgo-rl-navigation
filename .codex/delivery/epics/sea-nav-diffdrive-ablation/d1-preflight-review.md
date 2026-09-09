@@ -9,6 +9,14 @@ Created: 2026-09-08 Asia/Shanghai
 - Ran the existing pure-CPU training-config, deployment-contract, and Isaac import-order slice: **6 passed**.
 - Did not edit functional source, import or launch Isaac, start ROS, use a GPU/simulator, or publish a command.
 
+## Status addendum
+
+The first finding below is historical and now closed by accepted SEA source
+`83041a34a8efe1f824f0421fe2dc4845930d6900`, package version `0.3.0`, and
+the fixed D0 receipt in `d0-core-acceptance.md`. All remaining D1 findings
+continue as implementation gates; the addendum does not claim that DashGo has
+installed or consumed the core yet.
+
 ## Findings
 
 ### [P1] D0 does not yet provide an accepted consumable object
