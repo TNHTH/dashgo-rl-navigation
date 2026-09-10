@@ -30,8 +30,7 @@ Integrate the paper-v1 SEA mechanisms into the DashGo Isaac Lab navigation stack
 
 | Worktree | Commit | Owner | Owned paths | Dependency | Status |
 |---|---|---|---|---|---|
-| primary `work/dashgo-rl-navigation` | `test@53bd0f0ab0100e295aed1f726c2c3c9f4ffb3b06` plus current D0 coordination diff | controller | coordination, integration and final verification | recovery tags | clean before this diff; local/remote equality rechecked |
-| `work/dashgo-rl-navigation-sea-adapter` | detached `78023cb41984a6af98b9b31b383aed2609beb47e` | pending sole D1 implementation owner | exact D1 scope in `d1-preflight-review.md`; no D2+ callers | accepted SEA source `83041a3` and this coordination successor | clean; align to the pushed coordination successor before any source edit |
+| primary `work/dashgo-rl-navigation` | `test@98018dd09923495db321a09920dccc belə_PLACEHOLDER
 | primary read-only DashGo adapter audit | historical source snapshot `test@10023c294f34dc32a97005103bc30e6aa0f09bf5` | `/root/dashgo_adapter_audit` | only the three planning ledgers | fixed upstream API references | caller/architecture inventory complete; failed `70f2304e` finding set superseded by accepted `2cd8105`/integrated `83041a3` |
 
 ## Locked decisions
